@@ -236,35 +236,20 @@ const AdminDashboard = () => {
             nombres: r.nombres,
             curso: r.nombre_curso || 'S/C',
             correo: r.email || '',
-            days: {},
-            observacion: ''
+            days: {}
           };
         }
-        // Detectar cambio de estado beneficiario dentro del período
-        if (r.fecha_cambio_a_beneficiario && !studentsMap[key].observacion) {
-          const fb = r.fecha_cambio_a_beneficiario.substring(0, 10);
-          const fnb = r.fecha_cambio_a_no_beneficiario ? r.fecha_cambio_a_no_beneficiario.substring(0, 10) : null;
-          if (!fnb || fnb < fb) {
-            const d = new Date(fb + 'T12:00:00');
-            studentsMap[key].observacion = `Pasó a Beneficiario el ${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
-          } else {
-            const d = new Date(fnb + 'T12:00:00');
-            studentsMap[key].observacion = `Dejó de ser Beneficiario el ${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;
-          }
-        }
-        if (r.fecha_entrega) {
-          const dateKey = r.fecha_entrega.substring(0, 10);
+        if (r.fecha_registro) {
+          const dateKey = r.fecha_registro.substring(0, 10);
           if (!studentsMap[key].days[dateKey]) {
             studentsMap[key].days[dateKey] = [];
           }
-          studentsMap[key].days[dateKey].push((r.tipo_alimentacion || '').toString().trim().toLowerCase());
+          studentsMap[key].days[dateKey].push((r.estado_asistencia || '').toString().trim().toLowerCase());
         }
       });
 
       const students = Object.values(studentsMap);
       students.sort((a, b) => a.apellidos.localeCompare(b.apellidos));
-      const hasObservaciones = students.some(s => s.observacion);
-
       // Determine months in range
       const startDate = new Date(reportDesde + 'T12:00:00');
       const endDate = new Date(reportHasta + 'T12:00:00');
@@ -277,8 +262,8 @@ const AdminDashboard = () => {
 
       const schoolDays = new Set();
       rawData.forEach(r => {
-        if (r.fecha_entrega) {
-          schoolDays.add(r.fecha_entrega.substring(0, 10));
+        if (r.fecha_registro) {
+          schoolDays.add(r.fecha_registro.substring(0, 10));
         }
       });
       const sortedSchoolDays = Array.from(schoolDays).sort();
@@ -290,19 +275,17 @@ const AdminDashboard = () => {
         // === FORMATO RESUMIDO: tabla simple con totales ===
         const titleRow = [`RESUMEN ASISTENCIA Y INASISTENCIAS — ${reportLabel.toUpperCase()} — ${reportDesde} a ${reportHasta}`];
         const headerRow = ['N°', 'APELLIDOS', 'NOMBRE', 'CURSO', 'Presentes', 'Atrasados', 'Inas. Justificadas', 'Inas. Injustificadas', 'Días Registrados', 'ESTADO', 'CORREO'];
-        if (hasObservaciones) headerRow.push('OBSERVACIONES');
-
         const dataRows = students.map((s, idx) => {
           let totalD = 0, totalA = 0, totalIJ = 0, totalII = 0;
           const diasUnicos = new Set();
 
           sortedSchoolDays.forEach(date => {
-            const meals = s.days[date] || [];
-            if (meals.length > 0) {
+            const marcas = s.days[date] || [];
+            if (marcas.length > 0) {
               diasUnicos.add(date);
-              if (meals.includes('presente')) totalD++;
-              if (meals.includes('atrasado')) totalA++;
-              if (meals.includes('ausente')) totalIJ++;
+              if (marcas.includes('presente')) totalD++;
+              if (marcas.includes('atrasado')) totalA++;
+              if (marcas.includes('ausente')) totalIJ++;
             } else {
               totalII++;
             }
@@ -310,17 +293,14 @@ const AdminDashboard = () => {
 
           const totalRegistrados = diasUnicos.size;
           const estado = totalRegistrados > 0 ? 'Con asistencia' : 'Sin registro';
-          const row = [idx + 1, s.apellidos, s.nombres, s.curso, totalD, totalA, totalIJ, totalII, totalRegistrados, estado, s.correo];
-          if (hasObservaciones) row.push(s.observacion || '');
-          return row;
+          return [idx + 1, s.apellidos, s.nombres, s.curso, totalD, totalA, totalIJ, totalII, totalRegistrados, estado, s.correo];
         });
 
         const aoa = [titleRow, headerRow, ...dataRows];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
-        const totalResumidoCols = hasObservaciones ? 12 : 11;
+        const totalResumidoCols = 11;
         ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalResumidoCols - 1 } }];
         const colWidthsResumido = [{ wch: 4 }, { wch: 22 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
-        if (hasObservaciones) colWidthsResumido.push({ wch: 40 });
         ws['!cols'] = colWidthsResumido;
         XLSX.utils.book_append_sheet(wb, ws, reportLabel.substring(0, 31));
 
@@ -340,22 +320,20 @@ const AdminDashboard = () => {
           }
           headerRow1.push('ESTADO', 'CORREO');
           headerRow2.push('', '');
-          if (hasObservaciones) { headerRow1.push('OBSERVACIONES'); headerRow2.push(''); }
-
           const dataRows = students.map((s, idx) => {
             const row = [idx + 1, s.apellidos, s.nombres, s.curso];
 
             let totalMarcasMes = 0;
             for (let d = 1; d <= daysInMonth; d++) {
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              const meals = s.days[dateStr] || [];
+              const marcas = s.days[dateStr] || [];
               const isSchoolDay = sortedSchoolDays.includes(dateStr);
 
-              if (meals.includes('presente')) {
+              if (marcas.includes('presente')) {
                 row.push('X', '', '');
-              } else if (meals.includes('atrasado')) {
+              } else if (marcas.includes('atrasado')) {
                 row.push('', 'X', '');
-              } else if (meals.includes('ausente')) {
+              } else if (marcas.includes('ausente')) {
                 row.push('', '', 'J'); // J = Justificada
               } else if (isSchoolDay) {
                 row.push('', '', 'X'); // X = Injustificada
@@ -363,20 +341,19 @@ const AdminDashboard = () => {
                 row.push('', '', ''); // No hay clases / fin de semana sin registros
               }
 
-              totalMarcasMes += meals.length;
+              totalMarcasMes += marcas.length;
             }
 
             const estadoMes = totalMarcasMes > 0 ? 'Con asistencia' : 'Sin registro';
             row.push(estadoMes);
             row.push(s.correo);
-            if (hasObservaciones) row.push(s.observacion || '');
             return row;
           });
 
           const aoa = [titleRow, headerRow1, headerRow2, ...dataRows];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-          const totalCols = 4 + (daysInMonth * 3) + 2 + (hasObservaciones ? 1 : 0);
+          const totalCols = 4 + (daysInMonth * 3) + 2;
           ws['!merges'] = [
             { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }
           ];
@@ -390,7 +367,6 @@ const AdminDashboard = () => {
             colWidths.push({ wch: 2.5 }, { wch: 2.5 }, { wch: 2.5 });
           }
           colWidths.push({ wch: 15 }, { wch: 30 });
-          if (hasObservaciones) colWidths.push({ wch: 40 });
           ws['!cols'] = colWidths;
 
           const sheetName = months.length === 1
@@ -533,7 +509,7 @@ const AdminDashboard = () => {
                                   </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                  <span className="meal-badge late-badge" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                  <span className="status-badge late-badge" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
                                     {r.estado}
                                   </span>
                                   {r.severidad && (
@@ -856,7 +832,7 @@ const AdminDashboard = () => {
               <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', textAlign: 'center', marginTop: '8px' }}>
                 {reportFormat === 'detallado'
                   ? 'Genera una hoja por mes con marcas D/A por cada día.'
-                  : 'Genera una tabla resumen con total de desayunos y almuerzos por alumno.'
+                  : 'Genera una tabla resumen con presentes, atrasos e inasistencias por estudiante.'
                 }
               </p>
             </div>

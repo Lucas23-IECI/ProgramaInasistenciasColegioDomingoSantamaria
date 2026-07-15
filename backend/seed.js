@@ -30,11 +30,11 @@ async function setupAndSeed() {
 
     await pool.query(
       "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta') ON CONFLICT (correo) DO NOTHING",
-      ['lector@colegio.cl', hash]
+      ['lector@ldsm.local', hash]
     );
     await pool.query(
       "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'admin', 'Administrador General') ON CONFLICT (correo) DO NOTHING",
-      ['admin@colegio.cl', hash]
+      ['admin@ldsm.local', hash]
     );
 
     // 3. CURSOS DEFAULT

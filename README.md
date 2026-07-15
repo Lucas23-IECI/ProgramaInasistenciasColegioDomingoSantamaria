@@ -55,7 +55,7 @@ docker-compose.yml  Servicios de base de datos, API, web y respaldo
 
 4. Abrir `http://localhost`.
 
-Al crear una base nueva se generan cuentas locales para `lector@colegio.cl` y `admin@colegio.cl`. Ambas utilizan inicialmente el valor de `DEFAULT_USER_PASSWORD`; debe cambiarse después del primer acceso.
+Al crear una base nueva se generan cuentas locales para `lector@ldsm.local` y `admin@ldsm.local`. Ambas utilizan inicialmente el valor de `DEFAULT_USER_PASSWORD`; debe cambiarse después del primer acceso.
 
 ## Desarrollo local
 

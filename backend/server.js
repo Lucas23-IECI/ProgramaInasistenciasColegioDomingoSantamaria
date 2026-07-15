@@ -465,7 +465,6 @@ app.get('/api/students/scan/:barcode', verifyToken, async (req, res) => {
       alumno,
       alreadyRegistered,
       registroPrevio,
-      esBeneficiario: true, // Compatibility flag for scanner UI
       restricciones: calculatedStatus === 'Atrasado' ? [`Ingreso Atrasado (${severidad})`] : [],
       statusPropuesto: calculatedStatus,
       severidad
@@ -516,7 +515,6 @@ app.get('/api/students/:id/status', verifyToken, async (req, res) => {
     res.json({
       alumno,
       alreadyRegistered,
-      esBeneficiario: true,
       restricciones: calculatedStatus === 'Atrasado' ? [`Ingreso Atrasado (${severidad})`] : [],
       statusPropuesto: calculatedStatus,
       severidad
@@ -939,7 +937,7 @@ app.get('/api/asistencia/history', verifyToken, async (req, res) => {
 
 // ATTENDANCE REPORTS
 app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'secretaria']), async (req, res) => {
-  const { desde, hasta, tipo, cursoId, nivelId, alumnoId, alumnosIds } = req.query;
+  const { desde, hasta, tipo, cursoId, alumnoId, alumnosIds } = req.query;
   if (!desde || !hasta) return res.status(400).json({ message: 'Faltan fechas desde/hasta' });
 
   try {
@@ -964,7 +962,7 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
         SELECT
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
-          r.fecha::TEXT as fecha_entrega, r.estado as tipo_alimentacion, r.tipo_registro, r.hora,
+          r.fecha::TEXT as fecha_registro, r.estado as estado_asistencia, r.tipo_registro, r.hora,
           r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion
         FROM attendance_registrations r
         JOIN alumno a ON r.id_alumno = a.id_alumno
@@ -1012,7 +1010,7 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
         SELECT
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
-          r.fecha::TEXT as fecha_entrega, r.estado as tipo_alimentacion, r.tipo_registro, r.hora,
+          r.fecha::TEXT as fecha_registro, r.estado as estado_asistencia, r.tipo_registro, r.hora,
           r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion
         FROM alumno a
         LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -1739,17 +1737,8 @@ app.get('/api/students/:id/details', verifyToken, async (req, res) => {
     const resA = await pool.query(query, [id]);
     if (resA.rows.length === 0) return res.status(404).json({ message: 'Miembro no encontrado.' });
 
-    // Add stub responses for tables we dropped to keep UI happy if they check details
     res.json({
-      alumno: resA.rows[0],
-      contactos: [],
-      contactosConDetalle: [],
-      salud: null,
-      emergencia: null,
-      pago: null,
-      apoyo: null,
-      beneficiario: null,
-      restricciones: []
+      alumno: resA.rows[0]
     });
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener detalles.' });
@@ -2004,11 +1993,11 @@ app.listen(PORT, async () => {
       // Default users
       await pool.query(
         "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta')",
-        ['lector@colegio.cl', hash]
+        ['lector@ldsm.local', hash]
       );
       await pool.query(
         "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'admin', 'Administrador General')",
-        ['admin@colegio.cl', hash]
+        ['admin@ldsm.local', hash]
       );
     }
   } catch (err) {

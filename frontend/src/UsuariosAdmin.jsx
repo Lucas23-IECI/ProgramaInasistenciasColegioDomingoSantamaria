@@ -32,7 +32,7 @@ const UserFormPanel = ({ form, setForm, formMode, saving, handleSave, closeForm,
       </div>
       <div style={{ gridColumn: '2 / -1' }}>
         <label style={labelStyle}>Correo electrónico</label>
-        <input type="email" value={form.correo} onChange={e => setForm(f => ({ ...f, correo: e.target.value }))} placeholder="usuario@colegio.cl" style={inputStyle}
+        <input type="email" value={form.correo} onChange={e => setForm(f => ({ ...f, correo: e.target.value }))} placeholder="usuario@ldsm.local" style={inputStyle}
           onFocus={e => e.target.style.borderColor = '#4F46E5'} onBlur={e => e.target.style.borderColor = 'rgba(0,0,0,0.12)'} />
       </div>
       <div>

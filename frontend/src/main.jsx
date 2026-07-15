@@ -60,7 +60,6 @@ createRoot(document.getElementById('root')).render(
 
             {/* Admin Tree */}
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AdminHub /></ProtectedRoute>} />
-            <Route path="/admin/alimentacion" element={<Navigate to="/admin/atrasos" replace />} />
             <Route path="/admin/atrasos" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/inasistencias" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><InasistenciasAdmin /></ProtectedRoute>} />
             <Route path="/admin/estudiantes" element={<ProtectedRoute allowedRoles={['admin']}><Students /></ProtectedRoute>} />

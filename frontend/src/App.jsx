@@ -49,7 +49,7 @@ function App() {
               <div className="kiosk-divider" />
               <div>
                 <h1>Registro de Atrasos</h1>
-                <div className="kiosk-meal-subtitle" style={{ color: '#94a3b8' }}>
+                <div className="kiosk-context-subtitle" style={{ color: '#94a3b8' }}>
                   Liceo Domingo Santa María
                 </div>
               </div>

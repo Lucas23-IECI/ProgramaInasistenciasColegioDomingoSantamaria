@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useCallback, useEffect, useState, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from './context/AuthContext';
 import {
@@ -131,21 +131,6 @@ const InasistenciasAdmin = () => {
     return () => clearTimeout(delayDebounceFn);
   }, [absentSearchTerm]);
 
-  // Reactive load of justifications when filters change
-  useEffect(() => {
-    if (activeSubTab === 'justificaciones') {
-      fetchJustificaciones();
-    }
-  }, [activeSubTab, justificacionesDesde, justificacionesHasta, cursoJustificaciones]);
-
-  useEffect(() => {
-    if (activeSubTab !== 'justificaciones') return;
-    const delayDebounceFn = setTimeout(() => {
-      fetchJustificaciones();
-    }, 400);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchJustificaciones]);
-
   // Fetch summaries and tables
   const fetchResumen = async () => {
     setLoading(true);
@@ -188,7 +173,7 @@ const InasistenciasAdmin = () => {
     }
   };
 
-  const fetchJustificaciones = async () => {
+  const fetchJustificaciones = useCallback(async () => {
     setLoadingJustificaciones(true);
     try {
       const res = await axios.get(`${API_URL}/asistencia/justificaciones`, {
@@ -206,7 +191,15 @@ const InasistenciasAdmin = () => {
     } finally {
       setLoadingJustificaciones(false);
     }
-  };
+  }, [justificacionesDesde, justificacionesHasta, cursoJustificaciones, searchJustificaciones]);
+
+  // Recarga reactiva con una breve espera al escribir en el buscador.
+  useEffect(() => {
+    if (activeSubTab !== 'justificaciones') return undefined;
+    const delay = searchJustificaciones ? 400 : 0;
+    const timer = setTimeout(fetchJustificaciones, delay);
+    return () => clearTimeout(timer);
+  }, [activeSubTab, fetchJustificaciones, searchJustificaciones]);
 
   const handleLogout = () => {
     logout();
@@ -600,7 +593,7 @@ const InasistenciasAdmin = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               {r.justificado ? (
                                 <>
-                                  <span className="meal-badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                                  <span className="status-badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
                                     Ausente
                                   </span>
                                   <span className={`justify-badge justify-badge--${r.tipo_justificacion || 'apoderado'}`} title={r.comentario_justificacion || ''}>
@@ -620,7 +613,7 @@ const InasistenciasAdmin = () => {
                                 </>
                               ) : (
                                 <>
-                                  <span className="meal-badge" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                                  <span className="status-badge" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                                     Ausente
                                   </span>
                                   <button
@@ -771,7 +764,7 @@ const InasistenciasAdmin = () => {
                             </div>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                            <span className="meal-badge" style={{ background: r.estado === 'Atrasado' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: r.estado === 'Atrasado' ? '#f59e0b' : '#3b82f6', border: r.estado === 'Atrasado' ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)' }}>
+                            <span className="status-badge" style={{ background: r.estado === 'Atrasado' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: r.estado === 'Atrasado' ? '#f59e0b' : '#3b82f6', border: r.estado === 'Atrasado' ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)' }}>
                               {r.estado}
                             </span>
                             {r.archivo_justificacion && (

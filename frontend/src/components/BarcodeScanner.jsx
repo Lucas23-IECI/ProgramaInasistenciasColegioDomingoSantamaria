@@ -499,7 +499,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
           <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>
             {pendingRegistration.student.rut}-{pendingRegistration.student.dv} • {pendingRegistration.student.nombre_curso || 'Personal/Staff'}
           </div>
-          <div className="kiosk-feedback-meal" style={{ color: pendingRegistration.calculatedStatus === 'Atrasado' ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
+          <div className="kiosk-feedback-status" style={{ color: pendingRegistration.calculatedStatus === 'Atrasado' ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
             Estado: {pendingRegistration.calculatedStatus}
           </div>
         </div>
@@ -512,7 +512,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
           <CheckCircle size={56} className="kiosk-check-anim" />
           <div className="kiosk-feedback-text">{successMsg}</div>
           {student && <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>{student.rut}-{student.dv} • {student.nombre_curso || 'Personal/Staff'}</div>}
-          <div className="kiosk-feedback-meal" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Registro {tipoRegistro} Exitoso</div>
+          <div className="kiosk-feedback-status" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Registro {tipoRegistro} Exitoso</div>
         </div>
       )}
 

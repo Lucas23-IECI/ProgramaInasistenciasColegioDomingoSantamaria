@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useCallback, useEffect, useState, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from './context/AuthContext';
 import {
@@ -69,6 +69,21 @@ const JustifiedDonutChart = ({ justified = 0, unjustified = 0, colorJustified = 
       </div>
     </div>
   );
+};
+
+const getRangeDates = (periodType) => {
+  const hasta = new Date();
+  const desde = new Date();
+  switch (periodType) {
+    case 'semana': desde.setDate(hasta.getDate() - 7); break;
+    case 'mes': desde.setDate(hasta.getDate() - 30); break;
+    case 'trimestre': desde.setDate(hasta.getDate() - 90); break;
+    case 'semestre': desde.setDate(hasta.getDate() - 180); break;
+    case 'ano': desde.setDate(hasta.getDate() - 365); break;
+    default: desde.setDate(hasta.getDate() - 7);
+  }
+  const fmt = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return { desde: fmt(desde), hasta: fmt(hasta) };
 };
 
 const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros' }) => {
@@ -252,22 +267,7 @@ const AnaliticasAdmin = () => {
     fetchCourses();
   }, []);
 
-  const getRangeDates = (periodType) => {
-    const hasta = new Date();
-    let desde = new Date();
-    switch (periodType) {
-      case 'semana': desde.setDate(hasta.getDate() - 7); break;
-      case 'mes': desde.setDate(hasta.getDate() - 30); break;
-      case 'trimestre': desde.setDate(hasta.getDate() - 90); break;
-      case 'semestre': desde.setDate(hasta.getDate() - 180); break;
-      case 'ano': desde.setDate(hasta.getDate() - 365); break;
-      default: desde.setDate(hasta.getDate() - 7);
-    }
-    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    return { desde: fmt(desde), hasta: fmt(hasta) };
-  };
-
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoadingAnalytics(true);
     const { desde, hasta } = getRangeDates(period);
     try {
@@ -287,9 +287,9 @@ const AnaliticasAdmin = () => {
     } finally {
       setLoadingAnalytics(false);
     }
-  };
+  }, [period, selectedCurso, selectedJustificado, selectedSeveridad]);
 
-  useEffect(() => { fetchAnalytics(); }, [period, selectedCurso, selectedJustificado, selectedSeveridad]);
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
 

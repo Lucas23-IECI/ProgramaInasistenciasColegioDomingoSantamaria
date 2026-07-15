@@ -862,22 +862,6 @@ body:has(.kiosk-mode) #root {
   transform: translateY(1px);
 }
 
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-top: 16px;
-}
-
-.status-badge.warning {
-  background: #FEF3C7;
-  color: #D97706;
-}
-
 .fade-in {
   animation: fadeIn 0.4s ease forwards;
 }
@@ -1062,21 +1046,11 @@ body:has(.kiosk-mode) #root {
   margin-top: 4px;
 }
 
-.meal-badge {
+.status-badge {
   font-size: 0.75rem;
   padding: 4px 8px;
   border-radius: 12px;
   font-weight: 600;
-}
-
-.meal-badge.lunch {
-  background: #E0E7FF;
-  color: var(--primary);
-}
-
-.meal-badge.breakfast {
-  background: #FEF3C7;
-  color: #D97706;
 }
 
 .scanner-badge {
@@ -1681,21 +1655,6 @@ body:has(.kiosk-mode) #root {
 }
 
 /* Color variants */
-.stat-card--almuerzo::before { background: linear-gradient(90deg, #4F46E5, #818CF8); }
-.stat-card--almuerzo .stat-card__icon { background: rgba(79, 70, 229, 0.1); color: #4F46E5; }
-.stat-card--almuerzo .stat-card__value { color: #4F46E5; }
-
-.stat-card--desayuno::before { background: linear-gradient(90deg, #D97706, #FBBF24); }
-.stat-card--desayuno .stat-card__icon { background: rgba(217, 119, 6, 0.1); color: #D97706; }
-.stat-card--desayuno .stat-card__value { color: #D97706; }
-
-.stat-card--benef::before { background: linear-gradient(90deg, #059669, #34D399); }
-.stat-card--benef .stat-card__icon { background: rgba(5, 150, 105, 0.1); color: #059669; }
-.stat-card--benef .stat-card__value { color: #059669; }
-
-.stat-card--nobenef::before { background: linear-gradient(90deg, #DC2626, #F87171); }
-.stat-card--nobenef .stat-card__icon { background: rgba(220, 38, 38, 0.1); color: #DC2626; }
-.stat-card--nobenef .stat-card__value { color: #DC2626; }
 
 /* Recent Activity */
 .recent-activity {
@@ -2226,7 +2185,7 @@ body:has(.kiosk-mode) #root {
   color: var(--kiosk-accent, var(--primary));
 }
 
-.kiosk-meal-subtitle {
+.kiosk-context-subtitle {
   font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -2488,7 +2447,7 @@ body:has(.kiosk-mode) #root {
   line-height: 1.4;
 }
 
-.kiosk-feedback-meal {
+.kiosk-feedback-status {
   font-size: 0.82rem;
   color: var(--text-light);
   text-transform: uppercase;
@@ -2792,53 +2751,6 @@ body:has(.kiosk-mode) #root {
 
 @keyframes kioskSpin {
   to { transform: rotate(360deg); }
-}
-
-/* ====== Meal type color themes ====== */
-
-/* Desayuno — warm amber/orange */
-.kiosk-desayuno {
-  --kiosk-accent: #d97706;
-  --kiosk-accent-glow: rgba(245, 158, 11, 0.2);
-  --kiosk-accent-bg: rgba(245, 158, 11, 0.06);
-}
-.kiosk-desayuno .kiosk-panel {
-  border-top-color: #d97706;
-  background: linear-gradient(180deg, rgba(255, 237, 213, 0.5) 0%, var(--glass-bg) 120px);
-}
-.kiosk-desayuno .kiosk-title-group h1 { color: #92400e; }
-.kiosk-desayuno .kiosk-header {
-  border-bottom-color: rgba(217, 119, 6, 0.12);
-}
-.kiosk-desayuno .scanner-status.active {
-  background: rgba(245, 158, 11, 0.12);
-  color: #d97706;
-  border-color: rgba(245, 158, 11, 0.25);
-}
-.kiosk-desayuno .kiosk-success {
-  background: rgba(245, 158, 11, 0.08);
-  border-color: rgba(245, 158, 11, 0.25);
-  color: #92400e;
-}
-
-/* Almuerzo — indigo/violet */
-.kiosk-almuerzo {
-  --kiosk-accent: #4F46E5;
-  --kiosk-accent-glow: rgba(79, 70, 229, 0.15);
-  --kiosk-accent-bg: rgba(79, 70, 229, 0.04);
-}
-.kiosk-almuerzo .kiosk-panel {
-  border-top-color: #4F46E5;
-  background: linear-gradient(180deg, rgba(224, 231, 255, 0.5) 0%, var(--glass-bg) 120px);
-}
-.kiosk-almuerzo .kiosk-title-group h1 { color: #312E81; }
-.kiosk-almuerzo .kiosk-header {
-  border-bottom-color: rgba(79, 70, 229, 0.1);
-}
-.kiosk-almuerzo .scanner-status.active {
-  background: rgba(16, 185, 129, 0.12);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.25);
 }
 
 /* Estilos para el estado Offline / Heartbeat (INC-03) */

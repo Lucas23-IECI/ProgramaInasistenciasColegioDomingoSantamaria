@@ -3,7 +3,7 @@ services:
   # ── 1. Base de datos ─────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
-    container_name: colegio_db
+    container_name: ldsm_db
     restart: unless-stopped
     environment:
       POSTGRES_USER:     ${DB_USER}
@@ -20,7 +20,7 @@ services:
   # ── 2. Backend Express ───────────────────────────────────────────────────────
   backend:
     build: ./backend
-    container_name: colegio_backend
+    container_name: ldsm_backend
     restart: unless-stopped
     depends_on:
       postgres:
@@ -44,7 +44,7 @@ services:
       context: ./frontend
       args:
         VITE_API_URL: /api
-    container_name: colegio_frontend
+    container_name: ldsm_frontend
     restart: unless-stopped
     ports:
       - "80:80"
@@ -54,7 +54,7 @@ services:
   # ── 4. Respaldo Automático (INC-08) ──────────────────────────────────────────
   backup:
     image: postgres:16-alpine
-    container_name: colegio_backup
+    container_name: ldsm_backup
     restart: unless-stopped
     depends_on:
       postgres:
