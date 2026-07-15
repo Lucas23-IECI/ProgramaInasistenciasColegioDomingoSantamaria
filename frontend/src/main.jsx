@@ -29,7 +29,7 @@ const RoleBasedHome = () => {
   const { user, loading } = useContext(AuthContext);
   if (loading) return null;
   if (!user) return <Navigate to="/login" />;
-  
+
   if (user.rol === 'admin' || user.rol === 'secretaria') {
       return <Navigate to="/admin" />;
   }
@@ -54,10 +54,10 @@ createRoot(document.getElementById('root')).render(
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<RoleBasedHome />} />
-            
+
             {/* Lector Only (Opcional admin test) */}
             <Route path="/scanner" element={<ProtectedRoute allowedRoles={['lector', 'admin']}><App /></ProtectedRoute>} />
-            
+
             {/* Admin Tree */}
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AdminHub /></ProtectedRoute>} />
             <Route path="/admin/alimentacion" element={<Navigate to="/admin/atrasos" replace />} />

@@ -150,7 +150,7 @@ const calculateStatusAndSeverity = (tipoRegistro, currentTimeStr, config) => {
   if (tipoRegistro !== 'Entrada') {
     return { status: 'Salida', severidad: 'Normal' };
   }
-  
+
   const threshold = config.hora_limite_atraso || '08:15:00';
   if (currentTimeStr < threshold) {
     return { status: 'Presente', severidad: 'Normal' };
@@ -643,7 +643,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 2. Active days in range (days with at least one scan)
     let activeDaysQuery = `
-      SELECT COUNT(DISTINCT r.fecha) 
+      SELECT COUNT(DISTINCT r.fecha)
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -659,7 +659,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 3. Total unjustified absences (estado = 'Ausente' AND justificado = false)
     let totalInasistenciasQuery = `
-      SELECT COUNT(*) 
+      SELECT COUNT(*)
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -675,7 +675,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 4. Total late arrivals (estado = 'Atrasado')
     let totalAtrasadosQuery = `
-      SELECT COUNT(*) 
+      SELECT COUNT(*)
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -698,7 +698,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 5. Total justified late arrivals
     let totalAtrasadosJustificadosQuery = `
-      SELECT COUNT(*) 
+      SELECT COUNT(*)
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -721,7 +721,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 6. Total justified absences (estado = 'Ausente' AND justificado = true)
     let totalAusentesJustificadosQuery = `
-      SELECT COUNT(*) 
+      SELECT COUNT(*)
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -743,7 +743,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 8. Daily late arrivals (line chart)
     let dailyLateQuery = `
-      SELECT r.fecha::TEXT as fecha, COUNT(*) as count 
+      SELECT r.fecha::TEXT as fecha, COUNT(*) as count
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -771,7 +771,7 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 9. Daily absences (line chart)
     let dailyAbsencesQuery = `
-      SELECT r.fecha::TEXT as fecha, COUNT(*) as count 
+      SELECT r.fecha::TEXT as fecha, COUNT(*) as count
       FROM attendance_registrations r
       LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -818,8 +818,8 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
 
     // 11. Hourly slot distribution starting from 08:15
     let slotLateQuery = `
-      SELECT 
-         CASE 
+      SELECT
+         CASE
            WHEN r.hora >= '08:15:00' AND r.hora <= '08:20:00' THEN '08:15 - 08:20'
            WHEN r.hora > '08:20:00' AND r.hora <= '08:25:00' THEN '08:21 - 08:25'
            WHEN r.hora > '08:25:00' AND r.hora <= '08:30:00' THEN '08:26 - 08:30'
@@ -961,7 +961,7 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
       }
 
       query = `
-        SELECT 
+        SELECT
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
           r.fecha::TEXT as fecha_entrega, r.estado as tipo_alimentacion, r.tipo_registro, r.hora,
@@ -1009,7 +1009,7 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
       }
 
       query = `
-        SELECT 
+        SELECT
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
           r.fecha::TEXT as fecha_entrega, r.estado as tipo_alimentacion, r.tipo_registro, r.hora,
@@ -1017,7 +1017,7 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
         FROM alumno a
         LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
         LEFT JOIN curso c ON m.id_curso = c.id_curso
-        LEFT JOIN attendance_registrations r ON a.id_alumno = r.id_alumno 
+        LEFT JOIN attendance_registrations r ON a.id_alumno = r.id_alumno
           AND r.fecha >= $1 AND r.fecha <= $2
           ${whereExtraTipo}
         WHERE a.activo = true
@@ -1186,7 +1186,7 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
               archivo_justificacion = COALESCE($3, archivo_justificacion)
           WHERE id_registro = $4
         `, [isAtrasado ? 'apoderado' : tipo_justificacion, comentario_justificacion, isAtrasado ? null : uniqueName, record.id_registro]);
-        
+
         processedIds.push(record.id_registro);
       } else {
         const insertRes = await pool.query(`
@@ -1194,7 +1194,7 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
           VALUES ($1, $2, CURRENT_TIME, 'Ausente', 'Entrada', true, $3, $4, $5)
           RETURNING id_registro
         `, [id_alumno, targetDate, tipo_justificacion, comentario_justificacion, uniqueName]);
-        
+
         processedIds.push(insertRes.rows[0].id_registro);
       }
     }
@@ -1415,7 +1415,7 @@ app.get('/api/asistencia/alertas-tempranas', verifyToken, verifyRole(['admin', '
       FROM attendance_registrations
       WHERE tipo_registro = 'Entrada'
     `);
-    
+
     // Group scans by student and date
     const scansMap = {};
     scansRes.rows.forEach(r => {
@@ -1430,7 +1430,7 @@ app.get('/api/asistencia/alertas-tempranas', verifyToken, verifyRole(['admin', '
     students.forEach(student => {
       const id = student.id_alumno;
       const studentScans = scansMap[id] || {};
-      
+
       let presentDays = 0;
       let justifiedDays = 0;
       let unjustifiedDays = 0;
@@ -1633,7 +1633,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
         } else {
           // UPDATE if different
           idAlumno = existing.id_alumno;
-          
+
           const updateQuery = `
             UPDATE alumno
             SET uuid_erp = COALESCE($1, uuid_erp),
@@ -1738,7 +1738,7 @@ app.get('/api/students/:id/details', verifyToken, async (req, res) => {
     `;
     const resA = await pool.query(query, [id]);
     if (resA.rows.length === 0) return res.status(404).json({ message: 'Miembro no encontrado.' });
-    
+
     // Add stub responses for tables we dropped to keep UI happy if they check details
     res.json({
       alumno: resA.rows[0],
@@ -1816,7 +1816,7 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
 app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
   const { nombres, paterno, materno, email, telefono, rol, grade } = req.body;
-  
+
   try {
     await pool.query(
       `UPDATE alumno
@@ -1865,7 +1865,7 @@ app.delete('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, 
   const { id } = req.params;
   try {
     await pool.query('UPDATE alumno SET activo = false WHERE id_alumno = $1', [id]);
-    
+
     registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
@@ -1995,12 +1995,12 @@ app.listen(PORT, async () => {
     if (isNewSchema) {
       const salt = await bcrypt.genSalt(10);
       const hash = await bcrypt.hash(getDefaultUserPassword(), salt);
-      
+
       // Default configurations
       await pool.query(
         "INSERT INTO configuracion_asistencia (hora_entrada, hora_limite_atraso) VALUES ('08:00:00', '08:15:00')"
       );
-      
+
       // Default users
       await pool.query(
         "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta')",

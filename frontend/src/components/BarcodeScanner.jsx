@@ -16,39 +16,39 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const [isOffline, setIsOffline] = useState(false);
   const [showReconnectedBanner, setShowReconnectedBanner] = useState(false);
   const [todayStats, setTodayStats] = useState({ total: 0, presentes: 0, atrasados: 0 }); // Presentes y Atrasados
-  
+
   // Settings/Config
   const [asistenciaConfig, setAsistenciaConfig] = useState({ hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' });
 
   // Layout mode: 'centered' | 'columns'
   const [layoutMode, setLayoutMode] = useState('centered');
-  
+
   // Flash mode feedback
   const [flashMode, setFlashMode] = useState(true);
   const [flashColor, setFlashColor] = useState(null);
-  
+
   // Advanced search filters
   const [showFilters, setShowFilters] = useState(false);
   const [filterCurso, setFilterCurso] = useState('');
   const [courses, setCourses] = useState([]);
-  
+
   // Búsqueda manual
   const [searchResults, setSearchResults] = useState([]);
   const [showResults, setShowResults] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  
+
   // Scanner status
   const [scannerActive, setScannerActive] = useState(true);
   const [manualOverride, setManualOverride] = useState(false);
-  
+
   // Confirmación antes de registro (flujo escáner)
   const [pendingRegistration, setPendingRegistration] = useState(null);
-  
+
   // Detección de escáner vs teclado manual
   const keystrokeTimestamps = useRef([]);
   const scannerThreshold = 80;
   const lastScannerDetection = useRef(Date.now());
-  
+
   const inputRef = useRef(null);
   const autoResetTimer = useRef(null);
   const searchDebounce = useRef(null);
@@ -58,7 +58,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const searchResultRefs = useRef([]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
-  
+
   // Fetch Config on mount
   useEffect(() => {
     axios.get(`${API_URL}/attendance/config`)
@@ -87,12 +87,12 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         }
       }
     };
-    
+
     checkHealth();
     const interval = setInterval(checkHealth, 10000);
     return () => clearInterval(interval);
   }, []);
-  
+
   // Fetch today's stats
   const fetchStats = async () => {
     try {
@@ -186,7 +186,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       resetState();
       return;
     }
-    
+
     if (showResults && searchResults.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -207,7 +207,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         return;
       }
     }
-    
+
     keystrokeTimestamps.current.push(Date.now());
   };
 
@@ -215,7 +215,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     const val = e.target.value;
     setInputValue(val);
     setSelectedIndex(-1);
-    
+
     if (val.trim().length > 0) {
       clearTimeout(autoResetTimer.current);
       setSuccessMsg('');
@@ -225,9 +225,9 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       setRestricciones([]);
       setStudent(null);
     }
-    
+
     clearTimeout(searchDebounce.current);
-    
+
     if (val.trim().length >= 2) {
       searchDebounce.current = setTimeout(async () => {
         if (!isScannerInput() && val.trim().length >= 2) {
@@ -249,7 +249,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     if (isOffline) return;
     const value = inputValue.trim();
     if (!value) return;
-    
+
     // Commit pending registration immediately when a new scan/submission is detected
     if (pendingRegistration) {
       clearTimeout(pendingTimer.current);
@@ -258,18 +258,18 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       isProcessing.current = false;
       await registerAttendance(currentPending.student, currentPending.calculatedStatus);
     }
-    
+
     if (isProcessing.current) return;
-    
+
     clearTimeout(searchDebounce.current);
-    
+
     if (showResults && selectedIndex >= 0 && searchResults[selectedIndex]) {
       await handleSelectStudent(searchResults[selectedIndex]);
       return;
     }
-    
+
     const wasScanner = isScannerInput();
-    
+
     if (wasScanner) {
       if (!manualOverride) setScannerActive(true);
       lastScannerDetection.current = Date.now();
@@ -299,7 +299,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         setLoading(false);
       }
     }
-    
+
     keystrokeTimestamps.current = [];
   };
 
@@ -322,7 +322,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       const res = await axios.get(`${API_URL}/students/scan/${encodeURIComponent(barcode)}`, {
         params: { tipo_registro: tipoRegistro }
       });
-      
+
       const foundStudent = res.data.alumno;
       const isAlreadyReg = res.data.alreadyRegistered;
       const calculatedStatus = res.data.statusPropuesto;
@@ -371,9 +371,9 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     setSearchResults([]);
     setInputValue('');
     setSelectedIndex(-1);
-    
+
     if (isOffline) return;
-    
+
     // Commit pending registration immediately when selecting a student
     if (pendingRegistration) {
       clearTimeout(pendingTimer.current);
@@ -382,10 +382,10 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       isProcessing.current = false;
       await registerAttendance(currentPending.student, currentPending.calculatedStatus);
     }
-    
+
     if (isProcessing.current) return;
     isProcessing.current = true;
-    
+
     setLoading(true);
     setError('');
     setSuccessMsg('');
@@ -398,7 +398,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       const res = await axios.get(`${API_URL}/students/${s.id_alumno}/status`, {
         params: { tipo_registro: tipoRegistro }
       });
-      
+
       const foundStudent = res.data.alumno;
       const isAlreadyReg = res.data.alreadyRegistered;
       const calculatedStatus = res.data.statusPropuesto;
@@ -432,14 +432,14 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         id_alumno: studentData.id_alumno,
         tipo_registro: tipoRegistro
       });
-      
+
       setSuccessMsg(`${studentData.nombres} ${studentData.paterno} — ${status}`);
       setStatusRegistrado(status);
       setAlreadyRegistered(true);
-      
+
       // Refresh statistics
       fetchStats();
-      
+
       if (status === 'Atrasado') {
         triggerFlash('warning');
         playBeep('warning');
@@ -562,7 +562,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Input/search section
   const inputSection = (
     <>
-      <div 
+      <div
         className={`scanner-status ${scannerActive ? 'active' : 'inactive'}`}
         onClick={isOffline ? undefined : handleToggleScanner}
         role="button"
@@ -641,8 +641,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       {showResults && filteredSearchResults.length > 0 && (
         <div className="kiosk-search-results" role="listbox">
           {filteredSearchResults.map((s, idx) => (
-            <div 
-              key={s.id_alumno} 
+            <div
+              key={s.id_alumno}
               ref={el => searchResultRefs.current[idx] = el}
               className={`kiosk-search-item${idx === selectedIndex ? ' selected' : ''}`}
               onClick={() => handleSelectStudent(s)}

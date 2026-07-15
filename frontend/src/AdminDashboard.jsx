@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from './context/AuthContext';
-import { 
-  Users, AlertTriangle, LogOut, 
-  ShieldCheck, ShieldAlert, FileSpreadsheet, Calendar, 
+import {
+  Users, AlertTriangle, LogOut,
+  ShieldCheck, ShieldAlert, FileSpreadsheet, Calendar,
   ChevronDown, Download, RefreshCw, Clock, TrendingUp,
   CheckCircle, X, Upload, Trash2
 } from 'lucide-react';
@@ -36,13 +36,13 @@ const AdminDashboard = () => {
   const [reportScope, setReportScope] = useState('masivo'); // 'masivo' | 'curso' | 'individual' | 'personalizado'
   const [courses, setCourses] = useState([]);
   const [selectedCursoId, setSelectedCursoId] = useState('');
-  
+
   // Para reporte individual
   const [selectedAlumno, setSelectedAlumno] = useState(null);
-  
+
   // Para reporte personalizado
   const [selectedAlumnos, setSelectedAlumnos] = useState([]);
-  
+
   // Para buscar alumnos
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [studentSearchResults, setStudentSearchResults] = useState([]);
@@ -134,7 +134,7 @@ const AdminDashboard = () => {
     const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const firstDay = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
     const today = localDate(now);
-    
+
     setReportDesde(firstDay);
     setReportHasta(today);
 
@@ -295,7 +295,7 @@ const AdminDashboard = () => {
         const dataRows = students.map((s, idx) => {
           let totalD = 0, totalA = 0, totalIJ = 0, totalII = 0;
           const diasUnicos = new Set();
-          
+
           sortedSchoolDays.forEach(date => {
             const meals = s.days[date] || [];
             if (meals.length > 0) {
@@ -350,7 +350,7 @@ const AdminDashboard = () => {
               const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
               const meals = s.days[dateStr] || [];
               const isSchoolDay = sortedSchoolDays.includes(dateStr);
-              
+
               if (meals.includes('presente')) {
                 row.push('X', '', '');
               } else if (meals.includes('atrasado')) {
@@ -362,7 +362,7 @@ const AdminDashboard = () => {
               } else {
                 row.push('', '', ''); // No hay clases / fin de semana sin registros
               }
-              
+
               totalMarcasMes += meals.length;
             }
 
@@ -430,7 +430,7 @@ const AdminDashboard = () => {
   return (
     <div className="app-container" style={{ maxWidth: '900px' }}>
       <div className="glass-panel" style={{ maxWidth: '100%', width: '100%' }}>
-        
+
         {/* Header */}
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -462,9 +462,9 @@ const AdminDashboard = () => {
             <h3 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
               <TrendingUp size={20} /> Resumen de Hoy
             </h3>
-            <button 
+            <button
               onClick={() => { fetchResumen(); fetchRegistrosHoy(); }}
-              className="action-btn" 
+              className="action-btn"
               style={{ background: 'rgba(79,70,229,0.07)', color: 'var(--primary)', border: 'none' }}
               title="Recargar"
             >
@@ -601,7 +601,7 @@ const AdminDashboard = () => {
 
         {/* ===== SECCIÓN 2: GENERADOR DE REPORTES ===== */}
         <div style={{ marginBottom: '2rem' }}>
-          <button 
+          <button
             className="report-toggle-btn"
             onClick={() => setShowReportPanel(!showReportPanel)}
           >
@@ -609,18 +609,18 @@ const AdminDashboard = () => {
               <FileSpreadsheet size={20} />
               <span>Generar Reportes</span>
             </div>
-            <ChevronDown 
-              size={18} 
-              style={{ 
+            <ChevronDown
+              size={18}
+              style={{
                 transition: 'transform 0.3s ease',
                 transform: showReportPanel ? 'rotate(180deg)' : 'rotate(0deg)'
-              }} 
+              }}
             />
           </button>
 
           {showReportPanel && (
             <div className="report-panel fade-in">
-              
+
               {/* Período */}
               <div className="report-section">
                 <label className="report-section-label">
@@ -629,18 +629,18 @@ const AdminDashboard = () => {
                 <div className="report-dates">
                   <div className="date-field">
                     <label>Desde</label>
-                    <input 
-                      type="date" 
-                      value={reportDesde} 
-                      onChange={(e) => setReportDesde(e.target.value)} 
+                    <input
+                      type="date"
+                      value={reportDesde}
+                      onChange={(e) => setReportDesde(e.target.value)}
                     />
                   </div>
                   <div className="date-field">
                     <label>Hasta</label>
-                    <input 
-                      type="date" 
-                      value={reportHasta} 
-                      onChange={(e) => setReportHasta(e.target.value)} 
+                    <input
+                      type="date"
+                      value={reportHasta}
+                      onChange={(e) => setReportHasta(e.target.value)}
                     />
                   </div>
                 </div>
@@ -650,14 +650,14 @@ const AdminDashboard = () => {
               <div className="report-section">
                 <label className="report-section-label">Ámbito de Selección de Alumnos</label>
                 <div className="report-scope-selector">
-                  <button 
+                  <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'masivo' ? 'active' : ''}`}
                     onClick={() => setReportScope('masivo')}
                   >
                     {"\u{1F310}"} Masivo
                   </button>
-                  <button 
+                  <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'curso' ? 'active' : ''}`}
                     onClick={() => setReportScope('curso')}
@@ -665,14 +665,14 @@ const AdminDashboard = () => {
                     {"\u{1F3EB}"} Por Curso
                   </button>
 
-                  <button 
+                  <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'individual' ? 'active' : ''}`}
                     onClick={() => setReportScope('individual')}
                   >
                     {"\u{1F464}"} Individual
                   </button>
-                  <button 
+                  <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'personalizado' ? 'active' : ''}`}
                     onClick={() => setReportScope('personalizado')}
@@ -685,8 +685,8 @@ const AdminDashboard = () => {
                 {reportScope === 'curso' && (
                   <div className="report-scope-control fade-in" style={{ marginTop: '12px' }}>
                     <label style={{ fontSize: '0.8rem', color: 'var(--text-light)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Curso</label>
-                    <select 
-                      value={selectedCursoId} 
+                    <select
+                      value={selectedCursoId}
                       onChange={(e) => setSelectedCursoId(e.target.value)}
                       className="report-select-input"
                     >
@@ -704,8 +704,8 @@ const AdminDashboard = () => {
                     {selectedAlumno ? (
                       <div className="selected-item-display">
                         <span>{selectedAlumno.name} ({selectedAlumno.rut}-{selectedAlumno.dv} &bull; {selectedAlumno.nombre_curso || 'Sin Curso'})</span>
-                        <button 
-                          type="button" 
+                        <button
+                          type="button"
                           onClick={() => { setSelectedAlumno(null); setStudentSearchTerm(''); }}
                           className="remove-btn"
                         >
@@ -714,10 +714,10 @@ const AdminDashboard = () => {
                       </div>
                     ) : (
                       <>
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           placeholder="Escribe nombre, apellido o RUT del alumno..."
-                          value={studentSearchTerm} 
+                          value={studentSearchTerm}
                           onChange={(e) => setStudentSearchTerm(e.target.value)}
                           className="report-text-input"
                         />
@@ -725,8 +725,8 @@ const AdminDashboard = () => {
                         {studentSearchResults.length > 0 && (
                           <div className="report-search-results-dropdown">
                             {studentSearchResults.map(s => (
-                              <div 
-                                key={s.id_alumno} 
+                              <div
+                                key={s.id_alumno}
                                 className="report-search-result-item"
                                 onClick={() => {
                                   setSelectedAlumno(s);
@@ -748,10 +748,10 @@ const AdminDashboard = () => {
                   <div className="report-scope-control fade-in" style={{ marginTop: '12px' }}>
                     <label style={{ fontSize: '0.8rem', color: 'var(--text-light)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Seleccionar Múltiples Alumnos ({selectedAlumnos.length} agregados)</label>
                     <div style={{ position: 'relative', marginBottom: '10px' }}>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         placeholder="Buscar alumno para agregar al reporte..."
-                        value={studentSearchTerm} 
+                        value={studentSearchTerm}
                         onChange={(e) => setStudentSearchTerm(e.target.value)}
                         className="report-text-input"
                       />
@@ -761,8 +761,8 @@ const AdminDashboard = () => {
                           {studentSearchResults
                             .filter(s => !selectedAlumnos.some(a => a.id_alumno === s.id_alumno))
                             .map(s => (
-                              <div 
-                                key={s.id_alumno} 
+                              <div
+                                key={s.id_alumno}
                                 className="report-search-result-item"
                                 onClick={() => {
                                   setSelectedAlumnos([...selectedAlumnos, s]);
@@ -782,8 +782,8 @@ const AdminDashboard = () => {
                         {selectedAlumnos.map(a => (
                           <div key={a.id_alumno} className="student-chip">
                             <span>{a.name} ({a.nombre_curso || 'S/C'})</span>
-                            <button 
-                              type="button" 
+                            <button
+                              type="button"
                               onClick={() => setSelectedAlumnos(selectedAlumnos.filter(x => x.id_alumno !== a.id_alumno))}
                               className="chip-remove-btn"
                             >
@@ -802,7 +802,7 @@ const AdminDashboard = () => {
                 <label className="report-section-label">Tipo de Reporte</label>
                 <div className="report-types-grid">
                   {REPORT_TYPES.map(rt => (
-                    <div 
+                    <div
                       key={rt.id}
                       className={`report-type-card ${reportType === rt.id ? 'active' : ''}`}
                       onClick={() => setReportType(rt.id)}
@@ -837,7 +837,7 @@ const AdminDashboard = () => {
               </div>
 
               {/* Botón Generar */}
-              <button 
+              <button
                 className="generate-report-btn"
                 onClick={generateReport}
                 disabled={generatingReport || !reportDesde || !reportHasta}
@@ -854,7 +854,7 @@ const AdminDashboard = () => {
               </button>
 
               <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', textAlign: 'center', marginTop: '8px' }}>
-                {reportFormat === 'detallado' 
+                {reportFormat === 'detallado'
                   ? 'Genera una hoja por mes con marcas D/A por cada día.'
                   : 'Genera una tabla resumen con total de desayunos y almuerzos por alumno.'
                 }
@@ -876,12 +876,12 @@ const AdminDashboard = () => {
                 </button>
               </div>
               <div className="justify-modal__body">
-                <div style={{ 
-                  marginBottom: '12px', 
-                  padding: '10px', 
-                  background: justifyModal.id_registro !== undefined ? 'rgba(245, 158, 11, 0.06)' : 'rgba(239, 68, 68, 0.06)', 
-                  borderRadius: '8px', 
-                  border: justifyModal.id_registro !== undefined ? '1px solid rgba(245, 158, 11, 0.12)' : '1px solid rgba(239, 68, 68, 0.12)' 
+                <div style={{
+                  marginBottom: '12px',
+                  padding: '10px',
+                  background: justifyModal.id_registro !== undefined ? 'rgba(245, 158, 11, 0.06)' : 'rgba(239, 68, 68, 0.06)',
+                  borderRadius: '8px',
+                  border: justifyModal.id_registro !== undefined ? '1px solid rgba(245, 158, 11, 0.12)' : '1px solid rgba(239, 68, 68, 0.12)'
                 }}>
                   <div style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: '0.9rem' }}>
                     {`${justifyModal.paterno}${justifyModal.materno ? ' ' + justifyModal.materno : ''}, ${justifyModal.nombres}`.toUpperCase()}

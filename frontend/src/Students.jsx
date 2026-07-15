@@ -47,7 +47,7 @@ function Students() {
   const [syncResult, setSyncResult] = useState(null);
   const [uploadError, setUploadError] = useState('');
   const [toast, setToast] = useState(null);
-  
+
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [studentDetails, setStudentDetails] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
@@ -199,8 +199,8 @@ function Students() {
     return acc;
   }, {});
 
-  const currentStudents = selectedCourse === 'Toda La Matrícula' 
-     ? students 
+  const currentStudents = selectedCourse === 'Toda La Matrícula'
+     ? students
      : (courseGroups[selectedCourse] || []);
 
   const filtered = currentStudents.filter(s => {
@@ -238,10 +238,10 @@ function Students() {
       )}
 
       <div className="students-card">
-        
+
         <header className="students-header">
            <div className="students-header-left">
-              <button 
+              <button
                 onClick={() => {
                    if (selectedCourse) {
                      setSelectedCourse(null);
@@ -252,7 +252,7 @@ function Students() {
                      return;
                    }
                    navigate('/admin');
-                }} 
+                }}
                 className="students-back-btn"
               >
                 <ChevronLeft size={20} />
@@ -293,7 +293,7 @@ function Students() {
              <p style={{color: 'var(--text-light)', marginBottom: '16px'}}>
                 Seleccione un curso para inspeccionar su listado, o busque de manera global por RUT o Nombre.
              </p>
-             
+
              <div style={{display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap'}}>
                <div className="students-search" style={{flex: '2', minWidth: '260px'}}>
                  <Search size={16} />
@@ -316,7 +316,7 @@ function Students() {
              </div>
 
              {globalStudentSearch.trim().length >= 2 && (() => {
-               const globalFiltered = students.filter(s => 
+               const globalFiltered = students.filter(s =>
                  (s.nombres + ' ' + s.paterno).toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
                  s.rut.toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
                  (s.nombre_usuario && s.nombre_usuario.toLowerCase().includes(globalStudentSearch.toLowerCase()))
@@ -348,8 +348,8 @@ function Students() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
                             {alertasMap[s.id_alumno]?.alertaCritica && (
-                              <span 
-                                className="severity-badge severity-badge--grave" 
+                              <span
+                                className="severity-badge severity-badge--grave"
                                 title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
@@ -357,8 +357,8 @@ function Students() {
                               </span>
                             )}
                             {alertasMap[s.id_alumno]?.alertaConsecutiva && (
-                              <span 
-                                className="severity-badge severity-badge--leve" 
+                              <span
+                                className="severity-badge severity-badge--leve"
                                 title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
@@ -405,7 +405,7 @@ function Students() {
                   <>
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '15px'}}>
                       {coursePage === 1 && (
-                      <div 
+                      <div
                         className="hub-module"
                         style={{padding: '20px', cursor: 'pointer', textAlign: 'center', background: 'rgba(59, 130, 246, 0.05)'}}
                         onClick={() => setSelectedCourse('Toda La Matrícula')}
@@ -417,8 +417,8 @@ function Students() {
                       )}
 
                       {pagedCourses.map(curso => (
-                       <div 
-                         key={curso} 
+                       <div
+                         key={curso}
                          className="hub-module"
                          style={{padding: '20px', cursor: 'pointer', textAlign: 'center'}}
                          onClick={() => setSelectedCourse(curso)}
@@ -496,8 +496,8 @@ function Students() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
                             {alertasMap[s.id_alumno]?.alertaCritica && (
-                              <span 
-                                className="severity-badge severity-badge--grave" 
+                              <span
+                                className="severity-badge severity-badge--grave"
                                 title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
@@ -505,8 +505,8 @@ function Students() {
                               </span>
                             )}
                             {alertasMap[s.id_alumno]?.alertaConsecutiva && (
-                              <span 
-                                className="severity-badge severity-badge--leve" 
+                              <span
+                                className="severity-badge severity-badge--leve"
                                 title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
@@ -660,9 +660,9 @@ function Students() {
       {selectedStudentId && (
         <div className="modal-overlay" onClick={closeDetails} style={{position: 'fixed', top:0, left:0, right:0, bottom:0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px'}}>
            <div className="glass-panel" onClick={(e) => e.stopPropagation()} style={{maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', border: '1px solid rgba(59,130,246,0.3)', padding: '32px'}}>
-              <button 
-                onClick={closeDetails} 
-                className="students-back-btn" 
+              <button
+                onClick={closeDetails}
+                className="students-back-btn"
                 style={{position: 'absolute', top: '20px', right: '20px', zIndex: 50, cursor: 'pointer', border: 'none', background: 'transparent', color: '#94a3b8'}}
               >
                 <X size={20} />

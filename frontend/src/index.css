@@ -3069,9 +3069,9 @@ body.light-mode {
   --panel-border: rgba(59, 130, 246, 0.18);
 }
 
-body.light-mode .hub-module, 
-body.light-mode .students-table-wrap, 
-body.light-mode .students-search, 
+body.light-mode .hub-module,
+body.light-mode .students-table-wrap,
+body.light-mode .students-search,
 body.light-mode .kiosk-input-wrapper {
   background: rgba(255, 255, 255, 0.6) !important;
   border: 1px solid rgba(59, 130, 246, 0.2) !important;
@@ -3098,11 +3098,11 @@ body.light-mode .students-table tbody tr:hover {
   background: rgba(59, 130, 246, 0.05) !important;
 }
 
-body.light-mode .login-input, 
-body.light-mode .kiosk-input, 
-body.light-mode .students-search input, 
-body.light-mode .pagination-size, 
-body.light-mode select, 
+body.light-mode .login-input,
+body.light-mode .kiosk-input,
+body.light-mode .students-search input,
+body.light-mode .pagination-size,
+body.light-mode select,
 body.light-mode textarea {
   background: rgba(255, 255, 255, 0.8) !important;
   border: 1px solid rgba(59, 130, 246, 0.3) !important;
@@ -3983,7 +3983,7 @@ body.light-mode .students-search input {
     background: white !important;
     color: #0f172a !important;
   }
-  
+
   .glass-panel {
     background: white !important;
     border: none !important;
@@ -3993,7 +3993,7 @@ body.light-mode .students-search input {
     width: 100% !important;
     max-width: 100% !important;
   }
-  
+
   /* Hide interactive non-report elements */
   .header-actions,
   .segmented-control,
@@ -4005,14 +4005,14 @@ body.light-mode .students-search input {
   .back-btn {
     display: none !important;
   }
-  
+
   /* Make sure grids split nicely */
   .analytics-metrics-grid {
     grid-template-columns: repeat(5, 1fr) !important;
     gap: 8px !important;
     margin-bottom: 20px !important;
   }
-  
+
   .stat-card {
     background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
@@ -4020,16 +4020,16 @@ body.light-mode .students-search input {
     padding: 10px !important;
     border-left: 4px solid var(--card-accent, #3B82F6) !important;
   }
-  
+
   .stat-card__value {
     font-size: 1.4rem !important;
   }
-  
+
   .analytics-charts-grid {
     grid-template-columns: 1fr 1fr !important;
     gap: 16px !important;
   }
-  
+
   .chart-card {
     background: #f8fafc !important;
     border: 1px solid #cbd5e1 !important;
@@ -4037,9 +4037,8 @@ body.light-mode .students-search input {
     page-break-inside: avoid;
     min-height: auto !important;
   }
-  
+
   .chart-card--full {
     grid-column: span 2 !important;
   }
 }
-

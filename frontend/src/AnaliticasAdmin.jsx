@@ -56,7 +56,7 @@ const JustifiedDonutChart = ({ justified = 0, unjustified = 0, colorJustified = 
           JUSTIFICADO
         </text>
       </svg>
-      
+
       <div style={{ display: 'flex', gap: '12px', fontSize: '0.72rem', justifyContent: 'center', flexWrap: 'wrap', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorJustified }}></span>
@@ -147,7 +147,7 @@ const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros'
           );
         })}
       </svg>
-      
+
       <div style={{ display: 'flex', gap: '6px', fontSize: '0.72rem', justifyContent: 'center', width: '100%', alignItems: 'center' }}>
         <span style={{ width: 12, height: 3, background: color, display: 'inline-block' }}></span>
         <span style={{ color: 'var(--text-light)' }}>{label}</span>
@@ -337,7 +337,7 @@ const AnaliticasAdmin = () => {
 
         {/* Sub-tab segmented control for Atrasos vs Inasistencias */}
         <div className="dashboard-tabs" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)' }}>
-          <button 
+          <button
             type="button"
             className={`dashboard-tab ${subTab === 'atrasos' ? 'active' : ''}`}
             onClick={() => setSubTab('atrasos')}
@@ -345,7 +345,7 @@ const AnaliticasAdmin = () => {
           >
             {"\u{23F1}\u{FE0F}"} Estadísticas de Atrasos
           </button>
-          <button 
+          <button
             type="button"
             className={`dashboard-tab ${subTab === 'inasistencias' ? 'active' : ''}`}
             onClick={() => setSubTab('inasistencias')}
@@ -459,7 +459,7 @@ const AnaliticasAdmin = () => {
                   <div className="stat-card" style={{ '--card-accent': '#f59e0b' }}>
                     <div className="stat-card__icon" style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}><TrendingUp size={20} /></div>
                     <div className="stat-card__value" style={{ fontSize: '1rem', color: '#f59e0b' }}>
-                      {analyticsData?.dailyLate?.length > 0 
+                      {analyticsData?.dailyLate?.length > 0
                         ? formatLabelDate([...analyticsData.dailyLate].sort((a,b) => b.count - a.count)[0]?.fecha)
                         : 'N/D'}
                     </div>
@@ -479,9 +479,9 @@ const AnaliticasAdmin = () => {
                   <div className="chart-card">
                     <div className="chart-card__title"><PieChart size={16} /> Proporción de Atrasos Justificados</div>
                     <div className="chart-container">
-                      <JustifiedDonutChart 
-                        justified={analyticsData?.totalAtrasadosJustificados || 0} 
-                        unjustified={(analyticsData?.totalAtrasados || 0) - (analyticsData?.totalAtrasadosJustificados || 0)} 
+                      <JustifiedDonutChart
+                        justified={analyticsData?.totalAtrasadosJustificados || 0}
+                        unjustified={(analyticsData?.totalAtrasados || 0) - (analyticsData?.totalAtrasadosJustificados || 0)}
                         label="Atrasos"
                         colorJustified="var(--secondary)"
                         colorUnjustified="#f59e0b"
@@ -515,7 +515,7 @@ const AnaliticasAdmin = () => {
                         (() => {
                           const totalMatriculaDias = (analyticsData.totalAlumnos || 0) * (analyticsData.diasActivos || 1);
                           const totalInas = (analyticsData.totalInasistencias || 0) + (analyticsData.totalJustificados || 0);
-                          return totalMatriculaDias > 0 
+                          return totalMatriculaDias > 0
                             ? ((totalMatriculaDias - totalInas) / totalMatriculaDias * 100).toFixed(1) + '%'
                             : '100%';
                         })()
@@ -545,7 +545,7 @@ const AnaliticasAdmin = () => {
                   <div className="stat-card" style={{ '--card-accent': '#f59e0b' }}>
                     <div className="stat-card__icon" style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}><TrendingUp size={20} /></div>
                     <div className="stat-card__value" style={{ fontSize: '1rem', color: '#f59e0b' }}>
-                      {analyticsData?.dailyAbsences?.length > 0 
+                      {analyticsData?.dailyAbsences?.length > 0
                         ? formatLabelDate([...analyticsData.dailyAbsences].sort((a,b) => b.count - a.count)[0]?.fecha)
                         : 'N/D'}
                     </div>
@@ -565,9 +565,9 @@ const AnaliticasAdmin = () => {
                   <div className="chart-card">
                     <div className="chart-card__title"><PieChart size={16} /> Proporción de Inasistencias Justificadas</div>
                     <div className="chart-container">
-                      <JustifiedDonutChart 
-                        justified={analyticsData?.totalJustificados || 0} 
-                        unjustified={analyticsData?.totalInasistencias || 0} 
+                      <JustifiedDonutChart
+                        justified={analyticsData?.totalJustificados || 0}
+                        unjustified={analyticsData?.totalInasistencias || 0}
                         label="Inasistencias"
                         colorJustified="var(--secondary)"
                         colorUnjustified="#ef4444"

@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useContext } from 'react';
 import axios from 'axios';
 import { AuthContext } from './context/AuthContext';
-import { 
-  Users, AlertTriangle, LogOut, ShieldCheck, ShieldAlert, 
-  FileSpreadsheet, Calendar, ChevronDown, Download, RefreshCw, 
+import {
+  Users, AlertTriangle, LogOut, ShieldCheck, ShieldAlert,
+  FileSpreadsheet, Calendar, ChevronDown, Download, RefreshCw,
   Clock, TrendingUp, CheckCircle, X, Upload, Trash2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -68,7 +68,7 @@ const InasistenciasAdmin = () => {
     const firstDay = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
     const oneMonthAgo = localDate(new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()));
     const today = localDate(now);
-    
+
     setReportDesde(firstDay);
     setReportHasta(today);
     setJustificacionesDesde(oneMonthAgo);
@@ -380,7 +380,7 @@ const InasistenciasAdmin = () => {
 
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte Inasistencias');
-      
+
       const fileName = `Reporte_Inasistencias_${reportDesde}_a_${reportHasta}.xlsx`;
       XLSX.writeFile(workbook, fileName);
     } catch (err) {
@@ -394,7 +394,7 @@ const InasistenciasAdmin = () => {
   return (
     <div className="admin-dashboard fade-in">
       <div className="glass-panel" style={{ padding: '2rem' }}>
-        
+
         {/* HEADER */}
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '12px' }}>
           <div>
@@ -421,9 +421,9 @@ const InasistenciasAdmin = () => {
             <h3 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
               <TrendingUp size={20} /> Resumen de Hoy
             </h3>
-            <button 
+            <button
               onClick={() => { fetchResumen(); fetchInasistenciasHoy(); }}
-              className="action-btn" 
+              className="action-btn"
               style={{ background: 'rgba(79,70,229,0.07)', color: 'var(--primary)', border: 'none' }}
               title="Recargar"
             >
@@ -464,14 +464,14 @@ const InasistenciasAdmin = () => {
         {/* DETAILS TABLE & CENTRAL JUSTIFICATIONS */}
         <div className="recent-activity" style={{ marginTop: '1.5rem', marginBottom: '2rem' }}>
           <div className="dashboard-tabs">
-            <button 
+            <button
               type="button"
               className={`dashboard-tab ${activeSubTab === 'inasistencias' ? 'active' : ''}`}
               onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}
             >
               Inasistencias de Hoy ({inasistenciasHoy.length})
             </button>
-            <button 
+            <button
               type="button"
               className={`dashboard-tab ${activeSubTab === 'justificaciones' ? 'active' : ''}`}
               onClick={() => { setActiveSubTab('justificaciones'); setCurrentPage(1); }}
@@ -497,7 +497,7 @@ const InasistenciasAdmin = () => {
                   <span>📌 Registrar Nueva Inasistencia para Hoy</span>
                 </label>
                 <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
-                  <input 
+                  <input
                     type="text"
                     placeholder="Buscar alumno por nombre o RUT para marcar inasistencia..."
                     value={absentSearchTerm}
@@ -505,9 +505,9 @@ const InasistenciasAdmin = () => {
                     style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem' }}
                   />
                   {absentSearchTerm && (
-                    <button 
+                    <button
                       type="button"
-                      onClick={() => { setAbsentSearchTerm(''); setAbsentSearchResults([]); }} 
+                      onClick={() => { setAbsentSearchTerm(''); setAbsentSearchResults([]); }}
                       style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-light)' }}
                     >
                       ✕
@@ -574,8 +574,8 @@ const InasistenciasAdmin = () => {
                                   {`${r.paterno}${r.materno ? ' ' + r.materno : ''}, ${r.nombres}`.toUpperCase()}
                                 </span>
                                 {alertInfo?.alertaCritica && (
-                                  <span 
-                                    className="severity-badge severity-badge--grave" 
+                                  <span
+                                    className="severity-badge severity-badge--grave"
                                     title={`Alerta Crítica: ${alertInfo.rate}% de inasistencias (Límite 10%)`}
                                     style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                                   >
@@ -583,8 +583,8 @@ const InasistenciasAdmin = () => {
                                   </span>
                                 )}
                                 {alertInfo?.alertaConsecutiva && (
-                                  <span 
-                                    className="severity-badge severity-badge--leve" 
+                                  <span
+                                    className="severity-badge severity-badge--leve"
                                     title={`Alerta Consecutiva: ${alertInfo.consecutive} ausencias seguidas`}
                                     style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                                   >
@@ -685,18 +685,18 @@ const InasistenciasAdmin = () => {
               }}>
                 <div className="date-field" style={{ flex: 1, minWidth: '120px' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px', display: 'block' }}>Desde</label>
-                  <input 
-                    type="date" 
-                    value={justificacionesDesde} 
+                  <input
+                    type="date"
+                    value={justificacionesDesde}
                     onChange={(e) => setJustificacionesDesde(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem' }}
                   />
                 </div>
                 <div className="date-field" style={{ flex: 1, minWidth: '120px' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px', display: 'block' }}>Hasta</label>
-                  <input 
-                    type="date" 
-                    value={justificacionesHasta} 
+                  <input
+                    type="date"
+                    value={justificacionesHasta}
                     onChange={(e) => setJustificacionesHasta(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem' }}
                   />
@@ -716,10 +716,10 @@ const InasistenciasAdmin = () => {
                 </div>
                 <div className="date-field" style={{ flex: 2, minWidth: '180px' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: '4px', display: 'block' }}>Buscar Estudiante</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     placeholder="Nombre, RUT..."
-                    value={searchJustificaciones} 
+                    value={searchJustificaciones}
                     onChange={(e) => setSearchJustificaciones(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem' }}
                   />
@@ -833,7 +833,7 @@ const InasistenciasAdmin = () => {
 
         {/* ABSENCE REPORT GENERATOR */}
         <div style={{ marginBottom: '2rem' }}>
-          <button 
+          <button
             className="report-toggle-btn"
             onClick={() => setShowReportPanel(!showReportPanel)}
             style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderRadius: '12px', background: 'var(--bg-card)', border: '1px solid var(--panel-border)', cursor: 'pointer', fontWeight: 600, color: 'var(--text-dark)' }}
@@ -842,34 +842,34 @@ const InasistenciasAdmin = () => {
               <FileSpreadsheet size={20} style={{ color: '#ef4444' }} />
               <span>Generar Reporte de Inasistencias</span>
             </div>
-            <ChevronDown 
-              size={18} 
-              style={{ 
+            <ChevronDown
+              size={18}
+              style={{
                 transition: 'transform 0.3s ease',
                 transform: showReportPanel ? 'rotate(180deg)' : 'rotate(0deg)'
-              }} 
+              }}
             />
           </button>
 
           {showReportPanel && (
             <div className="report-panel fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', background: 'rgba(0,0,0,0.01)', border: '1px solid var(--panel-border)', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '16px', marginTop: '-1px' }}>
-              
+
               {/* Período */}
               <div className="report-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <Calendar size={13} /> Período
                 </label>
                 <div style={{ display: 'flex', gap: '6px' }}>
-                  <input 
-                    type="date" 
-                    value={reportDesde} 
-                    onChange={(e) => setReportDesde(e.target.value)} 
+                  <input
+                    type="date"
+                    value={reportDesde}
+                    onChange={(e) => setReportDesde(e.target.value)}
                     style={{ flex: 1, padding: '6px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem' }}
                   />
-                  <input 
-                    type="date" 
-                    value={reportHasta} 
-                    onChange={(e) => setReportHasta(e.target.value)} 
+                  <input
+                    type="date"
+                    value={reportHasta}
+                    onChange={(e) => setReportHasta(e.target.value)}
                     style={{ flex: 1, padding: '6px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem' }}
                   />
                 </div>
@@ -878,8 +878,8 @@ const InasistenciasAdmin = () => {
               {/* Tipo Reporte */}
               <div className="report-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)' }}>Tipo de Inasistencia</label>
-                <select 
-                  value={reportType} 
+                <select
+                  value={reportType}
                   onChange={(e) => setReportType(e.target.value)}
                   style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem', background: 'white' }}
                 >
@@ -891,8 +891,8 @@ const InasistenciasAdmin = () => {
               {/* Ámbito */}
               <div className="report-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)' }}>Ámbito</label>
-                <select 
-                  value={reportScope} 
+                <select
+                  value={reportScope}
                   onChange={(e) => { setReportScope(e.target.value); setSelectedAlumno(null); setSelectedCursoId(''); }}
                   style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem', background: 'white' }}
                 >
@@ -906,8 +906,8 @@ const InasistenciasAdmin = () => {
               {reportScope === 'curso' && (
                 <div className="report-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)' }}>Seleccionar Curso</label>
-                  <select 
-                    value={selectedCursoId} 
+                  <select
+                    value={selectedCursoId}
                     onChange={(e) => setSelectedCursoId(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem', background: 'white' }}
                   >
@@ -922,10 +922,10 @@ const InasistenciasAdmin = () => {
               {reportScope === 'individual' && (
                 <div className="report-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px', position: 'relative' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-light)' }}>Buscar Alumno</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nombre o RUT..." 
-                    value={studentSearchTerm} 
+                  <input
+                    type="text"
+                    placeholder="Nombre o RUT..."
+                    value={studentSearchTerm}
                     onChange={(e) => setStudentSearchTerm(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.8rem' }}
                   />
@@ -969,14 +969,14 @@ const InasistenciasAdmin = () => {
       {justifyModal && (
         <div className="justify-modal-overlay">
           <div className="justify-modal">
-            
+
             <div className="justify-modal__header">
               <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                 ⚖️ Justificar Inasistencia
               </h2>
-              <button 
-                type="button" 
-                onClick={() => setJustifyModal(null)} 
+              <button
+                type="button"
+                onClick={() => setJustifyModal(null)}
                 style={{ background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer' }}
               >
                 <X size={20} />
@@ -996,10 +996,10 @@ const InasistenciasAdmin = () => {
 
               {/* Rango switch */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', background: 'rgba(59,130,246,0.05)', borderRadius: '8px' }}>
-                <input 
-                  type="checkbox" 
+                <input
+                  type="checkbox"
                   id="modal-range-check"
-                  checked={justifyIsRange} 
+                  checked={justifyIsRange}
                   onChange={(e) => setJustifyIsRange(e.target.checked)}
                   style={{ cursor: 'pointer', width: '16px', height: '16px' }}
                 />
@@ -1012,18 +1012,18 @@ const InasistenciasAdmin = () => {
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: '0.72rem', color: 'var(--text-light)', fontWeight: 600 }}>Fecha Inicio</label>
-                    <input 
-                      type="date" 
-                      value={justifyStartDate} 
+                    <input
+                      type="date"
+                      value={justifyStartDate}
                       onChange={(e) => setJustifyStartDate(e.target.value)}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem', marginTop: '4px' }}
                     />
                   </div>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: '0.72rem', color: 'var(--text-light)', fontWeight: 600 }}>Fecha Fin</label>
-                    <input 
-                      type="date" 
-                      value={justifyEndDate} 
+                    <input
+                      type="date"
+                      value={justifyEndDate}
                       onChange={(e) => setJustifyEndDate(e.target.value)}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--panel-border)', fontSize: '0.82rem', marginTop: '4px' }}
                     />

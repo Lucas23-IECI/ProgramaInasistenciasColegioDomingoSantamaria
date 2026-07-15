@@ -40,7 +40,7 @@ function App() {
     <div className="kiosk-mode kiosk-asistencia">
       <div className="kiosk-panel">
         <div className="kiosk-panel-inner">
-        
+
           <header className="kiosk-header">
             <div className="kiosk-title-group">
               <div className="kiosk-logo-wrapper">
@@ -67,8 +67,8 @@ function App() {
               >
                 {isFullscreen ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}
               </button>
-              <button 
-                onClick={() => { logout(); navigate('/login'); }} 
+              <button
+                onClick={() => { logout(); navigate('/login'); }}
                 className="kiosk-logout-btn"
                 title="Cerrar sesión"
               >

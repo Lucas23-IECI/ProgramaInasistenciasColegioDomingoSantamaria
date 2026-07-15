@@ -11,7 +11,7 @@ export function playBeep(type) {
     const ctx = getAudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
+
     osc.connect(gain);
     gain.connect(ctx.destination);
     gain.gain.value = 0.3;
@@ -58,7 +58,7 @@ export function playBeep(type) {
       osc.start();
       osc.stop(ctx.currentTime + 0.12);
       osc.onended = cleanup;
-      
+
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc2.connect(gain2);
