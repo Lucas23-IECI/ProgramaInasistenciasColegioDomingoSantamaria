@@ -14,6 +14,14 @@ Portal público independiente para levantar las definiciones funcionales del sis
 
 El formulario no solicita contraseñas ni antecedentes de estudiantes.
 
+## Producción
+
+- Portal: `https://cuestionarios-ldsm.pages.dev`
+- Administración: `https://cuestionarios-ldsm.pages.dev/administrar`
+- Plataforma: Cloudflare Pages, Pages Functions y D1.
+
+La clave administrativa y el secreto de sesión se mantienen exclusivamente como secretos del proyecto en Cloudflare y nunca se incorporan al repositorio.
+
 ## Desarrollo local
 
 1. Copiar `.dev.vars.example` como `.dev.vars` y reemplazar ambos secretos.

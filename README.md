@@ -88,6 +88,8 @@ El frontend queda disponible en `http://localhost:5173` y la API en `http://loca
 
 El portal independiente de cuestionarios se ejecuta desde `questionnaires/` y queda disponible en `http://localhost:8788`. Su administración privada está en `/administrar`; los pasos de configuración y publicación están documentados en `questionnaires/README.md`.
 
+La instancia pública del levantamiento institucional está disponible en `https://cuestionarios-ldsm.pages.dev`.
+
 ## Variables de entorno
 
 | Variable | Uso |
