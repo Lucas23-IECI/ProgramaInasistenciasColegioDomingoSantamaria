@@ -1,11 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap');
-
 :root {
   --primary: #3B82F6; /* Neon Blue */
   --primary-hover: #2563EB;
   --secondary: #10B981; /* Emerald Green */
   --secondary-hover: #059669;
-  --bg-gradient: radial-gradient(circle at top left, #0b1329 0%, #030712 100%);
+  --bg-surface: #030712;
   --text-dark: #F8FAFC;
   --text-light: #94A3B8;
   --glass-bg: rgba(15, 23, 42, 0.7);
@@ -23,7 +21,7 @@
 
 body {
   font-family: 'Inter', sans-serif;
-  background: var(--bg-gradient);
+  background: var(--bg-surface);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -34,7 +32,7 @@ body {
 /* Kiosk fills the full viewport — no centering constraints */
 body:has(.kiosk-mode) {
   align-items: stretch;
-  background: var(--bg-gradient);
+  background: var(--bg-surface);
 }
 
 body:has(.kiosk-mode) #root {
@@ -63,8 +61,7 @@ body:has(.kiosk-mode) #root {
 
 .login-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
   padding: 48px 40px;
@@ -172,7 +169,7 @@ body:has(.kiosk-mode) #root {
 .login-btn {
   width: 100%;
   padding: 14px;
-  background: linear-gradient(135deg, var(--primary), #7C3AED);
+  background: var(--primary);
   color: white;
   border: none;
   border-radius: 12px;
@@ -220,8 +217,7 @@ body:has(.kiosk-mode) #root {
 
 .hub-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
   padding: 40px;
@@ -382,8 +378,7 @@ body:has(.kiosk-mode) #root {
 
 .students-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
   padding: 36px 40px;
@@ -677,8 +672,7 @@ body:has(.kiosk-mode) #root {
 
 .glass-panel {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
   padding: 32px;
@@ -1685,7 +1679,7 @@ body:has(.kiosk-mode) #root {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+  background: #4F46E5;
   color: white;
   border: none;
   border-radius: 14px;
@@ -1816,7 +1810,7 @@ body:has(.kiosk-mode) #root {
   align-items: center;
   gap: 8px;
   padding: 14px;
-  background: linear-gradient(135deg, #059669 0%, #10B981 100%);
+  background: #059669;
   color: white;
   border: none;
   border-radius: 12px;
@@ -2837,8 +2831,7 @@ h1, h2, h3, .login-title, .kiosk-title-group h1, .students-title, .hub-title {
   background: var(--glass-bg) !important;
   border: 1px solid var(--glass-border) !important;
   box-shadow: var(--glass-shadow) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
+  backdrop-filter: none !important;
 }
 
 /* Modules & Lists */
@@ -2935,7 +2928,7 @@ h1, h2, h3, .login-title, .kiosk-title-group h1, .students-title, .hub-title {
 .kiosk-feedback {
   background: rgba(15, 23, 42, 0.8) !important;
   border: 1px solid rgba(59, 130, 246, 0.2) !important;
-  backdrop-filter: blur(20px) !important;
+  backdrop-filter: none !important;
 }
 
 /* Offline descriptions */
@@ -2971,7 +2964,7 @@ h1, h2, h3, .login-title, .kiosk-title-group h1, .students-title, .hub-title {
 
 /* ==================== LIGHT MODE OVERRIDES ==================== */
 body.light-mode {
-  --bg-gradient: radial-gradient(circle at top left, #f8fafc 0%, #e2e8f0 100%);
+  --bg-surface: #e2e8f0;
   --text-dark: #0f172a;
   --text-light: #475569;
   --glass-bg: rgba(255, 255, 255, 0.75);
@@ -3175,7 +3168,7 @@ body.light-mode .segmented-control__option.active {
   bottom: 4px;
   left: 4px;
   z-index: 1;
-  background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+  background: var(--primary);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s ease;
@@ -3276,8 +3269,7 @@ body.light-mode .segmented-control__slider {
   align-items: center;
   justify-content: center;
   background: rgba(3, 7, 18, 0.65);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: none;
   animation: justifyOverlayIn 0.25s ease-out;
   padding: 24px;
 }
@@ -3290,8 +3282,7 @@ body.light-mode .segmented-control__slider {
   max-height: 90vh;
   overflow-y: auto;
   background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(20px) saturate(1.4);
-  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: none;
   border: 1px solid rgba(59, 130, 246, 0.22);
   border-radius: 20px;
   box-shadow:
@@ -3303,7 +3294,7 @@ body.light-mode .segmented-control__slider {
   flex-direction: column;
 }
 
-/* subtle top gradient accent */
+/* Acento superior */
 .justify-modal::before {
   content: '';
   position: absolute;
@@ -3312,7 +3303,7 @@ body.light-mode .segmented-control__slider {
   right: 0;
   height: 3px;
   border-radius: 20px 20px 0 0;
-  background: linear-gradient(90deg, var(--primary), #a855f7, var(--secondary));
+  background: var(--primary);
   opacity: 0.85;
 }
 
@@ -3421,7 +3412,7 @@ body.light-mode .segmented-control__slider {
 }
 
 .justify-type-btn.active {
-  background: linear-gradient(135deg, var(--primary), #6366f1);
+  background: var(--primary);
   color: #fff;
   box-shadow:
     0 4px 14px rgba(59, 130, 246, 0.35),
@@ -3433,14 +3424,7 @@ body.light-mode .segmented-control__slider {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    110deg,
-    transparent 25%,
-    rgba(255, 255, 255, 0.12) 50%,
-    transparent 75%
-  );
-  background-size: 200% 100%;
-  animation: justifyShimmer 2.5s ease-in-out infinite;
+  background: transparent;
   pointer-events: none;
 }
 
@@ -3535,7 +3519,7 @@ body.light-mode .segmented-control__slider {
   padding: 11px 28px;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--primary), #7c3aed);
+  background: var(--primary);
   color: #fff;
   font-family: inherit;
   font-size: 0.9rem;
@@ -3569,13 +3553,7 @@ body.light-mode .segmented-control__slider {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    110deg,
-    transparent 30%,
-    rgba(255, 255, 255, 0.14) 50%,
-    transparent 70%
-  );
-  background-size: 200% 100%;
+  background: transparent;
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;

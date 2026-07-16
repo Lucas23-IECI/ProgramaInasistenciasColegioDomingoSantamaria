@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
 import { ArrowLeft, RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { API_URL } from './config';
 const PAGE_SIZE = 20;
@@ -173,8 +172,9 @@ const AuditoriaAdmin = () => {
     fetchData(1);
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!rows.length) return;
+    const XLSX = await import('xlsx');
     const data = rows.map(r => ({
       Fecha: formatFecha(r.fecha),
       Usuario: r.usuario_correo || '',
@@ -208,7 +208,7 @@ const AuditoriaAdmin = () => {
   };
 
   const header = {
-    background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)',
+    background: '#1e293b',
     padding: '24px 28px',
     color: '#fff',
     display: 'flex',

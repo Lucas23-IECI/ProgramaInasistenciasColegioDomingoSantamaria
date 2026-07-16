@@ -562,17 +562,17 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Input/search section
   const inputSection = (
     <>
-      <div
+      <button
+        type="button"
         className={`scanner-status ${scannerActive ? 'active' : 'inactive'}`}
         onClick={isOffline ? undefined : handleToggleScanner}
-        role="button"
-        tabIndex={-1}
+        disabled={isOffline}
         title={isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner detectado — click para cambiar' : 'Sin escáner — click para cambiar'}
         style={isOffline ? { cursor: 'not-allowed', opacity: 0.6 } : {}}
       >
         <LogIn size={16} />
         <span>{isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner de Carnet Activo' : 'Ingreso Manual'}</span>
-      </div>
+      </button>
 
       <form onSubmit={handleSubmit} className="kiosk-input-form">
         <div className="kiosk-input-wrapper">
@@ -597,6 +597,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
             disabled={isOffline}
             style={isOffline ? { cursor: 'not-allowed', opacity: 0.5 } : {}}
             title="Filtros"
+            aria-label="Mostrar filtros de búsqueda"
           >
             <Filter size={16} />
           </button>
@@ -629,7 +630,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
               ))}
             </select>
             {filterCurso && (
-              <button className="kiosk-filter-clear" onClick={() => setFilterCurso('')} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+              <button type="button" className="kiosk-filter-clear" onClick={() => setFilterCurso('')} aria-label="Quitar filtro de curso" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
                 <X size={14} />
               </button>
             )}
@@ -641,12 +642,12 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       {showResults && filteredSearchResults.length > 0 && (
         <div className="kiosk-search-results" role="listbox">
           {filteredSearchResults.map((s, idx) => (
-            <div
+            <button
+              type="button"
               key={s.id_alumno}
               ref={el => searchResultRefs.current[idx] = el}
               className={`kiosk-search-item${idx === selectedIndex ? ' selected' : ''}`}
               onClick={() => handleSelectStudent(s)}
-              role="option"
               aria-selected={idx === selectedIndex}
             >
               <User size={16} />
@@ -655,7 +656,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
                 <span className="kiosk-search-detail" style={{ fontFamily: 'Space Mono, monospace' }}>{s.rut}-{s.dv} • {s.nombre_curso || 'Sin curso'} • {s.rol}</span>
               </div>
               <ChevronRight size={16} />
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -694,23 +695,29 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         </div>
         <div className="kiosk-topbar-controls">
           <button
+            type="button"
             className={`kiosk-view-btn ${flashMode ? 'active' : ''}`}
             onClick={() => setFlashMode(prev => !prev)}
             title="Destello de pantalla"
+            aria-label={flashMode ? 'Desactivar destello de confirmación' : 'Activar destello de confirmación'}
           >
             <Sparkles size={15} />
           </button>
           <button
+            type="button"
             className={`kiosk-view-btn ${layoutMode === 'centered' ? 'active' : ''}`}
             onClick={() => setLayoutMode('centered')}
             title="Vista centrada"
+            aria-label="Usar vista centrada"
           >
             <AlignCenter size={15} />
           </button>
           <button
+            type="button"
             className={`kiosk-view-btn ${layoutMode === 'columns' ? 'active' : ''}`}
             onClick={() => setLayoutMode('columns')}
             title="Vista dos columnas"
+            aria-label="Usar vista en dos columnas"
           >
             <Columns size={15} />
           </button>

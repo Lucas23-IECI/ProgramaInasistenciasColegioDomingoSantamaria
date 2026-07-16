@@ -5,9 +5,12 @@ import {
   Users, AlertTriangle, LogOut,
   ShieldCheck, ShieldAlert, FileSpreadsheet, Calendar,
   ChevronDown, Download, RefreshCw, Clock, TrendingUp,
-  CheckCircle, X, Upload, Trash2
+  CheckCircle, X, Upload, Trash2, Globe2, School,
+  UserRound, Settings2, ClipboardList, BarChart3, Stethoscope, Paperclip
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import ModuleHeader from './components/ModuleHeader';
+import { useFeedback } from './context/FeedbackContext';
 
 import { API_URL } from './config';
 
@@ -31,6 +34,7 @@ const AdminDashboard = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const { notify } = useFeedback();
 
   // Estados de segmentación de reportes
   const [reportScope, setReportScope] = useState('masivo'); // 'masivo' | 'curso' | 'individual' | 'personalizado'
@@ -67,6 +71,18 @@ const AdminDashboard = () => {
 
   const submitJustification = async () => {
     if (!justifyModal) return;
+    if (justifyType === 'medica' && !justifyFile) {
+      notify('Adjunta el certificado médico antes de guardar.', 'error');
+      return;
+    }
+    if (justifyFile && justifyFile.size > 8 * 1024 * 1024) {
+      notify('El certificado no puede superar 8 MB.', 'error');
+      return;
+    }
+    if (justifyFile && !['application/pdf', 'image/png', 'image/jpeg'].includes(justifyFile.type)) {
+      notify('Formato no permitido. Utiliza PDF, PNG o JPG.', 'error');
+      return;
+    }
     setSubmittingJustify(true);
     try {
       let fileData = null;
@@ -97,7 +113,7 @@ const AdminDashboard = () => {
       fetchResumen();
     } catch (err) {
       console.error(err);
-      alert('Error al justificar el registro.');
+      notify('No fue posible guardar la justificación.', 'error');
     } finally {
       setSubmittingJustify(false);
     }
@@ -187,16 +203,16 @@ const AdminDashboard = () => {
     if (!reportDesde || !reportHasta) return;
 
     if (reportScope === 'curso' && !selectedCursoId) {
-      alert('Por favor selecciona un curso.');
+      notify('Selecciona un curso para generar el reporte.');
       return;
     }
 
     if (reportScope === 'individual' && !selectedAlumno) {
-      alert('Por favor busca y selecciona un alumno.');
+      notify('Busca y selecciona un alumno para continuar.');
       return;
     }
     if (reportScope === 'personalizado' && selectedAlumnos.length === 0) {
-      alert('Por favor agrega al menos un alumno al reporte.');
+      notify('Agrega al menos un alumno al reporte.');
       return;
     }
 
@@ -218,7 +234,7 @@ const AdminDashboard = () => {
 
       const rawData = res.data;
       if (rawData.length === 0) {
-        alert('No se encontraron registros para este período y tipo de reporte.');
+        notify('No se encontraron registros para el período y tipo seleccionados.');
         setGeneratingReport(false);
         return;
       }
@@ -391,7 +407,7 @@ const AdminDashboard = () => {
 
     } catch (err) {
       console.error(err);
-      alert('Error al generar el reporte.');
+      notify('No fue posible generar el reporte.', 'error');
     } finally {
       setGeneratingReport(false);
     }
@@ -407,30 +423,13 @@ const AdminDashboard = () => {
     <div className="app-container" style={{ maxWidth: '900px' }}>
       <div className="glass-panel" style={{ maxWidth: '100%', width: '100%' }}>
 
-        {/* Header */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div className="logo-icon-container" style={{ padding: '8px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px' }}>
-              <ShieldCheck size={32} style={{ color: '#3b82f6' }} />
-            </div>
-            <div>
-              <h2 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                Módulo Registro de Atrasos
-              </h2>
-              <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginTop: '4px', margin: 0 }}>
-                Liceo Domingo Santa María &bull; Reportes y Resumen
-              </p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => navigate('/admin')} className="action-btn" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: '#3b82f6', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
-              Volver al Hub
-            </button>
-            <button onClick={handleLogout} className="action-btn delete" style={{ display: 'flex', gap: '4px', alignItems: 'center', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
-              <LogOut size={16} /> Salir
-            </button>
-          </div>
-        </header>
+        <ModuleHeader
+          icon={ShieldCheck}
+          title="Control de atrasos"
+          description="Registro diario, seguimiento de puntualidad y generación de reportes."
+          onBack={() => navigate('/admin')}
+          onLogout={handleLogout}
+        />
 
         {/* ===== SECCIÓN 1: RESUMEN DEL DÍA ===== */}
         <div style={{ marginBottom: '2rem' }}>
@@ -631,14 +630,14 @@ const AdminDashboard = () => {
                     className={`report-scope-btn ${reportScope === 'masivo' ? 'active' : ''}`}
                     onClick={() => setReportScope('masivo')}
                   >
-                    {"\u{1F310}"} Masivo
+                    <Globe2 size={15} /> Masivo
                   </button>
                   <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'curso' ? 'active' : ''}`}
                     onClick={() => setReportScope('curso')}
                   >
-                    {"\u{1F3EB}"} Por Curso
+                    <School size={15} /> Por curso
                   </button>
 
                   <button
@@ -646,14 +645,14 @@ const AdminDashboard = () => {
                     className={`report-scope-btn ${reportScope === 'individual' ? 'active' : ''}`}
                     onClick={() => setReportScope('individual')}
                   >
-                    {"\u{1F464}"} Individual
+                    <UserRound size={15} /> Individual
                   </button>
                   <button
                     type="button"
                     className={`report-scope-btn ${reportScope === 'personalizado' ? 'active' : ''}`}
                     onClick={() => setReportScope('personalizado')}
                   >
-                    {"\u{2699}\u{FE0F}"} Personalizado
+                    <Settings2 size={15} /> Personalizado
                   </button>
                 </div>
 
@@ -801,13 +800,13 @@ const AdminDashboard = () => {
                     className={`report-format-btn ${reportFormat === 'detallado' ? 'active' : ''}`}
                     onClick={() => setReportFormat('detallado')}
                   >
-                    {"\u{1F4CB}"} Detallado (Marcas P/T/I por día)
+                    <ClipboardList size={15} /> Detallado (marcas P/T/I por día)
                   </button>
                   <button
                     className={`report-format-btn ${reportFormat === 'resumido' ? 'active' : ''}`}
                     onClick={() => setReportFormat('resumido')}
                   >
-                    {"\u{1F4CA}"} Resumido (Totales)
+                    <BarChart3 size={15} /> Resumido (totales)
                   </button>
                 </div>
               </div>
@@ -874,10 +873,10 @@ const AdminDashboard = () => {
                     </label>
                     <div className="justify-type-selector">
                       <button className={`justify-type-btn ${justifyType === 'apoderado' ? 'active' : ''}`} onClick={() => setJustifyType('apoderado')}>
-                        {"\u{1F464}"} Apoderado
+                        <UserRound size={16} /> Apoderado
                       </button>
                       <button className={`justify-type-btn ${justifyType === 'medica' ? 'active' : ''}`} onClick={() => setJustifyType('medica')}>
-                        {"\u{1F3E5}"} Médica
+                        <Stethoscope size={16} /> Médica
                       </button>
                     </div>
 
@@ -926,7 +925,7 @@ const AdminDashboard = () => {
                       Tipo de Justificación
                     </span>
                     <span style={{ fontSize: '0.88rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
-                      {"\u{1F464}"} Apoderado (Los atrasos solo admiten justificación de apoderados)
+                      <UserRound size={15} /> Apoderado (los atrasos solo admiten justificación de apoderados)
                     </span>
                   </div>
                 )}
@@ -954,7 +953,7 @@ const AdminDashboard = () => {
                         onChange={(e) => setJustifyFile(e.target.files[0] || null)}
                         style={{ fontSize: '0.82rem' }}
                       />
-                      {justifyFile && <span style={{ fontSize: '0.78rem', color: 'var(--secondary)' }}>{"\u{1F4CE}"} {justifyFile.name}</span>}
+                      {justifyFile && <span style={{ fontSize: '0.78rem', color: 'var(--secondary)', display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Paperclip size={14} /> {justifyFile.name}</span>}
                     </div>
                   </div>
                 )}

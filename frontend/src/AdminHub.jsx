@@ -1,76 +1,92 @@
 import React, { useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Users, LogOut, ChevronRight, ShieldCheck, UserCog, ClipboardList, Clock, BarChart2 } from 'lucide-react';
+import {
+  ArrowRight,
+  BarChart2,
+  CalendarDays,
+  ClipboardList,
+  Clock3,
+  LogOut,
+  UserCog,
+  Users,
+} from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
+import InstitutionalMark from './components/InstitutionalMark';
 
 const ALL_MODULES = [
   {
     key: 'atrasos',
-    icon: Clock,
-    title: 'Control de Atrasos',
-    description: 'Registro de atrasos diarios, control de puntualidad y generador de reportes de atraso.',
+    icon: Clock3,
+    category: 'Asistencia',
+    title: 'Control de atrasos',
+    description: 'Registro diario, seguimiento de puntualidad y reportes por período.',
     path: '/admin/atrasos',
-    color: '#3b82f6',
-    bg: 'rgba(59, 130, 246, 0.08)',
+    tone: 'blue',
     roles: ['admin', 'secretaria'],
   },
   {
     key: 'inasistencias',
-    icon: Calendar,
-    title: 'Control de Inasistencias',
-    description: 'Control de inasistencias diarias, registro manual de ausencias, licencias médicas y justificaciones.',
+    icon: CalendarDays,
+    category: 'Asistencia',
+    title: 'Control de inasistencias',
+    description: 'Ausencias, licencias médicas, certificados y justificaciones.',
     path: '/admin/inasistencias',
-    color: '#ef4444',
-    bg: 'rgba(239, 68, 68, 0.08)',
+    tone: 'red',
     roles: ['admin', 'secretaria'],
   },
   {
     key: 'analiticas',
     icon: BarChart2,
-    title: 'Estadísticas y Analíticas',
-    description: 'Módulo completo de estadísticas del período, gráficos de puntualidad y distribución de atrasos.',
+    category: 'Información',
+    title: 'Estadísticas',
+    description: 'Indicadores de asistencia y puntualidad desglosados por curso.',
     path: '/admin/analiticas',
-    color: '#10b981',
-    bg: 'rgba(16, 185, 129, 0.08)',
+    tone: 'green',
     roles: ['admin', 'secretaria'],
   },
   {
     key: 'estudiantes',
     icon: Users,
-    title: 'Gestor de Roster',
-    description: 'Padrón de estudiantes, profesores y directores, con filtros por curso.',
+    category: 'Comunidad',
+    title: 'Personas y cursos',
+    description: 'Padrón institucional, importaciones y asignación de matrículas.',
     path: '/admin/estudiantes',
-    color: '#7C3AED',
-    bg: 'rgba(124, 58, 237, 0.08)',
+    tone: 'navy',
     roles: ['admin'],
   },
   {
     key: 'usuarios',
     icon: UserCog,
-    title: 'Gestión de Usuarios',
-    description: 'Crear, editar y eliminar cuentas de acceso al panel administrativo.',
+    category: 'Administración',
+    title: 'Usuarios y permisos',
+    description: 'Cuentas de acceso, perfiles y permisos administrativos.',
     path: '/admin/usuarios',
-    color: '#B45309',
-    bg: 'rgba(180, 83, 9, 0.08)',
+    tone: 'ochre',
     roles: ['admin'],
   },
   {
     key: 'auditoria',
     icon: ClipboardList,
-    title: 'Auditoría del Sistema',
-    description: 'Historial completo de acciones, inicios de sesión, registros e importaciones.',
+    category: 'Seguridad',
+    title: 'Auditoría',
+    description: 'Trazabilidad de accesos, cambios, registros e importaciones.',
     path: '/admin/auditoria',
-    color: '#475569',
-    bg: 'rgba(71, 85, 105, 0.07)',
+    tone: 'slate',
     roles: ['admin'],
   },
 ];
 
+const formatCurrentDate = () => new Intl.DateTimeFormat('es-CL', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+}).format(new Date());
+
 const AdminHub = () => {
   const navigate = useNavigate();
   const { logout, user } = useContext(AuthContext);
-
-  const modules = ALL_MODULES.filter(m => m.roles.includes(user?.rol));
+  const modules = ALL_MODULES.filter((module) => module.roles.includes(user?.rol));
 
   const handleLogout = () => {
     logout();
@@ -79,52 +95,64 @@ const AdminHub = () => {
 
   return (
     <div className="hub-page">
-      <div className="hub-card">
+      <main className="hub-card">
         <header className="hub-header">
-          <div className="hub-header-left">
-            <div className="hub-logo-placeholder" style={{ padding: '8px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px', marginRight: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ShieldCheck size={32} style={{ color: '#3b82f6' }} />
+          <InstitutionalMark />
+          <div className="hub-header__product">
+            <span>Sistema institucional</span>
+            <strong>Gestión de asistencia</strong>
+          </div>
+          <div className="hub-user">
+            <div className="hub-user__identity">
+              <span>{user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}</span>
+              <strong>{user?.nombre || user?.correo}</strong>
             </div>
-            <div>
-              <h1 className="hub-title">Hub Administrativo</h1>
-              <p className="hub-welcome">
-                Liceo Domingo Santa María &bull; <strong>{user?.nombre || user?.correo}</strong>
-              </p>
-            </div>
+            <button className="hub-logout" onClick={handleLogout} title="Cerrar sesión">
+              <LogOut size={17} /> <span>Cerrar sesión</span>
+            </button>
           </div>
         </header>
 
-        <p className="hub-prompt">Selecciona el módulo al que deseas acceder:</p>
+        <section className="hub-intro">
+          <div>
+            <span className="section-kicker">Panel principal</span>
+            <h1 className="hub-title">Gestión institucional</h1>
+            <p className="hub-date">{formatCurrentDate()}</p>
+          </div>
+          <div className="hub-summary">
+            <strong>{modules.length}</strong>
+            <span>módulos habilitados<br />para tu perfil</span>
+          </div>
+        </section>
 
-        <div className="hub-grid">
-          {modules.map((mod) => (
-            <button
-              key={mod.key}
-              className="hub-module"
-              onClick={() => navigate(mod.path)}
-            >
-              <div className="hub-module-icon" style={{ background: mod.bg, color: mod.color }}>
-                <mod.icon size={28} />
-              </div>
-              <h3 className="hub-module-title">{mod.title}</h3>
-              <p className="hub-module-desc">{mod.description}</p>
-              <span className="hub-module-go" style={{ color: mod.color }}>
-                Acceder <ChevronRight size={16} />
-              </span>
-            </button>
-          ))}
-          <button className="hub-module hub-module--logout" onClick={handleLogout}>
-            <div className="hub-module-icon" style={{ background: 'rgba(239, 68, 68, 0.08)', color: '#EF4444' }}>
-              <LogOut size={28} />
-            </div>
-            <h3 className="hub-module-title">Cerrar sesión</h3>
-            <p className="hub-module-desc">Salir del sistema de forma segura.</p>
-            <span className="hub-module-go" style={{ color: '#EF4444' }}>
-              Salir <ChevronRight size={16} />
-            </span>
-          </button>
-        </div>
-      </div>
+        <section className="hub-modules" aria-labelledby="modules-title">
+          <div className="hub-section-heading">
+            <h2 id="modules-title">Módulos de trabajo</h2>
+            <span>Selecciona una sección para continuar</span>
+          </div>
+          <div className="hub-grid">
+            {modules.map((module) => (
+              <button
+                key={module.key}
+                className="hub-module"
+                data-tone={module.tone}
+                onClick={() => navigate(module.path)}
+              >
+                <div className="hub-module-icon"><module.icon size={22} /></div>
+                <span className="hub-module-category">{module.category}</span>
+                <h3 className="hub-module-title">{module.title}</h3>
+                <p className="hub-module-desc">{module.description}</p>
+                <span className="hub-module-go">Ingresar <ArrowRight size={16} /></span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <footer className="hub-footer">
+          <span className="hub-footer__status"><i /> Servicios operativos</span>
+          <span>Liceo Domingo Santa María · RBD 4565-9 · Concepción</span>
+        </footer>
+      </main>
     </div>
   );
 };

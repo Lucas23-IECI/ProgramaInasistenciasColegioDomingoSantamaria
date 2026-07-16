@@ -1,23 +1,29 @@
-import { StrictMode, useContext } from 'react'
+import { lazy, StrictMode, Suspense, useContext } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
+import './styles/institutional.css'
 import { AuthProvider, AuthContext } from './context/AuthContext'
 import { ThemeProvider, ThemeContext } from './context/ThemeContext'
 import { Sun, Moon } from 'lucide-react'
 import App from './App.jsx'
-import Students from './Students.jsx'
 import Login from './Login.jsx'
-import AdminDashboard from './AdminDashboard.jsx'
 import AdminHub from './AdminHub.jsx'
-import UsuariosAdmin from './UsuariosAdmin.jsx'
-import AuditoriaAdmin from './AuditoriaAdmin.jsx'
-import AnaliticasAdmin from './AnaliticasAdmin.jsx'
-import InasistenciasAdmin from './InasistenciasAdmin.jsx'
+import AppErrorBoundary from './components/AppErrorBoundary.jsx'
+import NotFound from './components/NotFound.jsx'
+import { FeedbackProvider } from './context/FeedbackContext.jsx'
+import ScrollToTop from './components/ScrollToTop.jsx'
+
+const Students = lazy(() => import('./Students.jsx'))
+const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
+const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
+const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
+const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
+const InasistenciasAdmin = lazy(() => import('./InasistenciasAdmin.jsx'))
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useContext(AuthContext);
-  if (loading) return null;
+  if (loading) return <div className="route-loader" role="status">Verificando sesión…</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (allowedRoles && !allowedRoles.includes(user.rol)) {
     return <Navigate to="/" replace />;
@@ -27,7 +33,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 const RoleBasedHome = () => {
   const { user, loading } = useContext(AuthContext);
-  if (loading) return null;
+  if (loading) return <div className="route-loader" role="status">Verificando sesión…</div>;
   if (!user) return <Navigate to="/login" />;
 
   if (user.rol === 'admin' || user.rol === 'secretaria') {
@@ -39,18 +45,23 @@ const RoleBasedHome = () => {
 const ThemeToggler = () => {
   const { theme, toggleTheme } = useContext(ThemeContext);
   return (
-    <button onClick={toggleTheme} className="theme-toggle-btn-floating" title={theme === 'light' ? 'Modo Oscuro' : 'Modo Claro'}>
+    <button onClick={toggleTheme} className="theme-toggle-btn-floating" title={theme === 'light' ? 'Modo oscuro' : 'Modo claro'} aria-label={theme === 'light' ? 'Activar modo oscuro' : 'Activar modo claro'}>
       {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+      <span>{theme === 'light' ? 'Modo oscuro' : 'Modo claro'}</span>
     </button>
   );
 };
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <BrowserRouter>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <FeedbackProvider>
+            <BrowserRouter>
+          <ScrollToTop />
           <ThemeToggler />
+          <Suspense fallback={<div className="route-loader" role="status">Cargando módulo…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<RoleBasedHome />} />
@@ -66,9 +77,13 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute allowedRoles={['admin']}><AuditoriaAdmin /></ProtectedRoute>} />
             <Route path="/admin/analiticas" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AnaliticasAdmin /></ProtectedRoute>} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+          </Suspense>
+            </BrowserRouter>
+          </FeedbackProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </AppErrorBoundary>
   </StrictMode>
 )

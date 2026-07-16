@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from './context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Clock, LogOut, ShieldCheck, LogIn, Maximize2, Minimize2 } from 'lucide-react';
+import { Clock, LogOut, Maximize2, Minimize2 } from 'lucide-react';
 import BarcodeScanner from './components/BarcodeScanner';
-import './index.css';
+import InstitutionalMark from './components/InstitutionalMark';
 
 function formatClock() {
   const now = new Date();
@@ -43,36 +43,37 @@ function App() {
 
           <header className="kiosk-header">
             <div className="kiosk-title-group">
-              <div className="kiosk-logo-wrapper">
-                <ShieldCheck size={38} className="text-blue-500" style={{ color: '#3b82f6' }} />
-              </div>
+              <InstitutionalMark inverse />
               <div className="kiosk-divider" />
               <div>
-                <h1>Registro de Atrasos</h1>
-                <div className="kiosk-context-subtitle" style={{ color: '#94a3b8' }}>
-                  Liceo Domingo Santa María
-                </div>
+                <span className="kiosk-eyebrow">Asistencia escolar</span>
+                <h1>Terminal de registro</h1>
+                <div className="kiosk-context-subtitle">Entrada de estudiantes y personal</div>
               </div>
             </div>
 
             <div className="kiosk-header-right">
-              <div className="kiosk-clock" style={{ fontFamily: 'Space Mono, monospace' }}>
+              <div className="kiosk-clock">
                 <Clock size={16} />
                 <span>{clockTime}</span>
               </div>
               <button
+                type="button"
                 onClick={toggleFullscreen}
                 className="kiosk-logout-btn"
                 title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
               >
                 {isFullscreen ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}
+                <span>{isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}</span>
               </button>
               <button
+                type="button"
                 onClick={() => { logout(); navigate('/login'); }}
                 className="kiosk-logout-btn"
                 title="Cerrar sesión"
               >
                 <LogOut size={16}/>
+                <span>Cerrar sesión</span>
               </button>
             </div>
           </header>

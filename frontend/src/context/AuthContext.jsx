@@ -12,6 +12,20 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const requestUrl = error.config?.url || '';
+        if (error.response?.status === 401 && !requestUrl.endsWith('/auth/login')) {
+          setUser(null);
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
+
+  useEffect(() => {
     // Intentar restaurar la sesión desde el backend a través de la cookie HttpOnly
     const checkSession = async () => {
       try {

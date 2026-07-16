@@ -1,8 +1,8 @@
-import React, { useState, useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowRight, Lock, Mail, MapPin, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
-import { AlertCircle, Mail, Lock, ShieldCheck } from 'lucide-react';
-import './index.css';
+import InstitutionalMark from './components/InstitutionalMark';
 
 const Login = () => {
   const [correo, setCorreo] = useState('');
@@ -12,20 +12,18 @@ const Login = () => {
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleLogin = async (event) => {
+    event.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
     try {
       await login(correo, password);
       navigate('/');
-    } catch (err) {
-      if (err.response && err.response.status === 401) {
-        setErrorMsg('Credenciales inválidas');
-      } else {
-        setErrorMsg('Error de red. Intenta más tarde.');
-      }
+    } catch (error) {
+      setErrorMsg(error.response?.status === 401
+        ? 'Las credenciales no son válidas.'
+        : 'No fue posible conectar con el sistema. Intenta nuevamente.');
     } finally {
       setLoading(false);
     }
@@ -33,53 +31,86 @@ const Login = () => {
 
   return (
     <div className="login-page">
-      <div className="login-card">
-        {/* Hero logo — full width */}
-        <div className="login-hero" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px 0', background: 'rgba(59,130,246,0.05)' }}>
-          <ShieldCheck size={72} style={{ color: '#3b82f6', filter: 'drop-shadow(0 0 12px rgba(59,130,246,0.35))' }} />
-        </div>
-
-        <div className="login-header">
-          <h1 className="login-title">Registro de Atrasos</h1>
-          <h2 className="login-title-accent">Liceo Domingo Santa María</h2>
-        </div>
-
-        {errorMsg && (
-          <div className="login-error fade-in">
-            <AlertCircle size={18} />
-            <span>{errorMsg}</span>
+      <main className="login-shell">
+        <section className="login-context" aria-label="Información institucional">
+          <InstitutionalMark inverse />
+          <div className="login-context__main">
+            <span className="section-kicker">Plataforma institucional</span>
+            <h1>Sistema de gestión de asistencia escolar</h1>
+            <p>
+              Registro, seguimiento y análisis de asistencia para la comunidad
+              educativa del Liceo Domingo Santa María.
+            </p>
           </div>
-        )}
-
-        <form onSubmit={handleLogin} className="login-form">
-          <div className="login-input-wrapper">
-            <Mail size={18} className="login-input-icon" />
-            <input
-              type="email"
-              className="login-input"
-              placeholder="Correo electrónico"
-              value={correo}
-              onChange={(e) => setCorreo(e.target.value)}
-              required
-            />
+          <div className="login-context__status">
+            <span className="system-status-dot" aria-hidden="true" />
+            <div>
+              <strong>Servicio disponible</strong>
+              <small>Acceso seguro para personal autorizado</small>
+            </div>
           </div>
-          <div className="login-input-wrapper">
-            <Lock size={18} className="login-input-icon" />
-            <input
-              type="password"
-              className="login-input"
-              placeholder="Contraseña"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+        </section>
+
+        <section className="login-card">
+          <div className="login-card__location"><MapPin size={14} /> Concepción, Región del Biobío</div>
+          <div className="login-header">
+            <span className="section-kicker">Acceso al sistema</span>
+            <h2 className="login-title">Iniciar sesión</h2>
+            <p className="login-subtitle">Utiliza las credenciales asignadas por el establecimiento.</p>
           </div>
 
-          <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? 'Ingresando...' : 'Iniciar Sesión'}
-          </button>
-        </form>
-      </div>
+          {errorMsg && (
+            <div className="login-error fade-in" role="alert">
+              <AlertCircle size={18} />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="login-form">
+            <label className="login-field">
+              <span>Correo electrónico</span>
+              <div className="login-input-wrapper">
+                <Mail size={18} className="login-input-icon" />
+                <input
+                  type="email"
+                  className="login-input"
+                  placeholder="nombre@establecimiento.cl"
+                  value={correo}
+                  onChange={(event) => setCorreo(event.target.value)}
+                  autoComplete="username"
+                  required
+                />
+              </div>
+            </label>
+
+            <label className="login-field">
+              <span>Contraseña</span>
+              <div className="login-input-wrapper">
+                <Lock size={18} className="login-input-icon" />
+                <input
+                  type="password"
+                  className="login-input"
+                  placeholder="Tu contraseña"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+            </label>
+
+            <button type="submit" className="login-btn" disabled={loading}>
+              <span>{loading ? 'Ingresando...' : 'Ingresar al sistema'}</span>
+              {!loading && <ArrowRight size={18} />}
+            </button>
+          </form>
+
+          <div className="login-card__footer">
+            <span><ShieldCheck size={14} /> Conexión protegida</span>
+            <span>RBD 4565-9</span>
+          </div>
+        </section>
+      </main>
     </div>
   );
 };

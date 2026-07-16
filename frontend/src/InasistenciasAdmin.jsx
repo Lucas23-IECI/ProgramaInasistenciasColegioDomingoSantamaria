@@ -4,10 +4,12 @@ import { AuthContext } from './context/AuthContext';
 import {
   Users, AlertTriangle, LogOut, ShieldCheck, ShieldAlert,
   FileSpreadsheet, Calendar, ChevronDown, Download, RefreshCw,
-  Clock, TrendingUp, CheckCircle, X, Upload, Trash2
+  Clock, TrendingUp, CheckCircle, X, Upload, Trash2,
+  CirclePlus, BellRing, UserRound, Stethoscope
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
+import ModuleHeader from './components/ModuleHeader';
+import { useFeedback } from './context/FeedbackContext';
 
 import { API_URL } from './config';
 
@@ -22,6 +24,7 @@ const InasistenciasAdmin = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const { notify, confirm } = useFeedback();
 
   // States for report generator
   const [showReportPanel, setShowReportPanel] = useState(false);
@@ -215,7 +218,7 @@ const InasistenciasAdmin = () => {
         id_alumno: student.id_alumno,
         fecha: today
       }, { withCredentials: true });
-      alert(`Se ha registrado la inasistencia de ${student.nombres} ${student.paterno} con éxito.`);
+      notify(`Se registró la inasistencia de ${student.nombres} ${student.paterno}.`, 'success');
       setAbsentSearchTerm('');
       setAbsentSearchResults([]);
       fetchResumen();
@@ -223,7 +226,7 @@ const InasistenciasAdmin = () => {
       fetchAlertasTempranas();
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || 'Error al registrar la inasistencia.');
+      notify(err.response?.data?.message || 'No fue posible registrar la inasistencia.', 'error');
     }
   };
 
@@ -240,6 +243,18 @@ const InasistenciasAdmin = () => {
 
   const submitJustification = async () => {
     if (!justifyModal) return;
+    if (justifyType === 'medica' && !justifyFile) {
+      notify('Adjunta el certificado médico antes de guardar.', 'error');
+      return;
+    }
+    if (justifyFile && justifyFile.size > 8 * 1024 * 1024) {
+      notify('El certificado no puede superar 8 MB.', 'error');
+      return;
+    }
+    if (justifyFile && !['application/pdf', 'image/png', 'image/jpeg'].includes(justifyFile.type)) {
+      notify('Formato no permitido. Utiliza PDF, PNG o JPG.', 'error');
+      return;
+    }
     setSubmittingJustify(true);
     try {
       let fileData = null;
@@ -273,7 +288,7 @@ const InasistenciasAdmin = () => {
         withCredentials: true
       });
 
-      alert('Inasistencia justificada correctamente.');
+      notify('La inasistencia fue justificada correctamente.', 'success');
       setJustifyModal(null);
       fetchResumen();
       fetchInasistenciasHoy();
@@ -283,28 +298,32 @@ const InasistenciasAdmin = () => {
       }
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || 'Error al guardar justificación.');
+      notify(err.response?.data?.message || 'No fue posible guardar la justificación.', 'error');
     } finally {
       setSubmittingJustify(false);
     }
   };
 
   const handleRevokeJustification = async (id_registro) => {
-    if (!window.confirm('¿Está seguro de que desea eliminar/revocar esta justificación? El registro volverá al estado de ausencia injustificada.')) {
-      return;
-    }
+    const accepted = await confirm({
+      title: 'Revocar justificación',
+      message: 'El registro volverá al estado de ausencia injustificada. Esta acción quedará registrada en auditoría.',
+      confirmLabel: 'Revocar justificación',
+      danger: true,
+    });
+    if (!accepted) return;
     try {
       await axios.delete(`${API_URL}/asistencia/justificacion/${id_registro}`, {
         withCredentials: true
       });
-      alert('Justificación eliminada/revocada con éxito.');
+      notify('La justificación fue revocada.', 'success');
       fetchJustificaciones();
       fetchResumen();
       fetchInasistenciasHoy();
       fetchAlertasTempranas();
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.message || 'Error al eliminar la justificación.');
+      notify(err.response?.data?.message || 'No fue posible revocar la justificación.', 'error');
     }
   };
 
@@ -317,13 +336,18 @@ const InasistenciasAdmin = () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', filename || `certificado_${id_registro}.pdf`);
+      const disposition = response.headers['content-disposition'] || '';
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+      const simpleName = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+      const responseName = encodedName ? decodeURIComponent(encodedName) : simpleName;
+      link.setAttribute('download', responseName || filename || `certificado_${id_registro}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      alert('Error al descargar el archivo.');
+      notify('No fue posible descargar el certificado.', 'error');
     }
   };
 
@@ -331,11 +355,11 @@ const InasistenciasAdmin = () => {
     if (!reportDesde || !reportHasta) return;
 
     if (reportScope === 'curso' && !selectedCursoId) {
-      alert('Por favor selecciona un curso.');
+      notify('Selecciona un curso para generar el reporte.');
       return;
     }
     if (reportScope === 'individual' && !selectedAlumno) {
-      alert('Por favor busca y selecciona un alumno.');
+      notify('Busca y selecciona un alumno para continuar.');
       return;
     }
 
@@ -355,9 +379,11 @@ const InasistenciasAdmin = () => {
 
       const data = res.data || [];
       if (data.length === 0) {
-        alert('No se encontraron registros para los filtros seleccionados.');
+        notify('No se encontraron registros para los filtros seleccionados.');
         return;
       }
+
+      const XLSX = await import('xlsx');
 
       const worksheet = XLSX.utils.json_to_sheet(data.map(item => ({
         'FECHA': item.fecha ? item.fecha.substring(0, 10) : '—',
@@ -378,7 +404,7 @@ const InasistenciasAdmin = () => {
       XLSX.writeFile(workbook, fileName);
     } catch (err) {
       console.error(err);
-      alert('Error al generar el reporte.');
+      notify('No fue posible generar el reporte.', 'error');
     } finally {
       setGeneratingReport(false);
     }
@@ -388,25 +414,13 @@ const InasistenciasAdmin = () => {
     <div className="admin-dashboard fade-in">
       <div className="glass-panel" style={{ padding: '2rem' }}>
 
-        {/* HEADER */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '12px' }}>
-          <div>
-            <h1 style={{ color: 'var(--text-dark)', fontWeight: 800, fontSize: '1.8rem', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Calendar size={32} style={{ color: 'var(--primary)' }} /> Control de Inasistencias
-            </h1>
-            <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginTop: '4px', margin: 0 }}>
-              Liceo Domingo Santa María &bull; Gestión y Justificaciones de Ausencias
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => navigate('/admin')} className="action-btn" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: '#3b82f6', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
-              Volver al Hub
-            </button>
-            <button onClick={handleLogout} className="action-btn delete" style={{ display: 'flex', gap: '4px', alignItems: 'center', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
-              <LogOut size={16} /> Salir
-            </button>
-          </div>
-        </header>
+        <ModuleHeader
+          icon={Calendar}
+          title="Control de inasistencias"
+          description="Ausencias, justificaciones, certificados y seguimiento por estudiante."
+          onBack={() => navigate('/admin')}
+          onLogout={handleLogout}
+        />
 
         {/* METRICS GRID */}
         <div style={{ marginBottom: '2rem' }}>
@@ -433,21 +447,21 @@ const InasistenciasAdmin = () => {
                 <div className="stat-card__value">{stats?.totalAlumnos || 0}</div>
                 <div className="stat-card__label">Matrícula Activa</div>
               </div>
-              <div className="stat-card" style={{ borderLeftColor: '#ef4444' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
+              <button type="button" className="stat-card" style={{ borderLeftColor: '#ef4444' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
                 <div className="stat-card__icon" style={{ color: '#ef4444' }}><ShieldAlert size={22} /></div>
                 <div className="stat-card__value">{stats?.absent || 0}</div>
                 <div className="stat-card__label">Inasistencias Totales</div>
-              </div>
-              <div className="stat-card" style={{ borderLeftColor: '#10b981' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
+              </button>
+              <button type="button" className="stat-card" style={{ borderLeftColor: '#10b981' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
                 <div className="stat-card__icon" style={{ color: '#10b981' }}><ShieldCheck size={22} /></div>
                 <div className="stat-card__value">{inasistenciasHoy.filter(r => r.justificado).length}</div>
                 <div className="stat-card__label">Justificadas Hoy</div>
-              </div>
-              <div className="stat-card" style={{ borderLeftColor: '#f59e0b' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
+              </button>
+              <button type="button" className="stat-card" style={{ borderLeftColor: '#f59e0b' }} onClick={() => { setActiveSubTab('inasistencias'); setCurrentPage(1); }}>
                 <div className="stat-card__icon" style={{ color: '#f59e0b' }}><AlertTriangle size={22} /></div>
                 <div className="stat-card__value">{inasistenciasHoy.filter(r => !r.justificado).length}</div>
                 <div className="stat-card__label">Injustificadas Hoy</div>
-              </div>
+              </button>
             </div>
           )}
         </div>
@@ -476,7 +490,7 @@ const InasistenciasAdmin = () => {
           {activeSubTab === 'inasistencias' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '1rem' }}>
               {/* Registrar Manual Search Bar */}
-              <div style={{
+              <div className="absence-search-panel" style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '8px',
@@ -487,7 +501,7 @@ const InasistenciasAdmin = () => {
                 marginBottom: '1rem'
               }}>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span>📌 Registrar Nueva Inasistencia para Hoy</span>
+                  <CirclePlus size={15} /> <span>Registrar inasistencia para hoy</span>
                 </label>
                 <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
                   <input
@@ -572,7 +586,7 @@ const InasistenciasAdmin = () => {
                                     title={`Alerta Crítica: ${alertInfo.rate}% de inasistencias (Límite 10%)`}
                                     style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                                   >
-                                    ⚠️ Crítica ({alertInfo.rate}%)
+                                    <AlertTriangle size={12} /> Crítica ({alertInfo.rate}%)
                                   </span>
                                 )}
                                 {alertInfo?.alertaConsecutiva && (
@@ -581,7 +595,7 @@ const InasistenciasAdmin = () => {
                                     title={`Alerta Consecutiva: ${alertInfo.consecutive} ausencias seguidas`}
                                     style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                                   >
-                                    🚨 {alertInfo.consecutive} Seguidas
+                                    <BellRing size={12} /> {alertInfo.consecutive} seguidas
                                   </span>
                                 )}
                               </div>
@@ -946,7 +960,7 @@ const InasistenciasAdmin = () => {
                   onClick={generateReport}
                   className="action-btn"
                   disabled={generatingReport}
-                  style={{ width: '100%', height: '36px', background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                  style={{ width: '100%', height: '36px', background: '#b92f31', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 >
                   {generatingReport ? 'Generando...' : <><Download size={15} /> Descargar Excel</>}
                 </button>
@@ -1033,14 +1047,14 @@ const InasistenciasAdmin = () => {
                     className={`justify-type-btn ${justifyType === 'apoderado' ? 'active' : ''}`}
                     onClick={() => setJustifyType('apoderado')}
                   >
-                    👤 Apoderado
+                    <UserRound size={16} /> Apoderado
                   </button>
                   <button
                     type="button"
                     className={`justify-type-btn ${justifyType === 'medica' ? 'active' : ''}`}
                     onClick={() => setJustifyType('medica')}
                   >
-                    🏥 Médica
+                    <Stethoscope size={16} /> Médica
                   </button>
                 </div>
               </div>

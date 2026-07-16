@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
-import { Search, ChevronLeft, X, Users, GraduationCap, Database, Upload, FileSpreadsheet, RefreshCw, ShieldCheck, User, Mail, Phone, Calendar, Hash, Shield, Clock, Activity } from 'lucide-react';
+import { Search, X, Users, GraduationCap, Database, Upload, FileSpreadsheet, RefreshCw, ShieldCheck, User, Mail, Phone, Calendar, Hash, Shield, Clock, Activity, AlertTriangle, BellRing } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import './index.css';
 
 import { API_URL } from './config';
+import { AuthContext } from './context/AuthContext';
+import ModuleHeader from './components/ModuleHeader';
 
 const normalizeHeaderKey = (value) => {
   return String(value || '')
@@ -26,6 +28,7 @@ const getCell = (row, aliases) => {
 };
 
 function Students() {
+  const { logout } = useContext(AuthContext);
   const [activeSection, setActiveSection] = useState('listado');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -219,6 +222,23 @@ function Students() {
     return String(value);
   };
 
+  const handleBack = () => {
+    if (selectedCourse) {
+      setSelectedCourse(null);
+      return;
+    }
+    if (activeSection === 'carga') {
+      setActiveSection('listado');
+      return;
+    }
+    navigate('/admin');
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
   return (
     <div className="students-page">
       {toast && (
@@ -239,31 +259,17 @@ function Students() {
 
       <div className="students-card">
 
-        <header className="students-header">
-           <div className="students-header-left">
-              <button
-                onClick={() => {
-                   if (selectedCourse) {
-                     setSelectedCourse(null);
-                     return;
-                   }
-                   if (activeSection === 'carga') {
-                     setActiveSection('listado');
-                     return;
-                   }
-                   navigate('/admin');
-                }}
-                className="students-back-btn"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <h1 className="students-title">
-                 {activeSection === 'listado'
-                   ? (selectedCourse ? `Miembros: ${selectedCourse}` : 'Curso / Nómina de Liceo')
-                   : 'Carga de Nómina Escolar'}
-              </h1>
-           </div>
-        </header>
+        <ModuleHeader
+          icon={GraduationCap}
+          title={activeSection === 'listado'
+            ? (selectedCourse ? `Nómina: ${selectedCourse}` : 'Personas y cursos')
+            : 'Importación de nómina escolar'}
+          description={activeSection === 'carga'
+            ? 'Carga controlada desde el archivo ERP, con previsualización antes de sincronizar.'
+            : 'Padrón institucional, cursos, estado de matrícula y ficha de cada integrante.'}
+          onBack={handleBack}
+          onLogout={handleLogout}
+        />
 
         <div className="students-tabs">
           <button
@@ -273,7 +279,7 @@ function Students() {
               setUploadError('');
             }}
           >
-            <Users size={16} /> Padron de Usuarios/Estudiantes
+            <Users size={16} /> Padrón de personas
           </button>
           <button
             className={`students-tab ${activeSection === 'carga' ? 'active' : ''}`}
@@ -353,7 +359,7 @@ function Students() {
                                 title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                ⚠️ Crítica ({alertasMap[s.id_alumno].rate}%)
+                                <AlertTriangle size={12} /> Crítica ({alertasMap[s.id_alumno].rate}%)
                               </span>
                             )}
                             {alertasMap[s.id_alumno]?.alertaConsecutiva && (
@@ -362,7 +368,7 @@ function Students() {
                                 title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                🚨 {alertasMap[s.id_alumno].consecutive} Seguidas
+                                <BellRing size={12} /> {alertasMap[s.id_alumno].consecutive} seguidas
                               </span>
                             )}
                           </div>
@@ -403,30 +409,30 @@ function Students() {
                   : allCourses.slice((coursePage - 1) * COURSE_PAGE_SIZE - 1, coursePage * COURSE_PAGE_SIZE - 1);
                 return (
                   <>
-                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '15px'}}>
+                    <div className="students-course-grid">
                       {coursePage === 1 && (
-                      <div
-                        className="hub-module"
-                        style={{padding: '20px', cursor: 'pointer', textAlign: 'center', background: 'rgba(59, 130, 246, 0.05)'}}
+                      <button
+                        type="button"
+                        className="hub-module students-course-option students-course-option--all"
                         onClick={() => setSelectedCourse('Toda La Matrícula')}
                       >
                         <Users size={32} color="#3b82f6" style={{marginBottom: '10px'}}/>
                         <h3 className="hub-module-title">Matrícula Completa</h3>
                         <p className="hub-module-desc">Padrón total del Liceo ({students.length} miembros)</p>
-                      </div>
+                      </button>
                       )}
 
                       {pagedCourses.map(curso => (
-                       <div
+                       <button
+                         type="button"
                          key={curso}
-                         className="hub-module"
-                         style={{padding: '20px', cursor: 'pointer', textAlign: 'center'}}
+                         className="hub-module students-course-option"
                          onClick={() => setSelectedCourse(curso)}
                        >
                          <GraduationCap size={32} color="var(--primary)" style={{marginBottom: '10px'}}/>
                          <h3 className="hub-module-title">{curso}</h3>
                          <p className="hub-module-desc">{courseGroups[curso].length} Miembros registrados</p>
-                       </div>
+                       </button>
                       ))}
                     </div>
                     {totalCoursePages > 1 && (
@@ -501,7 +507,7 @@ function Students() {
                                 title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                ⚠️ Crítica ({alertasMap[s.id_alumno].rate}%)
+                                <AlertTriangle size={12} /> Crítica ({alertasMap[s.id_alumno].rate}%)
                               </span>
                             )}
                             {alertasMap[s.id_alumno]?.alertaConsecutiva && (
@@ -510,7 +516,7 @@ function Students() {
                                 title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                🚨 {alertasMap[s.id_alumno].consecutive} Seguidas
+                                <BellRing size={12} /> {alertasMap[s.id_alumno].consecutive} seguidas
                               </span>
                             )}
                           </div>
@@ -554,16 +560,16 @@ function Students() {
           </div>
         ) : (
           <div className="fade-in">
-            <div style={{background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '14px', padding: '18px', marginBottom: '15px'}}>
+            <div className="students-import-panel">
               <h3 style={{margin: 0, marginBottom: '8px', color: 'var(--text-dark)', display: 'flex', gap: '8px', alignItems: 'center'}}>
                 <FileSpreadsheet size={18} /> Cargar Planilla ERP (`Usuarios`)
               </h3>
               <p style={{color: 'var(--text-light)', marginBottom: '12px', fontSize: '0.9rem'}}>
-                Suba el archivo excel exportado de su ERP (`usuarios_actualizar_Liceo Domingo Santa Maria_20260602.xlsx`). El sistema asociará los RUT, creará los cursos y registrará credenciales para el personal administrativo y docente.
+                Seleccione el archivo Excel exportado desde el ERP. El sistema actualizará personas, cursos y matrículas. Las columnas de contraseña se descartan y la importación nunca crea cuentas de acceso.
               </p>
 
               <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
-                <label className="pagination-btn" style={{cursor: 'pointer', padding: '10px 18px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                <label className="pagination-btn students-import-select">
                   <Upload size={16} /> Seleccionar Archivo Excel
                   <input
                     type="file"
@@ -574,7 +580,7 @@ function Students() {
                 </label>
 
                 <button
-                  className="pagination-btn"
+                  className="pagination-btn students-import-submit"
                   onClick={syncExcelWithDatabase}
                   disabled={!excelRows.length || syncing}
                   style={{
@@ -597,7 +603,7 @@ function Students() {
               )}
 
               {syncResult && (
-                <div style={{marginTop: '12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', padding: '15px', borderRadius: '10px', color: 'white'}}>
+                <div className="students-sync-success">
                   <div><strong>Carga Finalizada Exitosamente</strong></div>
                   <div style={{marginTop: '6px', fontSize: '0.9rem'}}>Miembros Nuevos: {syncResult.inserted} | Actualizados: {syncResult.updated} | Omitidos sin cambios: {syncResult.unchanged}</div>
                   <div style={{marginTop: '4px', fontSize: '0.9rem'}}>Errores encontrados: {syncResult.errors?.length || 0}</div>
@@ -616,7 +622,7 @@ function Students() {
             </div>
 
             {previewRows.length > 0 && (
-              <div style={{overflowX: 'auto', background: 'rgba(15,23,42,0.4)', borderRadius: '12px', border: '1px solid rgba(59,130,246,0.15)'}}>
+              <div className="students-import-preview" style={{overflowX: 'auto'}}>
                 <table className="students-table" style={{width: '100%', borderCollapse: 'collapse'}}>
                   <thead>
                     <tr style={{borderBottom: '1px solid rgba(59,130,246,0.2)'}}>
@@ -678,7 +684,7 @@ function Students() {
                         width: '64px',
                         height: '64px',
                         borderRadius: '50%',
-                        background: 'linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%)',
+                        background: 'var(--primary)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',

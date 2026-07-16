@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from './config';
+import ModuleHeader from './components/ModuleHeader';
 
 /* ═══════════════════ SVG CHART COMPONENTS ═══════════════════ */
 
@@ -104,10 +105,6 @@ const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros'
   });
 
   const linePath = points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const areaPath = points.length > 0
-    ? `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`
-    : '';
-
   const formatLabelDate = (dateStr) => {
     if (!dateStr) return '';
     const parts = dateStr.split('-');
@@ -119,13 +116,6 @@ const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
       <svg className="line-chart-svg" viewBox={`0 0 ${width} ${height}`}>
-        <defs>
-          <linearGradient id={`gradient-${label}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.20" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.00" />
-          </linearGradient>
-        </defs>
-
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
           const y = padding + ratio * (height - 2 * padding);
           const val = Math.round(maxCount * (1 - ratio));
@@ -137,7 +127,6 @@ const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros'
           );
         })}
 
-        {areaPath && <path d={areaPath} fill={`url(#gradient-${label})`} />}
         {linePath && (
           <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
         )}
@@ -171,7 +160,7 @@ const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros'
   );
 };
 
-const CourseBarChart = ({ data = [], label = 'registro(s)', colorGradient = 'linear-gradient(90deg, var(--primary) 0%, #a78bfa 100%)' }) => {
+const CourseBarChart = ({ data = [], label = 'registro(s)', color = 'var(--primary)' }) => {
   if (data.length === 0) {
     return (
       <div style={{ color: 'var(--text-light)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0', width: '100%' }}>
@@ -192,7 +181,7 @@ const CourseBarChart = ({ data = [], label = 'registro(s)', colorGradient = 'lin
               <strong style={{ color: 'var(--primary)' }}>{count} {label}</strong>
             </div>
             <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: colorGradient, borderRadius: '4px', transition: 'width 0.8s ease' }} />
+              <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '4px', transition: 'width 0.8s ease' }} />
             </div>
           </div>
         );
@@ -226,9 +215,7 @@ const TimeSlotBarChart = ({ data = [] }) => {
             </div>
             <div style={{
               width: '20px', height: `${Math.max(4, pct)}px`,
-              background: d.label.includes('>')
-                ? 'linear-gradient(to top, #ef4444 0%, #f87171 100%)'
-                : 'linear-gradient(to top, var(--primary) 0%, #60a5fa 100%)',
+              background: d.label.includes('>') ? '#ef4444' : 'var(--primary)',
               borderRadius: '4px 4px 0 0', transition: 'height 0.8s ease'
             }} />
             <div style={{ fontSize: '0.65rem', color: 'var(--text-light)', textAlign: 'center', lineHeight: 1.1 }}>
@@ -307,33 +294,17 @@ const AnaliticasAdmin = () => {
     <div className="admin-dashboard fade-in">
       <div className="glass-panel" style={{ padding: '2rem' }}>
 
-        {/* Header */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ padding: '8px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '12px' }}>
-              <BarChart2 size={32} style={{ color: '#10b981' }} />
-            </div>
-            <div>
-              <h2 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
-                Estadísticas y Analíticas
-              </h2>
-              <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginTop: '4px', margin: 0 }}>
-                Liceo Domingo Santa María &bull; {user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}
-              </p>
-            </div>
-          </div>
-          <div className="header-actions" style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => window.print()} className="action-btn" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', color: '#10b981', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Download size={16} /> Exportar PDF
-            </button>
-            <button onClick={() => navigate('/admin')} className="action-btn" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', color: '#3b82f6', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ArrowLeft size={16} /> Volver al Hub
-            </button>
-            <button onClick={handleLogout} className="action-btn delete" style={{ display: 'flex', gap: '4px', alignItems: 'center', borderRadius: '10px', padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
-              <LogOut size={16} /> Salir
-            </button>
-          </div>
-        </header>
+        <ModuleHeader
+          icon={BarChart2}
+          title="Estadísticas"
+          description={`Indicadores institucionales de asistencia · ${user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}`}
+          onBack={() => navigate('/admin')}
+          onLogout={handleLogout}
+        >
+          <button type="button" onClick={() => window.print()} className="module-header__button">
+            <Download size={15} /> Exportar PDF
+          </button>
+        </ModuleHeader>
 
         {/* Sub-tab segmented control for Atrasos vs Inasistencias */}
         <div className="dashboard-tabs" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)' }}>
@@ -343,7 +314,7 @@ const AnaliticasAdmin = () => {
             onClick={() => setSubTab('atrasos')}
             style={{ fontSize: '0.95rem', fontWeight: 700, padding: '10px 20px', cursor: 'pointer' }}
           >
-            {"\u{23F1}\u{FE0F}"} Estadísticas de Atrasos
+            <Clock size={16} /> Estadísticas de atrasos
           </button>
           <button
             type="button"
@@ -351,7 +322,7 @@ const AnaliticasAdmin = () => {
             onClick={() => setSubTab('inasistencias')}
             style={{ fontSize: '0.95rem', fontWeight: 700, padding: '10px 20px', cursor: 'pointer' }}
           >
-            {"\u{1F4C5}"} Estadísticas de Inasistencias
+            <Calendar size={16} /> Estadísticas de inasistencias
           </button>
         </div>
 
@@ -492,7 +463,7 @@ const AnaliticasAdmin = () => {
                   <div className="chart-card">
                     <div className="chart-card__title"><BarChart2 size={16} /> Peores Cursos (Atrasos)</div>
                     <div className="chart-container">
-                      <CourseBarChart data={analyticsData?.courseLate} label="atraso(s)" colorGradient="linear-gradient(90deg, var(--primary) 0%, #a78bfa 100%)" />
+                      <CourseBarChart data={analyticsData?.courseLate} label="atraso(s)" color="var(--primary)" />
                     </div>
                   </div>
 
@@ -578,7 +549,7 @@ const AnaliticasAdmin = () => {
                   <div className="chart-card">
                     <div className="chart-card__title"><BarChart2 size={16} /> Cursos con Más Inasistencias</div>
                     <div className="chart-container">
-                      <CourseBarChart data={analyticsData?.courseAbsences} label="ausencia(s)" colorGradient="linear-gradient(90deg, #ef4444 0%, #fca5a5 100%)" />
+                      <CourseBarChart data={analyticsData?.courseAbsences} label="ausencia(s)" color="#ef4444" />
                     </div>
                   </div>
                 </div>
