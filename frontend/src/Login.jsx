@@ -36,9 +36,9 @@ const Login = () => {
           <InstitutionalMark inverse />
           <div className="login-context__main">
             <span className="section-kicker">Liceo público · Concepción</span>
-            <h1>Sistema de gestión de asistencia escolar</h1>
+            <h1>Sistema de control de puntualidad</h1>
             <p>
-              Registro, seguimiento y análisis de asistencia para la comunidad
+              Registro, seguimiento y análisis de atrasos para la comunidad
               educativa del Liceo Domingo Santa María.
             </p>
             <blockquote className="login-context__motto">

@@ -1242,8 +1242,111 @@ body:has(.kiosk-mode) .kiosk-header-right {
   }
 
   body:has(.kiosk-mode) .global-tools {
-    top: auto;
+    top: 10px;
     right: 10px;
-    bottom: max(10px, env(safe-area-inset-bottom));
+    bottom: auto;
+  }
+
+  .kiosk-mode .kiosk-header {
+    position: relative;
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 70px 16px 18px;
+  }
+
+  .kiosk-mode .kiosk-title-group {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 11px;
+    align-items: center;
+  }
+
+  .kiosk-mode .kiosk-title-group .institutional-mark {
+    width: 46px;
+  }
+
+  .kiosk-mode .kiosk-title-group .institutional-mark__crest {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+  }
+
+  .kiosk-mode .kiosk-divider {
+    display: none;
+  }
+
+  .kiosk-mode .kiosk-title-group h1 {
+    margin: 2px 0;
+    font-size: 1.42rem !important;
+    line-height: 1.08;
+  }
+
+  .kiosk-mode .kiosk-context-subtitle {
+    display: block;
+    font-size: 0.72rem;
+  }
+
+  .kiosk-mode .kiosk-header-right {
+    display: grid;
+    width: 100%;
+    grid-template-columns: auto repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .kiosk-mode .kiosk-clock,
+  .kiosk-mode .kiosk-logout-btn {
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+  }
+
+  .kiosk-mode .kiosk-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .kiosk-mode .kiosk-scanner {
+    min-height: calc(100dvh - 236px);
+    padding: 14px !important;
+  }
+
+  .kiosk-mode .scanner-status {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .kiosk-mode .kiosk-input {
+    padding-right: 52px;
+    font-size: 0.88rem;
+  }
+
+  .kiosk-mode .kiosk-stats-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 10px 12px !important;
+  }
+
+  .kiosk-mode .kiosk-stat {
+    justify-content: center;
+    padding: 8px;
+    font-size: 0.78rem;
+  }
+
+  .kiosk-mode .kiosk-stat:first-child {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--ds-border);
+  }
+
+  .kiosk-mode .kiosk-stat:nth-child(2) {
+    border-left: 0 !important;
   }
 }
