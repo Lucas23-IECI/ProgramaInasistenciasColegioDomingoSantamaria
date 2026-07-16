@@ -39,6 +39,10 @@ backend/
 frontend/
   public/           Recursos estáticos
   src/              Interfaz React
+questionnaires/
+  functions/        API pública y administración sobre Cloudflare Pages
+  migrations/       Esquema D1 para invitaciones, respuestas y auditoría
+  public/           Portal accesible de cuestionarios institucionales
 docker-compose.yml  Servicios de base de datos, API, web y respaldo
 ```
 
@@ -81,6 +85,8 @@ npm run dev
 ```
 
 El frontend queda disponible en `http://localhost:5173` y la API en `http://localhost:5000/api`.
+
+El portal independiente de cuestionarios se ejecuta desde `questionnaires/` y queda disponible en `http://localhost:8788`. Su administración privada está en `/administrar`; los pasos de configuración y publicación están documentados en `questionnaires/README.md`.
 
 ## Variables de entorno
 
