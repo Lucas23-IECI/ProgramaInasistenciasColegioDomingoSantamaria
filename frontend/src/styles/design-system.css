@@ -16,6 +16,227 @@
   --ds-shadow: 0 12px 32px rgba(19, 36, 49, 0.12);
 }
 
+/* Directorio institucional: lectura rápida y adaptación móvil */
+.students-page {
+  width: 100%;
+  max-width: none;
+  padding: clamp(16px, 2.5vw, 40px);
+}
+
+.students-card {
+  width: min(100%, 1600px);
+  max-width: none !important;
+  margin-inline: auto;
+}
+
+.students-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.students-filter-row .students-search {
+  min-width: min(100%, 240px);
+  flex: 1 1 280px;
+}
+
+.students-course-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.students-course-option {
+  min-height: 126px;
+  padding: 18px;
+  border-radius: 10px;
+}
+
+.student-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  justify-content: flex-end;
+  background: rgb(7 19 31 / 58%);
+  backdrop-filter: blur(3px);
+}
+
+.student-detail-drawer {
+  position: relative;
+  width: min(640px, 94vw);
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 34px;
+  border-left: 1px solid var(--ds-border);
+  background: var(--ds-surface);
+  box-shadow: -16px 0 50px rgb(15 23 42 / 18%);
+  color: var(--ds-text);
+}
+
+.student-detail-close {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin: -18px -18px 8px auto;
+  place-items: center;
+  border: 1px solid var(--ds-border);
+  border-radius: 9px;
+  background: var(--ds-surface);
+  color: var(--ds-muted);
+  cursor: pointer;
+  box-shadow: 0 5px 16px rgb(15 23 42 / 8%);
+}
+
+.student-detail-close:hover,
+.student-detail-close:focus-visible {
+  border-color: var(--ds-primary);
+  color: var(--ds-primary-strong);
+}
+
+@media (max-width: 760px) {
+  .students-page {
+    padding: 12px;
+  }
+
+  .students-card {
+    padding-inline: 14px;
+  }
+
+  .students-course-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .students-course-option {
+    display: grid;
+    min-height: 72px;
+    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 12px;
+    align-items: center;
+    padding: 11px 14px;
+    text-align: left;
+  }
+
+  .students-course-option > svg {
+    grid-row: 1 / 3;
+    margin: 0 !important;
+  }
+
+  .students-course-option .hub-module-title,
+  .students-course-option .hub-module-desc {
+    margin: 0;
+  }
+
+  .students-course-option .hub-module-desc {
+    margin-top: 3px;
+    font-size: 0.76rem;
+  }
+
+  .students-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .students-table--cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .students-table--cards,
+  .students-table--cards tbody,
+  .students-table--cards tr,
+  .students-table--cards td {
+    display: block;
+    width: 100%;
+  }
+
+  .students-table--cards tbody {
+    display: grid;
+    gap: 9px;
+  }
+
+  .students-table--cards tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 14px;
+    padding: 14px;
+    border: 1px solid var(--ds-border);
+    border-radius: 10px;
+    background: var(--ds-surface);
+  }
+
+  .students-table--cards tbody td {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 !important;
+    text-align: left !important;
+    white-space: normal;
+  }
+
+  .students-table--cards tbody td::before {
+    content: attr(data-label);
+    color: var(--ds-muted);
+    font-size: 0.67rem;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  .students-table--cards tbody td.students-cell-name {
+    display: block;
+    grid-column: 1 / -1;
+    padding-bottom: 7px !important;
+    border-bottom: 1px solid var(--ds-border);
+    font-size: 0.95rem;
+  }
+
+  .students-table--cards tbody td.students-cell-name::before {
+    display: block;
+    margin-bottom: 5px;
+  }
+
+  .students-table--cards tbody td[data-label="Acción"] {
+    grid-column: 1 / -1;
+  }
+
+  .students-table--cards tbody td[data-label="Acción"] .students-ficha-btn {
+    width: 100%;
+    min-height: 42px;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+  }
+
+  .pagination-info {
+    order: -1;
+    width: 100%;
+    text-align: center;
+  }
+
+  .student-detail-drawer {
+    width: 100%;
+    padding: 22px 16px 30px;
+    border-left: 0;
+  }
+
+  .student-detail-close {
+    margin: -10px -4px 6px auto;
+  }
+}
+
 body:not(.light-mode) {
   --ds-surface: #142331;
   --ds-surface-muted: #0e1b27;

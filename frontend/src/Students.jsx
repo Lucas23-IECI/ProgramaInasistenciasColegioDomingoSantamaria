@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import axios from 'axios';
 import { Search, X, Users, GraduationCap, Database, Upload, FileSpreadsheet, RefreshCw, ShieldCheck, User, Mail, Phone, Calendar, Hash, Shield, Clock, Activity, AlertTriangle, BellRing } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -56,6 +56,7 @@ function Students() {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   const navigate = useNavigate();
+  const contentStartRef = useRef(null);
   const [alertasMap, setAlertasMap] = useState({});
 
   const fetchAlertasTempranas = async () => {
@@ -81,6 +82,22 @@ function Students() {
   useEffect(() => {
     setCoursePage(1);
   }, [courseSearch]);
+
+  useEffect(() => {
+    if (!selectedStudentId) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') closeDetails();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedStudentId]);
 
   const fetchStudents = async () => {
     setLoading(true);
@@ -239,6 +256,16 @@ function Students() {
     navigate('/login');
   };
 
+  const selectCourse = (course) => {
+    setSelectedCourse(course);
+    requestAnimationFrame(() => {
+      contentStartRef.current?.scrollIntoView({
+        block: 'start',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      });
+    });
+  };
+
   return (
     <div className="students-page">
       {toast && (
@@ -257,7 +284,7 @@ function Students() {
         </div>
       )}
 
-      <div className="students-card">
+      <div className="students-card" ref={contentStartRef}>
 
         <ModuleHeader
           icon={GraduationCap}
@@ -300,7 +327,7 @@ function Students() {
                 Seleccione un curso para inspeccionar su listado, o busque de manera global por RUT o Nombre.
              </p>
 
-             <div style={{display: 'flex', gap: '16px', marginBottom: '20px', flexWrap: 'wrap'}}>
+             <div className="students-filter-row" data-tour="student-search">
                <div className="students-search" style={{flex: '2', minWidth: '260px'}}>
                  <Search size={16} />
                  <input
@@ -335,7 +362,7 @@ function Students() {
                    </h3>
                    {globalFiltered.length > 0 ? (
                      <div className="students-table-wrap">
-                       <table className="students-table">
+                       <table className="students-table students-table--cards">
                          <thead>
                            <tr>
                              <th>RUT</th>
@@ -349,8 +376,8 @@ function Students() {
                          <tbody>
                            {globalFiltered.slice(0, 15).map(s => (
                              <tr key={s.id_alumno}>
-                               <td className="students-cell-mono">{s.rut}-{s.dv}</td>
-                               <td className="students-cell-name">
+                               <td className="students-cell-mono" data-label="RUT">{s.rut}-{s.dv}</td>
+                               <td className="students-cell-name" data-label="Nombre">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
                             {alertasMap[s.id_alumno]?.alertaCritica && (
@@ -373,18 +400,18 @@ function Students() {
                             )}
                           </div>
                         </td>
-                               <td>{s.grade || 'Sin Curso'}</td>
-                               <td>
+                               <td data-label="Curso">{s.grade || 'Sin Curso'}</td>
+                               <td data-label="Rol">
                                  <span style={{ fontSize: '0.8rem', padding: '3px 8px', borderRadius: '8px', background: s.rol === 'Estudiante' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)', color: s.rol === 'Estudiante' ? '#3b82f6' : '#f59e0b' }}>
                                    {s.rol}
                                  </span>
                                </td>
-                               <td style={{textAlign: 'center'}}>
+                               <td style={{textAlign: 'center'}} data-label="Estado">
                                  <span className={`students-badge ${s.activo ? 'badge-active' : 'badge-inactive'}`}>
                                    {s.activo ? 'Activa' : 'Retirado'}
                                  </span>
                                </td>
-                               <td style={{textAlign: 'right'}}>
+                               <td style={{textAlign: 'right'}} data-label="Acción">
                                  <button onClick={() => openDetails(s.id_alumno)} className="students-ficha-btn">
                                    Ver Ficha
                                  </button>
@@ -409,12 +436,12 @@ function Students() {
                   : allCourses.slice((coursePage - 1) * COURSE_PAGE_SIZE - 1, coursePage * COURSE_PAGE_SIZE - 1);
                 return (
                   <>
-                    <div className="students-course-grid">
+                    <div className="students-course-grid" data-tour="course-selector">
                       {coursePage === 1 && (
                       <button
                         type="button"
                         className="hub-module students-course-option students-course-option--all"
-                        onClick={() => setSelectedCourse('Toda La Matrícula')}
+                        onClick={() => selectCourse('Toda La Matrícula')}
                       >
                         <Users size={32} color="#3b82f6" style={{marginBottom: '10px'}}/>
                         <h3 className="hub-module-title">Matrícula Completa</h3>
@@ -427,7 +454,7 @@ function Students() {
                          type="button"
                          key={curso}
                          className="hub-module students-course-option"
-                         onClick={() => setSelectedCourse(curso)}
+                         onClick={() => selectCourse(curso)}
                        >
                          <GraduationCap size={32} color="var(--primary)" style={{marginBottom: '10px'}}/>
                          <h3 className="hub-module-title">{curso}</h3>
@@ -448,7 +475,7 @@ function Students() {
           </div>
         ) : activeSection === 'listado' ? (
           <div className="fade-in">
-             <div style={{display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap'}}>
+             <div className="students-filter-row" data-tour="student-search">
                <div className="students-search" style={{flex: '1', minWidth: '220px'}}>
                  <Search size={16} />
                  <input
@@ -482,8 +509,8 @@ function Students() {
                </select>
              </div>
 
-             <div className="students-table-wrap">
-               <table className="students-table">
+             <div className="students-table-wrap" data-tour="student-list">
+               <table className="students-table students-table--cards">
                  <thead>
                    <tr>
                      <th>RUT</th>
@@ -497,8 +524,8 @@ function Students() {
                  <tbody>
                     {paginatedStudents.map(s => (
                       <tr key={s.id_alumno}>
-                        <td className="students-cell-mono">{s.rut}-{s.dv}</td>
-                        <td className="students-cell-name">
+                        <td className="students-cell-mono" data-label="RUT">{s.rut}-{s.dv}</td>
+                        <td className="students-cell-name" data-label="Nombre">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
                             {alertasMap[s.id_alumno]?.alertaCritica && (
@@ -521,18 +548,18 @@ function Students() {
                             )}
                           </div>
                         </td>
-                        {selectedCourse === 'Toda La Matrícula' && <td>{s.grade || 'Sin Curso'}</td>}
-                       <td>
+                        {selectedCourse === 'Toda La Matrícula' && <td data-label="Curso">{s.grade || 'Sin Curso'}</td>}
+                       <td data-label="Rol">
                          <span style={{ fontSize: '0.8rem', padding: '3px 8px', borderRadius: '8px', background: s.rol === 'Estudiante' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)', color: s.rol === 'Estudiante' ? '#3b82f6' : '#f59e0b' }}>
                            {s.rol}
                          </span>
                        </td>
-                       <td style={{textAlign: 'center'}}>
+                       <td style={{textAlign: 'center'}} data-label="Estado">
                           <span className={`students-badge ${s.activo ? 'badge-active' : 'badge-inactive'}`}>
                             {s.activo ? 'Activa' : 'Retirado'}
                           </span>
                        </td>
-                       <td style={{textAlign: 'right'}}>
+                       <td style={{textAlign: 'right'}} data-label="Acción">
                           <button onClick={() => openDetails(s.id_alumno)} className="students-ficha-btn">
                             Ver Ficha
                           </button>
@@ -664,12 +691,13 @@ function Students() {
       </div>
 
       {selectedStudentId && (
-        <div className="modal-overlay" onClick={closeDetails} style={{position: 'fixed', top:0, left:0, right:0, bottom:0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px'}}>
-           <div className="glass-panel" onClick={(e) => e.stopPropagation()} style={{maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', border: '1px solid rgba(59,130,246,0.3)', padding: '32px'}}>
+        <div className="student-detail-overlay" onClick={closeDetails}>
+           <div className="student-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="student-detail-title" onClick={(e) => e.stopPropagation()}>
               <button
+                type="button"
                 onClick={closeDetails}
-                className="students-back-btn"
-                style={{position: 'absolute', top: '20px', right: '20px', zIndex: 50, cursor: 'pointer', border: 'none', background: 'transparent', color: '#94a3b8'}}
+                className="student-detail-close"
+                aria-label="Cerrar ficha"
               >
                 <X size={20} />
               </button>
@@ -700,7 +728,7 @@ function Students() {
                         })()}
                       </div>
                       <div>
-                        <h3 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-dark)' }}>
+                        <h3 id="student-detail-title" style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-dark)' }}>
                           {studentDetails.alumno.nombres} {studentDetails.alumno.paterno} {studentDetails.alumno.materno || ''}
                         </h3>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
