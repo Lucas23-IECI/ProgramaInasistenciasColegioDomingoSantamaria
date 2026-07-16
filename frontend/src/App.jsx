@@ -46,9 +46,9 @@ function App() {
               <InstitutionalMark inverse />
               <div className="kiosk-divider" />
               <div>
-                <span className="kiosk-eyebrow">Asistencia escolar</span>
-                <h1>Terminal de registro</h1>
-                <div className="kiosk-context-subtitle">Entrada de estudiantes y personal</div>
+                <span className="kiosk-eyebrow">Control de puntualidad</span>
+                <h1>Terminal de ingresos</h1>
+                <div className="kiosk-context-subtitle">Registro de estudiantes y personal</div>
               </div>
             </div>
 

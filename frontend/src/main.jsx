@@ -21,7 +21,6 @@ const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
 const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
 const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
 const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
-const InasistenciasAdmin = lazy(() => import('./InasistenciasAdmin.jsx'))
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useContext(AuthContext);
@@ -65,7 +64,7 @@ createRoot(document.getElementById('root')).render(
             {/* Admin Tree */}
             <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AdminHub /></ProtectedRoute>} />
             <Route path="/admin/atrasos" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/admin/inasistencias" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><InasistenciasAdmin /></ProtectedRoute>} />
+            <Route path="/admin/inasistencias" element={<Navigate to="/admin/atrasos" replace />} />
             <Route path="/admin/estudiantes" element={<ProtectedRoute allowedRoles={['admin']}><Students /></ProtectedRoute>} />
             <Route path="/admin/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute allowedRoles={['admin']}><AuditoriaAdmin /></ProtectedRoute>} />

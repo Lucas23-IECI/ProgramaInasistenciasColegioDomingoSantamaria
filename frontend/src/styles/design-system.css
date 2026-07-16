@@ -1166,3 +1166,84 @@ textarea {
     justify-content: flex-start !important;
   }
 }
+
+/* Auditoría y administración: misma superficie, controles y densidad */
+.audit-page {
+  width: 100%;
+  max-width: none;
+}
+
+.audit-shell {
+  width: min(100%, 1600px);
+  max-width: none;
+  margin-inline: auto;
+  overflow: visible;
+  padding: clamp(18px, 2.5vw, 34px);
+}
+
+.audit-date-range {
+  width: min(430px, 100%);
+  min-width: min(430px, 100%);
+}
+
+.audit-date-range .date-range-control {
+  min-height: 42px;
+}
+
+.users-table-shell {
+  border: 1px solid var(--ds-border);
+  border-radius: 10px;
+  background: var(--ds-surface);
+}
+
+.user-form-panel {
+  border-radius: 10px;
+  background: var(--ds-surface-muted);
+}
+
+body:has(.kiosk-mode) .kiosk-header-right {
+  padding-right: 148px;
+}
+
+@media (max-width: 760px) {
+  .audit-page,
+  .app-container:has(.users-table-shell) {
+    padding: 12px;
+  }
+
+  .audit-shell {
+    padding: 14px;
+  }
+
+  .audit-date-range {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .users-table-grid--head {
+    display: none !important;
+  }
+
+  .users-table-grid:not(.users-table-grid--head) {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 12px;
+    padding: 14px !important;
+  }
+
+  .users-table-grid:not(.users-table-grid--head) > div:last-child {
+    grid-column: 1 / -1;
+    justify-content: flex-start !important;
+    padding-top: 8px;
+    border-top: 1px solid var(--ds-border);
+  }
+
+  body:has(.kiosk-mode) .kiosk-header-right {
+    padding-right: 0;
+  }
+
+  body:has(.kiosk-mode) .global-tools {
+    top: auto;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}

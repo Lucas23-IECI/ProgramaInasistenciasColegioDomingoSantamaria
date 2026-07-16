@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
+import { RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { API_URL } from './config';
+import ModuleHeader from './components/ModuleHeader';
+import DateRangeField from './components/DateRangeField';
 const PAGE_SIZE = 20;
 
 // ─── Catálogo de acciones auditables ──────────────────────────────────────────
@@ -191,39 +193,6 @@ const AuditoriaAdmin = () => {
   };
 
   // ─── Estilos ───────────────────────────────────────────────────────────────
-  const container = {
-    minHeight: '100vh',
-    background: '#f8fafc',
-    padding: '32px 24px',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
-  };
-
-  const card = {
-    maxWidth: 1100,
-    margin: '0 auto',
-    background: '#fff',
-    borderRadius: 16,
-    boxShadow: '0 2px 16px rgba(0,0,0,0.07)',
-    overflow: 'hidden',
-  };
-
-  const header = {
-    background: '#1e293b',
-    padding: '24px 28px',
-    color: '#fff',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  };
-
-  const btnSecondary = {
-    display: 'flex', alignItems: 'center', gap: 6,
-    padding: '8px 14px', borderRadius: 8,
-    background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)',
-    color: '#fff', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 500,
-  };
-
   const inputStyle = {
     padding: '7px 11px', borderRadius: 8, border: '1px solid #e2e8f0',
     fontSize: '0.83rem', color: '#1e293b', outline: 'none', background: '#f8fafc',
@@ -242,34 +211,24 @@ const AuditoriaAdmin = () => {
   };
 
   return (
-    <div style={container}>
-      <div style={card}>
-        {/* Header */}
-        <div style={header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <button style={btnSecondary} onClick={() => navigate('/admin')}>
-              <ArrowLeft size={15} /> Volver
-            </button>
-            <ClipboardList size={34} style={{ color: '#fff', opacity: 0.9, flexShrink: 0 }} />
-            <div>
-              <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Auditoría del Sistema</h1>
-              <p style={{ margin: 0, fontSize: '0.82rem', opacity: 0.7, marginTop: 2 }}>
-                Historial de acciones registradas — {total} evento{total !== 1 ? 's' : ''}
-              </p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={btnSecondary} onClick={() => fetchData(page)} title="Actualizar">
-              <RefreshCw size={14} />
-            </button>
-            <button style={btnSecondary} onClick={handleExportExcel} title="Exportar Excel">
-              <Download size={14} /> Excel
-            </button>
-          </div>
-        </div>
+    <div className="app-container audit-page">
+      <div className="glass-panel audit-shell">
+        <ModuleHeader
+          icon={ClipboardList}
+          title="Auditoría del sistema"
+          description={`Trazabilidad institucional · ${total} evento${total !== 1 ? 's' : ''}`}
+          onBack={() => navigate('/admin')}
+        >
+          <button type="button" className="module-header__button" onClick={() => fetchData(page)} title="Actualizar">
+            <RefreshCw size={14} /> Actualizar
+          </button>
+          <button type="button" className="module-header__button" onClick={handleExportExcel} title="Exportar Excel">
+            <Download size={14} /> Excel
+          </button>
+        </ModuleHeader>
 
         {/* Filtros */}
-        <form onSubmit={handleBuscar} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc', alignItems: 'flex-end' }}>
+        <form onSubmit={handleBuscar} data-tour="audit-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Tipo de acción</label>
             <select value={filtroAccion} onChange={e => setFiltroAccion(e.target.value)} style={inputStyle}>
@@ -281,13 +240,15 @@ const AuditoriaAdmin = () => {
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Usuario</label>
             <input value={filtroCorreo} onChange={e => setFiltroCorreo(e.target.value)} placeholder="Buscar por correo" style={{ ...inputStyle, width: 190 }} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Desde</label>
-            <input type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)} style={inputStyle} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Hasta</label>
-            <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)} style={inputStyle} />
+          <div className="audit-date-range">
+            <DateRangeField
+              label="Período"
+              from={filtroDesde}
+              to={filtroHasta}
+              onChange={({ from, to }) => { setFiltroDesde(from); setFiltroHasta(to); }}
+              maxValue={new Date().toISOString().slice(0, 10)}
+              presets={false}
+            />
           </div>
           <button type="submit" style={btnPrimary}>Buscar</button>
           <button type="button" style={{ ...btnPrimary, background: '#e2e8f0', color: '#475569' }}
@@ -297,7 +258,7 @@ const AuditoriaAdmin = () => {
         </form>
 
         {/* Tabla */}
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ overflowX: 'auto' }} data-tour="audit-list">
           {error && (
             <div style={{ padding: '16px 20px', color: '#dc2626', fontSize: '0.85rem' }}>{error}</div>
           )}

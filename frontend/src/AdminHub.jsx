@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart2,
-  CalendarDays,
   ClipboardList,
   Clock3,
   LogOut,
@@ -17,7 +16,7 @@ const ALL_MODULES = [
   {
     key: 'atrasos',
     icon: Clock3,
-    category: 'Asistencia',
+    category: 'Puntualidad',
     title: 'Control de atrasos',
     description: 'Registro diario, seguimiento de puntualidad y reportes por período.',
     path: '/admin/atrasos',
@@ -25,21 +24,11 @@ const ALL_MODULES = [
     roles: ['admin', 'secretaria'],
   },
   {
-    key: 'inasistencias',
-    icon: CalendarDays,
-    category: 'Asistencia',
-    title: 'Control de inasistencias',
-    description: 'Ausencias, licencias médicas, certificados y justificaciones.',
-    path: '/admin/inasistencias',
-    tone: 'red',
-    roles: ['admin', 'secretaria'],
-  },
-  {
     key: 'analiticas',
     icon: BarChart2,
     category: 'Información',
     title: 'Estadísticas',
-    description: 'Indicadores de asistencia y puntualidad desglosados por curso.',
+    description: 'Indicadores de atrasos y puntualidad desglosados por curso.',
     path: '/admin/analiticas',
     tone: 'green',
     roles: ['admin', 'secretaria'],
@@ -100,7 +89,7 @@ const AdminHub = () => {
           <InstitutionalMark />
           <div className="hub-header__product">
             <span>Sistema institucional</span>
-            <strong>Gestión de asistencia</strong>
+            <strong>Gestión de puntualidad</strong>
           </div>
           <div className="hub-user">
             <div className="hub-user__identity">
@@ -113,7 +102,7 @@ const AdminHub = () => {
           </div>
         </header>
 
-        <section className="hub-intro hub-intro--campus" aria-label="Fachada del Liceo Domingo Santa María de Concepción">
+        <section className="hub-intro hub-intro--campus" aria-label="Fachada del Liceo Domingo Santa María de Concepción" data-tour="hub-intro">
           <div className="hub-intro__content">
             <span className="section-kicker">Panel principal</span>
             <h1 className="hub-title">Gestión institucional</h1>
@@ -126,7 +115,7 @@ const AdminHub = () => {
           </div>
         </section>
 
-        <section className="hub-modules" aria-labelledby="modules-title">
+        <section className="hub-modules" aria-labelledby="modules-title" data-tour="hub-modules">
           <div className="hub-section-heading">
             <h2 id="modules-title">Módulos de trabajo</h2>
             <span>Selecciona una sección para continuar</span>

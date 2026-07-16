@@ -565,6 +565,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       <button
         type="button"
         className={`scanner-status ${scannerActive ? 'active' : 'inactive'}`}
+        data-tour="scanner-status"
         onClick={isOffline ? undefined : handleToggleScanner}
         disabled={isOffline}
         title={isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner detectado — click para cambiar' : 'Sin escáner — click para cambiar'}
@@ -574,7 +575,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         <span>{isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner de Carnet Activo' : 'Ingreso Manual'}</span>
       </button>
 
-      <form onSubmit={handleSubmit} className="kiosk-input-form">
+      <form onSubmit={handleSubmit} className="kiosk-input-form" data-tour="scanner-input">
         <div className="kiosk-input-wrapper">
           <Search size={20} className="kiosk-input-icon" />
           <input
@@ -748,7 +749,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       )}
 
       {/* Stats bar */}
-      <div className="kiosk-stats-bar">
+      <div className="kiosk-stats-bar" data-tour="scanner-summary">
         <div className="kiosk-stat">
           <User size={14} />
           <span>Ingresados hoy: <strong>{todayStats.total}</strong></span>

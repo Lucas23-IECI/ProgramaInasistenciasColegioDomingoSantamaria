@@ -204,7 +204,7 @@ const UsuariosAdmin = () => {
         ) : error ? (
           <p style={{ color: '#DC2626', textAlign: 'center', padding: '2rem' }}>{error}</p>
         ) : (
-          <div className="users-table-shell" style={{ overflow: 'auto' }}>
+          <div className="users-table-shell" data-tour="users-list" style={{ overflow: 'auto' }}>
             {/* Cabecera */}
             <div className="users-table-grid users-table-grid--head" style={{ display: 'grid', gridTemplateColumns: COL, padding: '12px 16px', borderBottom: '1.5px solid rgba(0,0,0,0.07)' }}>
               {[['Usuario', 'left'], ['Rol', 'left'], ['Creado', 'left'], ['Acciones', 'right']].map(([h, align]) => (

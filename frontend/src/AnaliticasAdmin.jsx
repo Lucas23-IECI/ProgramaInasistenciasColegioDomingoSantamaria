@@ -232,7 +232,7 @@ const TimeSlotBarChart = ({ data = [] }) => {
 
 const AnaliticasAdmin = () => {
   const [period, setPeriod] = useState('semana');
-  const [subTab, setSubTab] = useState('atrasos'); // 'atrasos' | 'inasistencias'
+  const subTab = 'atrasos';
   const [courses, setCourses] = useState([]);
   const [selectedCurso, setSelectedCurso] = useState('');
   const [selectedJustificado, setSelectedJustificado] = useState('');
@@ -297,7 +297,7 @@ const AnaliticasAdmin = () => {
         <ModuleHeader
           icon={BarChart2}
           title="Estadísticas"
-          description={`Indicadores institucionales de asistencia · ${user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}`}
+          description={`Indicadores institucionales de atrasos y puntualidad · ${user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}`}
           onBack={() => navigate('/admin')}
           onLogout={handleLogout}
         >
@@ -305,26 +305,6 @@ const AnaliticasAdmin = () => {
             <Download size={15} /> Exportar PDF
           </button>
         </ModuleHeader>
-
-        {/* Sub-tab segmented control for Atrasos vs Inasistencias */}
-        <div className="dashboard-tabs" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--panel-border)' }}>
-          <button
-            type="button"
-            className={`dashboard-tab ${subTab === 'atrasos' ? 'active' : ''}`}
-            onClick={() => setSubTab('atrasos')}
-            style={{ fontSize: '0.95rem', fontWeight: 700, padding: '10px 20px', cursor: 'pointer' }}
-          >
-            <Clock size={16} /> Estadísticas de atrasos
-          </button>
-          <button
-            type="button"
-            className={`dashboard-tab ${subTab === 'inasistencias' ? 'active' : ''}`}
-            onClick={() => setSubTab('inasistencias')}
-            style={{ fontSize: '0.95rem', fontWeight: 700, padding: '10px 20px', cursor: 'pointer' }}
-          >
-            <Calendar size={16} /> Estadísticas de inasistencias
-          </button>
-        </div>
 
         {/* Segmented Period Slider */}
         <div className="segmented-control">
@@ -343,7 +323,7 @@ const AnaliticasAdmin = () => {
         </div>
 
         {/* Interactive Filters Panel */}
-        <div className="analytics-filter-bar" style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', margin: '20px 0', padding: '12px', background: 'rgba(59, 130, 246, 0.04)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.08)' }}>
+        <div className="analytics-filter-bar" data-tour="analytics-filters" style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', margin: '20px 0', padding: '12px', background: 'rgba(59, 130, 246, 0.04)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.08)' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)' }}>Curso</label>
             <select
