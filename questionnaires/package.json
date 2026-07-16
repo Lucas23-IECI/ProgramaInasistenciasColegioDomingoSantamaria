@@ -1,0 +1,17 @@
+{
+  "name": "ldsm-cuestionarios-institucionales",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev public --local",
+    "db:local": "wrangler d1 migrations apply ldsm-cuestionarios --local",
+    "db:remote": "wrangler d1 migrations apply ldsm-cuestionarios --remote",
+    "deploy": "wrangler pages deploy public --project-name cuestionarios-ldsm",
+    "test": "node --test",
+    "check": "node --check public/app.js && node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.111.0"
+  }
+}
