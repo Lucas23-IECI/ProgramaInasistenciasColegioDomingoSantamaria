@@ -458,7 +458,7 @@ const AdminDashboard = () => {
                 <div className="stat-card" style={{ borderLeftColor: '#10b981' }}>
                   <div className="stat-card__icon" style={{ color: '#10b981' }}><ShieldCheck size={22} /></div>
                   <div className="stat-card__value">{stats?.presentes || 0}</div>
-                  <div className="stat-card__label">Presentes en Sistema</div>
+                  <div className="stat-card__label">Ingresos a Tiempo</div>
                 </div>
                 <div className="stat-card" style={{ borderLeftColor: '#f59e0b' }}>
                   <div className="stat-card__icon" style={{ color: '#f59e0b' }}><AlertTriangle size={22} /></div>

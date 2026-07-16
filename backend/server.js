@@ -24,6 +24,7 @@ const {
   validatePassword,
   validateSystemRole
 } = require('./utils/security');
+const { calculateStatusAndSeverity } = require('./utils/punctuality');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -196,30 +197,9 @@ const STUDENT_PUBLIC_FIELDS = `
 `;
 
 
-const calculateStatusAndSeverity = (tipoRegistro, currentTimeStr, config) => {
-  if (tipoRegistro !== 'Entrada') {
-    return { status: 'Salida', severidad: 'Normal' };
-  }
-
-  const threshold = config.hora_limite_atraso || '08:15:00';
-  if (currentTimeStr < threshold) {
-    return { status: 'Presente', severidad: 'Normal' };
-  }
-
-  let graveLimit = '08:30:00';
-  if (threshold !== '08:15:00') {
-    try {
-      const [h, m, s] = threshold.split(':').map(Number);
-      const date = new Date();
-      date.setHours(h, m + 15, s || 0);
-      graveLimit = date.toTimeString().split(' ')[0];
-    } catch (e) {
-      graveLimit = '08:30:00';
-    }
-  }
-
-  const severidad = (currentTimeStr <= graveLimit) ? 'Leve' : 'Grave';
-  return { status: 'Atrasado', severidad };
+const getInstitutionalClock = async (queryable = pool) => {
+  const result = await queryable.query("SELECT TO_CHAR(CURRENT_TIME, 'HH24:MI:SS') AS hora");
+  return result.rows[0].hora;
 };
 
 // AUDIT HELPER
@@ -499,8 +479,7 @@ app.get('/api/students/scan/:barcode', verifyToken, async (req, res) => {
     const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
 
-    const now = new Date();
-    const currentTimeStr = now.toLocaleTimeString([], { hour12: false });
+    const currentTimeStr = await getInstitutionalClock();
 
     const { status: calculatedStatus, severidad } = calculateStatusAndSeverity(tipo_registro || 'Entrada', currentTimeStr, config);
 
@@ -551,8 +530,7 @@ app.get('/api/students/:id/status', verifyToken, async (req, res) => {
     const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
 
-    const now = new Date();
-    const currentTimeStr = now.toLocaleTimeString([], { hour12: false });
+    const currentTimeStr = await getInstitutionalClock();
 
     const { status: calculatedStatus, severidad } = calculateStatusAndSeverity(tipo_registro || 'Entrada', currentTimeStr, config);
 
@@ -600,8 +578,7 @@ app.post('/api/asistencia', verifyToken, async (req, res) => {
     const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
 
-    const now = new Date();
-    const currentTimeStr = now.toLocaleTimeString([], { hour12: false });
+    const currentTimeStr = await getInstitutionalClock();
 
     const { status, severidad } = calculateStatusAndSeverity(type, currentTimeStr, config);
 
@@ -644,27 +621,29 @@ app.get('/api/asistencia/today', verifyToken, async (req, res) => {
 
 app.get('/api/asistencia/today-stats', verifyToken, async (req, res) => {
   try {
-    // Total students active
-    const totalStudentsRes = await pool.query("SELECT COUNT(*) FROM alumno WHERE rol = 'Estudiante' AND activo = true");
-    const totalStudents = parseInt(totalStudentsRes.rows[0].count, 10);
-
-    // Late scans (status = 'Atrasado' in Entrada)
-    const lateRes = await pool.query(
-      "SELECT COUNT(DISTINCT id_alumno) FROM attendance_registrations WHERE fecha = CURRENT_DATE AND tipo_registro = 'Entrada' AND estado = 'Atrasado'"
-    );
-    const late = parseInt(lateRes.rows[0].count, 10);
-
-    // Absent students (explicitly registered as 'Ausente' today)
-    const absentRes = await pool.query(
-      "SELECT COUNT(DISTINCT id_alumno) FROM attendance_registrations WHERE fecha = CURRENT_DATE AND tipo_registro = 'Entrada' AND estado = 'Ausente'"
-    );
-    const absent = parseInt(absentRes.rows[0].count, 10);
-
-    // Present students (everyone who is not late and not absent today)
-    const presentCount = Math.max(0, totalStudents - late - absent);
+    const statsRes = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM alumno WHERE rol = 'Estudiante' AND activo = true) AS total_alumnos,
+        COUNT(DISTINCT id_alumno) FILTER (
+          WHERE tipo_registro = 'Entrada' AND estado = 'Presente'
+        )::int AS presentes,
+        COUNT(DISTINCT id_alumno) FILTER (
+          WHERE tipo_registro = 'Entrada' AND estado = 'Atrasado'
+        )::int AS atrasados,
+        COUNT(DISTINCT id_alumno) FILTER (
+          WHERE tipo_registro = 'Entrada' AND estado = 'Ausente'
+        )::int AS ausentes
+      FROM attendance_registrations
+      WHERE fecha = CURRENT_DATE
+    `);
+    const row = statsRes.rows[0];
+    const presentCount = row.presentes || 0;
+    const late = row.atrasados || 0;
+    const absent = row.ausentes || 0;
+    const totalStudents = row.total_alumnos || 0;
 
     res.json({
-      total: late + absent,
+      total: presentCount + late,
       presentes: presentCount,
       atrasados: late,
       absent: absent,
@@ -790,9 +769,21 @@ app.get('/api/asistencia/range-stats', verifyToken, async (req, res) => {
     const totalAusentesJustificadosRes = await pool.query(totalAusentesJustificadosQuery, totalAusentesJustificadosParams);
     const totalAusentesJustificados = parseInt(totalAusentesJustificadosRes.rows[0].count, 10);
 
-    // 7. Total present students (total student-days minus delays and all absences)
-    const totalStudentDays = totalStudents * activeDays;
-    const totalPresentes = Math.max(0, totalStudentDays - totalAtrasadosVal - totalAusentesJustificados - totalInasistencias);
+    // 7. Ingresos realmente registrados a tiempo. No se presume presencia por falta de registro.
+    let totalPresentesQuery = `
+      SELECT COUNT(*)
+      FROM attendance_registrations r
+      LEFT JOIN alumno a ON r.id_alumno = a.id_alumno
+      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
+      WHERE r.fecha >= $1 AND r.fecha <= $2 AND r.estado = 'Presente' AND r.tipo_registro = 'Entrada'
+    `;
+    const totalPresentesParams = [desde, hasta];
+    if (id_curso) {
+      totalPresentesQuery += ' AND m.id_curso = $3';
+      totalPresentesParams.push(id_curso);
+    }
+    const totalPresentesRes = await pool.query(totalPresentesQuery, totalPresentesParams);
+    const totalPresentes = parseInt(totalPresentesRes.rows[0].count, 10);
 
     // 8. Daily late arrivals (line chart)
     let dailyLateQuery = `
