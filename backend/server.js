@@ -6,11 +6,27 @@ const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
 const { verifyToken, verifyRole, JWT_SECRET } = require('./middleware/auth');
+const { runMigrations } = require('./migrations');
+const {
+  DocumentValidationError,
+  createDocument,
+  deleteDocumentIfUnreferenced,
+  removeStoredFile,
+  resolveDocumentPath
+} = require('./services/documentService');
+const {
+  sanitizeSnapshotRow,
+  validatePassword,
+  validateSystemRole
+} = require('./utils/security');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // CORS CONFIGURATION
 const rawOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -21,11 +37,11 @@ const fallbackOrigins = [
   'http://localhost:5000',
   'http://127.0.0.1:5000'
 ];
-fallbackOrigins.forEach(origin => {
-  if (!allowedOrigins.includes(origin)) {
-    allowedOrigins.push(origin);
-  }
-});
+if (process.env.NODE_ENV !== 'production') {
+  fallbackOrigins.forEach(origin => {
+    if (!allowedOrigins.includes(origin)) allowedOrigins.push(origin);
+  });
+}
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -38,16 +54,43 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '50mb' }));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'same-origin' }
+}));
+app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 600,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { message: 'Se alcanzó el límite temporal de solicitudes. Intente nuevamente en unos minutos.' }
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { message: 'Demasiados intentos de acceso. Intente nuevamente en 15 minutos.' }
+});
+
+app.use('/api', apiLimiter);
+
 const PORT = process.env.PORT || 5000;
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  path: '/'
+};
 
 const getDefaultUserPassword = () => {
   const password = process.env.DEFAULT_USER_PASSWORD;
-  if (!password || password.length < 8) {
-    throw new Error('DEFAULT_USER_PASSWORD debe existir y tener al menos 8 caracteres.');
-  }
+  const passwordError = validatePassword(password);
+  if (passwordError) throw new Error(`DEFAULT_USER_PASSWORD no cumple la política: ${passwordError}`);
   return password;
 };
 
@@ -145,6 +188,13 @@ const normalizeDateInput = (value) => {
   return null;
 };
 
+const STUDENT_PUBLIC_FIELDS = `
+  a.id_alumno, a.uuid_erp, a.rut, a.dv, a.nombres, a.paterno, a.materno,
+  a.email, a.telefono, a.rol, a.seccion, a.genero, a.fecha_nacimiento,
+  a.nombre_usuario, a.rut_apoderado, a.activo, a.fecha_actualizacion,
+  a.codigo_barra
+`;
+
 
 const calculateStatusAndSeverity = (tipoRegistro, currentTimeStr, config) => {
   if (tipoRegistro !== 'Entrada') {
@@ -202,27 +252,18 @@ const bootstrapBaseSchema = async () => {
   return true;
 };
 
-const runMigrations = async () => {
-  console.log('Ejecutando migraciones de base de datos...');
-  try {
-    await pool.query("ALTER TABLE attendance_registrations ADD COLUMN IF NOT EXISTS severidad VARCHAR(20) DEFAULT 'Normal'");
-    await pool.query("ALTER TABLE attendance_registrations ADD COLUMN IF NOT EXISTS justificado BOOLEAN DEFAULT false");
-    await pool.query("ALTER TABLE attendance_registrations ADD COLUMN IF NOT EXISTS tipo_justificacion VARCHAR(50)");
-    await pool.query("ALTER TABLE attendance_registrations ADD COLUMN IF NOT EXISTS comentario_justificacion TEXT");
-    await pool.query("ALTER TABLE attendance_registrations ADD COLUMN IF NOT EXISTS archivo_justificacion VARCHAR(255)");
-    console.log('Migraciones completadas con éxito.');
-  } catch (err) {
-    console.error('Error al ejecutar migraciones de base de datos:', err.message);
-  }
-};
-
 // HEALTH CHECK
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date() });
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'OK', database: 'connected', timestamp: new Date() });
+  } catch {
+    res.status(503).json({ status: 'ERROR', database: 'unavailable', timestamp: new Date() });
+  }
 });
 
 // AUTHENTICATION
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { correo, password } = req.body;
   if (!correo || !password) {
     return res.status(400).json({ message: 'Correo/Usuario y Contraseña son requeridos.' });
@@ -236,6 +277,12 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     if (userRes.rows.length === 0) {
+      await registrarAudit({
+        usuario_correo: sanitizeText(correo).slice(0, 150),
+        accion: 'LOGIN_FALLIDO',
+        detalle: { motivo: 'credenciales_invalidas' },
+        ip: getClientIp(req)
+      });
       return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
@@ -254,6 +301,13 @@ app.post('/api/auth/login', async (req, res) => {
         const blockUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 mins block
         await pool.query('UPDATE usuarios SET bloqueado_hasta = $1, intentos_fallidos = 0 WHERE id = $2', [blockUntil, user.id]);
       }
+      await registrarAudit({
+        usuario_id: user.id,
+        usuario_correo: user.correo,
+        accion: 'LOGIN_FALLIDO',
+        detalle: { motivo: 'credenciales_invalidas' },
+        ip: getClientIp(req)
+      });
       return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
@@ -267,13 +321,11 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      ...cookieOptions,
       maxAge: 12 * 60 * 60 * 1000 // 12 hours
     });
 
-    registrarAudit({
+    await registrarAudit({
       usuario_id: user.id,
       usuario_correo: user.correo,
       accion: 'LOGIN_EXITOSO',
@@ -302,7 +354,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', cookieOptions);
   res.json({ message: 'Sesión cerrada exitosamente.' });
 });
 
@@ -348,7 +400,7 @@ app.post('/api/attendance/config', verifyToken, verifyRole(['admin']), async (re
         [hora_entrada, hora_limite_atraso, check.rows[0].id]
       );
     }
-    registrarAudit({
+    await registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'ACTUALIZAR_CONFIG_ASISTENCIA',
@@ -362,10 +414,10 @@ app.post('/api/attendance/config', verifyToken, verifyRole(['admin']), async (re
 });
 
 // STUDENTS CRUD
-app.get('/api/students', verifyToken, async (req, res) => {
+app.get('/api/students', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
     const query = `
-      SELECT a.*, c.nombre_curso as grade
+      SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
       FROM alumno a
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
       LEFT JOIN curso c ON m.id_curso = c.id_curso
@@ -563,6 +615,7 @@ app.post('/api/asistencia', verifyToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err.message);
+    if (err.code === '23505') return res.status(409).json({ message: 'Registro ya realizado hoy.' });
     res.status(500).json({ message: 'Error al registrar asistencia.' });
   }
 });
@@ -571,7 +624,9 @@ app.get('/api/asistencia/today', verifyToken, async (req, res) => {
   try {
     const query = `
       SELECT r.id_registro, r.fecha, r.hora, r.estado, r.tipo_registro, r.comentario,
-             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion,
+             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+             COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+             r.documento_id,
              a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, c.nombre_curso as grade
       FROM attendance_registrations r
       JOIN alumno a ON r.id_alumno = a.id_alumno
@@ -895,7 +950,9 @@ app.get('/api/asistencia/inasistencias', verifyToken, verifyRole(['admin', 'secr
   try {
     const query = `
       SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, c.nombre_curso as grade, c.id_curso,
-             r.id_registro, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion, r.hora, r.estado
+             r.id_registro, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+             COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+             r.documento_id, r.hora, r.estado
       FROM attendance_registrations r
       JOIN alumno a ON r.id_alumno = a.id_alumno
       JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -919,7 +976,9 @@ app.get('/api/asistencia/history', verifyToken, async (req, res) => {
   try {
     const query = `
       SELECT r.id_registro, r.fecha, r.hora, r.estado, r.tipo_registro, r.comentario,
-             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion,
+             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+             COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+             r.documento_id,
              a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, c.nombre_curso as grade
       FROM attendance_registrations r
       JOIN alumno a ON r.id_alumno = a.id_alumno
@@ -963,7 +1022,9 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
           r.fecha::TEXT as fecha_registro, r.estado as estado_asistencia, r.tipo_registro, r.hora,
-          r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion
+          r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+          COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+          r.documento_id
         FROM attendance_registrations r
         JOIN alumno a ON r.id_alumno = a.id_alumno
         LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
@@ -1011,7 +1072,9 @@ app.get('/api/admin/reportes/asistencia', verifyToken, verifyRole(['admin', 'sec
           a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno, a.email,
           c.nombre_curso,
           r.fecha::TEXT as fecha_registro, r.estado as estado_asistencia, r.tipo_registro, r.hora,
-          r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion
+          r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+          COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+          r.documento_id
         FROM alumno a
         LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
         LEFT JOIN curso c ON m.id_curso = c.id_curso
@@ -1059,30 +1122,42 @@ app.put('/api/asistencia/:id', verifyToken, verifyRole(['admin', 'secretaria']),
 app.post('/api/asistencia/:id/justificar', verifyToken, verifyRole(['admin', 'secretaria']), async (req, res) => {
   const { id } = req.params;
   const { tipo_justificacion, comentario_justificacion, fileName, fileData } = req.body;
-
+  if (!['medica', 'apoderado'].includes(tipo_justificacion)) {
+    return res.status(400).json({ message: 'El tipo de justificación no es válido.' });
+  }
+  if (String(comentario_justificacion || '').length > 2000) {
+    return res.status(400).json({ message: 'El comentario no puede superar 2.000 caracteres.' });
+  }
+  const client = await pool.connect();
+  let createdDocument = null;
+  let obsoleteStoredName = null;
   try {
-    const checkRecord = await pool.query(
-      "SELECT estado, id_alumno, fecha FROM attendance_registrations WHERE id_registro = $1",
+    await client.query('BEGIN');
+    const checkRecord = await client.query(
+      'SELECT estado, id_alumno, fecha, documento_id, archivo_justificacion FROM attendance_registrations WHERE id_registro = $1 FOR UPDATE',
       [id]
     );
     if (checkRecord.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Registro no encontrado.' });
     }
     const record = checkRecord.rows[0];
     if (record.estado === 'Atrasado' && tipo_justificacion === 'medica') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Los atrasos solo pueden ser justificados por apoderados, no médicamente.' });
     }
+    if (record.estado !== 'Atrasado' && tipo_justificacion === 'medica'
+        && !fileData && !record.documento_id && !record.archivo_justificacion) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Una justificación médica requiere un certificado adjunto.' });
+    }
 
-    let uniqueName = null;
-    if (fileData && fileName && record.estado !== 'Atrasado') {
-      const uploadsDir = path.join(__dirname, 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      const base64Content = fileData.replace(/^data:.*;base64,/, "");
-      const fileExt = path.extname(fileName) || '.pdf';
-      uniqueName = `justification_${id}_${Date.now()}${fileExt}`;
-      fs.writeFileSync(path.join(uploadsDir, uniqueName), base64Content, 'base64');
+    if (fileData && fileName && record.estado !== 'Atrasado' && tipo_justificacion === 'medica') {
+      createdDocument = await createDocument(client, {
+        fileData,
+        fileName,
+        userId: req.user.id
+      });
     }
 
     const query = `
@@ -1090,16 +1165,26 @@ app.post('/api/asistencia/:id/justificar', verifyToken, verifyRole(['admin', 'se
       SET justificado = true,
           tipo_justificacion = $1,
           comentario_justificacion = $2,
-          archivo_justificacion = COALESCE($3, archivo_justificacion)
+          documento_id = COALESCE($3, documento_id),
+          archivo_justificacion = CASE WHEN $3 IS NOT NULL THEN NULL ELSE archivo_justificacion END
       WHERE id_registro = $4
       RETURNING *
     `;
-    const result = await pool.query(query, [
+    const result = await client.query(query, [
       record.estado === 'Atrasado' ? 'apoderado' : tipo_justificacion,
       comentario_justificacion,
-      uniqueName,
+      createdDocument?.id_documento || null,
       id
     ]);
+
+    if (createdDocument && record.documento_id && record.documento_id !== createdDocument.id_documento) {
+      obsoleteStoredName = await deleteDocumentIfUnreferenced(client, record.documento_id);
+    }
+
+    await client.query('COMMIT');
+    if (obsoleteStoredName) {
+      await removeStoredFile(obsoleteStoredName).catch((error) => console.error('No se pudo limpiar un archivo obsoleto:', error.message));
+    }
 
     await registrarAudit({
       usuario_id: req.user.id,
@@ -1112,15 +1197,20 @@ app.post('/api/asistencia/:id/justificar', verifyToken, verifyRole(['admin', 'se
         fecha: record.fecha,
         tipo_justificacion: record.estado === 'Atrasado' ? 'apoderado' : tipo_justificacion,
         comentario_justificacion,
-        archivo: uniqueName
+        documento_id: createdDocument?.id_documento || record.documento_id || null
       },
       ip: getClientIp(req)
     });
 
     res.json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (createdDocument?.nombre_almacenado) await removeStoredFile(createdDocument.nombre_almacenado).catch(() => {});
     console.error(err.message);
-    res.status(500).json({ message: 'Error al procesar la justificación.' });
+    const status = err instanceof DocumentValidationError ? err.statusCode : 500;
+    res.status(status).json({ message: status === 400 ? err.message : 'Error al procesar la justificación.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1130,24 +1220,36 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
   if (!id_alumno) {
     return res.status(400).json({ message: 'ID del alumno es requerido.' });
   }
+  if (!['medica', 'apoderado'].includes(tipo_justificacion)) {
+    return res.status(400).json({ message: 'El tipo de justificación no es válido.' });
+  }
+  if (tipo_justificacion === 'medica' && (!fileData || !fileName)) {
+    return res.status(400).json({ message: 'Una justificación médica requiere un certificado adjunto.' });
+  }
+  if (String(comentario_justificacion || '').length > 2000) {
+    return res.status(400).json({ message: 'El comentario no puede superar 2.000 caracteres.' });
+  }
 
+  const client = await pool.connect();
+  let createdDocument = null;
+  const filesToDelete = [];
   try {
-    let uniqueName = null;
+    await client.query('BEGIN');
     if (fileData && fileName && tipo_justificacion === 'medica') {
-      const uploadsDir = path.join(__dirname, 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-      }
-      const base64Content = fileData.replace(/^data:.*;base64,/, "");
-      const fileExt = path.extname(fileName) || '.pdf';
-      uniqueName = `justification_range_${id_alumno}_${Date.now()}${fileExt}`;
-      fs.writeFileSync(path.join(uploadsDir, uniqueName), base64Content, 'base64');
+      createdDocument = await createDocument(client, { fileData, fileName, userId: req.user.id });
     }
 
     let datesToProcess = [];
     if (fecha_inicio && fecha_fin) {
       const curr = new Date(fecha_inicio + 'T12:00:00');
       const end = new Date(fecha_fin + 'T12:00:00');
+      if (Number.isNaN(curr.getTime()) || Number.isNaN(end.getTime()) || curr > end) {
+        throw new DocumentValidationError('El rango de fechas no es válido.');
+      }
+      const rangeDays = Math.floor((end - curr) / 86400000) + 1;
+      if (rangeDays > 90) {
+        throw new DocumentValidationError('El rango no puede superar 90 días.');
+      }
       while (curr <= end) {
         const day = curr.getDay();
         if (day !== 0 && day !== 6) {
@@ -1160,6 +1262,8 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
     }
 
     if (datesToProcess.length === 0) {
+      await client.query('ROLLBACK');
+      if (createdDocument?.nombre_almacenado) await removeStoredFile(createdDocument.nombre_almacenado);
       return res.status(400).json({ message: 'No hay días hábiles en el rango seleccionado.' });
     }
 
@@ -1167,34 +1271,57 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
 
     for (const targetDate of datesToProcess) {
       const checkQuery = `
-        SELECT id_registro, estado FROM attendance_registrations
+        SELECT id_registro, estado, documento_id FROM attendance_registrations
         WHERE id_alumno = $1 AND fecha = $2 AND tipo_registro = 'Entrada'
       `;
-      const checkRes = await pool.query(checkQuery, [id_alumno, targetDate]);
+      const checkRes = await client.query(`${checkQuery} FOR UPDATE`, [id_alumno, targetDate]);
 
       if (checkRes.rows.length > 0) {
         const record = checkRes.rows[0];
         const isAtrasado = record.estado === 'Atrasado';
 
-        await pool.query(`
+        const previousDocumentId = record.documento_id;
+        await client.query(`
           UPDATE attendance_registrations
           SET justificado = true,
               tipo_justificacion = $1,
               comentario_justificacion = $2,
-              archivo_justificacion = COALESCE($3, archivo_justificacion)
+              documento_id = COALESCE($3, documento_id),
+              archivo_justificacion = CASE WHEN $3 IS NOT NULL THEN NULL ELSE archivo_justificacion END
           WHERE id_registro = $4
-        `, [isAtrasado ? 'apoderado' : tipo_justificacion, comentario_justificacion, isAtrasado ? null : uniqueName, record.id_registro]);
+        `, [
+          isAtrasado ? 'apoderado' : tipo_justificacion,
+          comentario_justificacion,
+          isAtrasado ? null : createdDocument?.id_documento || null,
+          record.id_registro
+        ]);
+
+        if (!isAtrasado && createdDocument && previousDocumentId && previousDocumentId !== createdDocument.id_documento) {
+          const obsolete = await deleteDocumentIfUnreferenced(client, previousDocumentId);
+          if (obsolete) filesToDelete.push(obsolete);
+        }
 
         processedIds.push(record.id_registro);
       } else {
-        const insertRes = await pool.query(`
-          INSERT INTO attendance_registrations (id_alumno, fecha, hora, estado, tipo_registro, justificado, tipo_justificacion, comentario_justificacion, archivo_justificacion)
+        const insertRes = await client.query(`
+          INSERT INTO attendance_registrations
+            (id_alumno, fecha, hora, estado, tipo_registro, justificado, tipo_justificacion, comentario_justificacion, documento_id)
           VALUES ($1, $2, CURRENT_TIME, 'Ausente', 'Entrada', true, $3, $4, $5)
           RETURNING id_registro
-        `, [id_alumno, targetDate, tipo_justificacion, comentario_justificacion, uniqueName]);
+        `, [id_alumno, targetDate, tipo_justificacion, comentario_justificacion, createdDocument?.id_documento || null]);
 
         processedIds.push(insertRes.rows[0].id_registro);
       }
+    }
+
+    if (createdDocument) {
+      const unusedNewDocument = await deleteDocumentIfUnreferenced(client, createdDocument.id_documento);
+      if (unusedNewDocument) filesToDelete.push(unusedNewDocument);
+    }
+
+    await client.query('COMMIT');
+    for (const storedName of filesToDelete) {
+      await removeStoredFile(storedName).catch((error) => console.error('No se pudo limpiar un archivo obsoleto:', error.message));
     }
 
     await registrarAudit({
@@ -1210,7 +1337,7 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
         fecha: (!fecha_inicio) ? (fecha || new Date().toISOString().substring(0, 10)) : null,
         tipo_justificacion,
         comentario_justificacion,
-        archivo: uniqueName,
+        documento_id: createdDocument?.id_documento || null,
         dias_procesados: datesToProcess,
         ids_registros: processedIds
       },
@@ -1219,8 +1346,13 @@ app.post('/api/asistencia/justificar-nueva', verifyToken, verifyRole(['admin', '
 
     res.json({ message: 'Justificación registrada con éxito.', ids: processedIds });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (createdDocument?.nombre_almacenado) await removeStoredFile(createdDocument.nombre_almacenado).catch(() => {});
     console.error(err.message);
-    res.status(500).json({ message: 'Error al registrar la justificación.' });
+    const status = err instanceof DocumentValidationError ? err.statusCode : 500;
+    res.status(status).json({ message: status === 400 ? err.message : 'Error al registrar la justificación.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1280,42 +1412,53 @@ app.post('/api/asistencia/registrar-ausencia', verifyToken, verifyRole(['admin',
 
 app.delete('/api/asistencia/justificacion/:id', verifyToken, verifyRole(['admin', 'secretaria']), async (req, res) => {
   const { id } = req.params;
-
+  const client = await pool.connect();
+  const filesToDelete = [];
   try {
-    const checkRecord = await pool.query(
-      "SELECT id_registro, id_alumno, fecha, estado, archivo_justificacion FROM attendance_registrations WHERE id_registro = $1",
+    await client.query('BEGIN');
+    const checkRecord = await client.query(
+      `SELECT id_registro, id_alumno, fecha, estado, archivo_justificacion, documento_id
+       FROM attendance_registrations WHERE id_registro = $1 FOR UPDATE`,
       [id]
     );
 
     if (checkRecord.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Registro no encontrado.' });
     }
 
     const record = checkRecord.rows[0];
 
-    if (record.archivo_justificacion) {
-      const uploadsDir = path.join(__dirname, 'uploads');
-      const filePath = path.join(uploadsDir, record.archivo_justificacion);
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-      } catch (fileErr) {
-        console.error('Error deleting file:', fileErr.message);
-      }
-    }
-
     if (record.estado === 'Ausente') {
-      await pool.query("DELETE FROM attendance_registrations WHERE id_registro = $1", [id]);
+      await client.query('DELETE FROM attendance_registrations WHERE id_registro = $1', [id]);
     } else {
-      await pool.query(`
+      await client.query(`
         UPDATE attendance_registrations
         SET justificado = false,
             tipo_justificacion = null,
             comentario_justificacion = null,
-            archivo_justificacion = null
+            archivo_justificacion = null,
+            documento_id = null
         WHERE id_registro = $1
       `, [id]);
+    }
+
+    if (record.documento_id) {
+      const storedName = await deleteDocumentIfUnreferenced(client, record.documento_id);
+      if (storedName) filesToDelete.push(storedName);
+    }
+
+    if (record.archivo_justificacion) {
+      const legacyReferences = await client.query(
+        'SELECT COUNT(*)::int AS total FROM attendance_registrations WHERE archivo_justificacion = $1',
+        [record.archivo_justificacion]
+      );
+      if (legacyReferences.rows[0].total === 0) filesToDelete.push(record.archivo_justificacion);
+    }
+
+    await client.query('COMMIT');
+    for (const storedName of filesToDelete) {
+      await removeStoredFile(storedName).catch((error) => console.error('No se pudo limpiar un archivo obsoleto:', error.message));
     }
 
     await registrarAudit({
@@ -1328,15 +1471,19 @@ app.delete('/api/asistencia/justificacion/:id', verifyToken, verifyRole(['admin'
         id_alumno: record.id_alumno,
         fecha: record.fecha,
         estado: record.estado,
-        archivo_eliminado: record.archivo_justificacion
+        archivo_eliminado: record.archivo_justificacion,
+        documento_id: record.documento_id
       },
       ip: getClientIp(req)
     });
 
     res.json({ message: 'Justificación eliminada/revocada con éxito.' });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err.message);
     res.status(500).json({ message: 'Error al eliminar la justificación.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1345,7 +1492,9 @@ app.get('/api/asistencia/justificaciones', verifyToken, verifyRole(['admin', 'se
   try {
     let query = `
       SELECT r.id_registro, r.fecha, r.hora, r.estado, r.tipo_registro, r.comentario,
-             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion, r.archivo_justificacion,
+             r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+             COALESCE(r.archivo_justificacion, CASE WHEN r.documento_id IS NOT NULL THEN 'documento_adjunto' END) AS archivo_justificacion,
+             r.documento_id,
              a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, c.nombre_curso as grade, c.id_curso
       FROM attendance_registrations r
       JOIN alumno a ON r.id_alumno = a.id_alumno
@@ -1484,23 +1633,32 @@ app.get('/api/asistencia/alertas-tempranas', verifyToken, verifyRole(['admin', '
   }
 });
 
-app.get('/api/asistencia/download/:id', verifyToken, async (req, res) => {
+app.get('/api/asistencia/download/:id', verifyToken, verifyRole(['admin', 'secretaria']), async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT archivo_justificacion FROM attendance_registrations WHERE id_registro = $1', [id]);
-    if (result.rows.length === 0 || !result.rows[0].archivo_justificacion) {
+    const result = await pool.query(
+      `SELECT r.archivo_justificacion,
+              d.nombre_original, d.nombre_almacenado, d.mime_type
+       FROM attendance_registrations r
+       LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
+       WHERE r.id_registro = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'No existe archivo adjunto para esta justificación.' });
     }
 
-    const filename = result.rows[0].archivo_justificacion;
-    const filePath = path.join(__dirname, 'uploads', filename);
+    const document = result.rows[0];
+    const storedName = document.nombre_almacenado || document.archivo_justificacion;
+    const filePath = resolveDocumentPath(storedName);
+    if (!filePath) return res.status(404).json({ message: 'El archivo no es válido o ya no existe.' });
 
-    if (fs.existsSync(filePath)) {
-      res.download(filePath, filename);
-    } else {
-      res.status(404).json({ message: 'El archivo no fue encontrado en el servidor.' });
-    }
+    await fs.promises.access(filePath, fs.constants.R_OK);
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    if (document.mime_type) res.type(document.mime_type);
+    res.download(filePath, document.nombre_original || storedName);
   } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ message: 'El archivo no fue encontrado en el servidor.' });
     console.error(err.message);
     res.status(500).json({ message: 'Error al descargar el archivo.' });
   }
@@ -1528,10 +1686,6 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
       errors: []
     };
 
-    const salt = await bcrypt.genSalt(10);
-    const defaultUserPassword = getDefaultUserPassword();
-    const defaultPassHash = await bcrypt.hash(defaultUserPassword, salt);
-
     for (let index = 0; index < rows.length; index++) {
       const excelRowNumber = index + 2;
       const rowSavepoint = `students_sync_row_${index}`;
@@ -1553,8 +1707,8 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
         const generoInput = pickRowValue(rawRow, ['Género', 'genero', 'gender']);
         const nacimientoInput = pickRowValue(rawRow, ['Fecha Nacimiento', 'fecha_nacimiento', 'nacimiento']);
         const userUsername = pickRowValue(rawRow, ['Nombre Usuario', 'nombre_usuario', 'username']);
-        const userPassword = pickRowValue(rawRow, ['Contraseña', 'contrasena', 'password']);
         const rutApoderado = pickRowValue(rawRow, ['RUT Apoderados', 'apoderado_rut', 'rut_apoderado']);
+        const snapshotRow = sanitizeSnapshotRow(rawRow);
 
         // 2. NORMALIZATIONS
         const { rut, dv } = normalizeRutAndDv(rutInput);
@@ -1582,8 +1736,6 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
         const genero = generoInput || null;
         const fechaNacimiento = normalizeDateInput(nacimientoInput);
         const username = userUsername || (nombresInput.charAt(0) + paterno).toLowerCase().replace(/\s+/g, '');
-        const contrasena = userPassword || defaultUserPassword;
-
         // Barcode is clean RUT + DV
         const codigoBarra = (rut + (dv || '')).toUpperCase();
 
@@ -1604,31 +1756,33 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
 
         // 4. CHECK EXISTING BY RUT OR UUID
         const studentLookup = await client.query(
-          'SELECT id_alumno, uuid_erp, rut FROM alumno WHERE rut = $1 OR (uuid_erp IS NOT NULL AND uuid_erp = $2) LIMIT 1',
-          [rut, uuidErp]
+          `SELECT a.id_alumno, a.uuid_erp, a.rut,
+                  COALESCE(s.raw_payload = $3::jsonb, false) AS sin_cambios
+           FROM alumno a
+           LEFT JOIN alumno_excel_snapshot s ON s.id_alumno = a.id_alumno
+           WHERE a.rut = $1 OR (a.uuid_erp IS NOT NULL AND a.uuid_erp = $2)
+           LIMIT 1`,
+          [rut, uuidErp, JSON.stringify(snapshotRow)]
         );
         const existing = studentLookup.rows[0] || null;
 
         let idAlumno;
-        let rowChanged = false;
-
         if (!existing) {
           // INSERT
           const insRes = await client.query(
             `INSERT INTO alumno (
               uuid_erp, rut, dv, nombres, paterno, materno, email, telefono, rol,
-              seccion, genero, fecha_nacimiento, nombre_usuario, contrasena, rut_apoderado, codigo_barra
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+              seccion, genero, fecha_nacimiento, nombre_usuario, rut_apoderado, codigo_barra
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING id_alumno`,
             [
               uuidErp || null, rut, dv || null, nombresInput, paterno, materno || null,
-              email, telefono, rol, seccion, genero, fechaNacimiento, username, contrasena, rutApoderado, codigoBarra
+              email, telefono, rol, seccion, genero, fechaNacimiento, username, rutApoderado, codigoBarra
             ]
           );
           idAlumno = insRes.rows[0].id_alumno;
-          rowChanged = true;
           summary.inserted++;
-        } else {
+        } else if (!existing.sin_cambios) {
           // UPDATE if different
           idAlumno = existing.id_alumno;
 
@@ -1646,19 +1800,20 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
                 genero = COALESCE($10, genero),
                 fecha_nacimiento = COALESCE($11, fecha_nacimiento),
                 nombre_usuario = COALESCE($12, nombre_usuario),
-                contrasena = COALESCE($13, contrasena),
-                rut_apoderado = COALESCE($14, rut_apoderado),
-                codigo_barra = $15,
+                rut_apoderado = COALESCE($13, rut_apoderado),
+                codigo_barra = $14,
                 fecha_actualizacion = CURRENT_TIMESTAMP
-            WHERE id_alumno = $16
+            WHERE id_alumno = $15
           `;
           await client.query(updateQuery, [
             uuidErp || null, dv || null, nombresInput, paterno, materno || null,
-            email, telefono, rol, seccion, genero, fechaNacimiento, username, contrasena, rutApoderado, codigoBarra,
+            email, telefono, rol, seccion, genero, fechaNacimiento, username, rutApoderado, codigoBarra,
             idAlumno
           ]);
-          rowChanged = true;
           summary.updated++;
+        } else {
+          idAlumno = existing.id_alumno;
+          summary.unchanged++;
         }
 
         // 5. UPDATE MATRICULA / CURSO LINK
@@ -1671,29 +1826,13 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
           }
         }
 
-        // 6. IF ROLE IS SYSTEM ACCESS (ADMIN OR STAFF/PROFESOR), UPSERT SYSTEM USER CREDENTIALS
-        if (rol && rol !== 'Estudiante') {
-          const userRole = (rol.toLowerCase().includes('admin') || rol.toLowerCase() === 'director') ? 'admin' : 'lector';
-          const userEmail = email || `${username}@liceo.cl`;
-          const passHash = contrasena ? await bcrypt.hash(contrasena, salt) : defaultPassHash;
-          const userFullName = `${nombresInput} ${apellidosInput || ''}`.trim();
-
-          await client.query(
-            `INSERT INTO usuarios (correo, password_hash, rol, nombre)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (correo)
-             DO UPDATE SET password_hash = EXCLUDED.password_hash, rol = EXCLUDED.rol, nombre = EXCLUDED.nombre`,
-            [userEmail, passHash, userRole, userFullName]
-          );
-        }
-
-        // SAVE SNAPSHOT
+        // 6. Guardar snapshot saneado. La importación nunca crea ni modifica cuentas de acceso.
         await client.query(
           `INSERT INTO alumno_excel_snapshot (id_alumno, raw_payload, fecha_importacion)
            VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
            ON CONFLICT (id_alumno)
            DO UPDATE SET raw_payload = EXCLUDED.raw_payload, fecha_importacion = EXCLUDED.fecha_importacion`,
-          [idAlumno, JSON.stringify(rawRow)]
+          [idAlumno, JSON.stringify(snapshotRow)]
         );
 
         await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
@@ -1706,7 +1845,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
     }
 
     await client.query('COMMIT');
-    registrarAudit({
+    await registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'IMPORTACION_ALUMNOS',
@@ -1724,11 +1863,11 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
 });
 
 // GET SINGLE STUDENT DETAILS
-app.get('/api/students/:id/details', verifyToken, async (req, res) => {
+app.get('/api/students/:id/details', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
   try {
     const query = `
-      SELECT a.*, c.nombre_curso as grade
+      SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
       FROM alumno a
       LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
       LEFT JOIN curso c ON m.id_curso = c.id_curso
@@ -1754,14 +1893,16 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
   const cleanRut = rut.replace(/\D/g, '');
   const cleanDv = (dv || '').toUpperCase();
   const codigoBarra = cleanRut + cleanDv;
-
+  const client = await pool.connect();
   try {
-    const duplicate = await pool.query('SELECT id_alumno FROM alumno WHERE rut = $1', [cleanRut]);
+    await client.query('BEGIN');
+    const duplicate = await client.query('SELECT id_alumno FROM alumno WHERE rut = $1', [cleanRut]);
     if (duplicate.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ message: 'RUT ya registrado en el sistema.' });
     }
 
-    const ins = await pool.query(
+    const ins = await client.query(
       `INSERT INTO alumno (rut, dv, nombres, paterno, materno, email, telefono, rol, codigo_barra)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id_alumno`,
       [cleanRut, cleanDv, nombres, paterno, materno || null, email || null, telefono || null, rol || 'Estudiante', codigoBarra]
@@ -1771,20 +1912,22 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
     // Course association
     if (grade) {
       let courseId;
-      const courseLookup = await pool.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
+      const courseLookup = await client.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
       if (courseLookup.rows.length > 0) {
         courseId = courseLookup.rows[0].id_curso;
       } else {
-        const insertedCourse = await pool.query(
-          'INSERT INTO curso (nombre_curso) VALUES ($1) RETURNING id_curso',
+        const insertedCourse = await client.query(
+          'INSERT INTO curso (nombre_curso) VALUES ($1) ON CONFLICT (nombre_curso) DO UPDATE SET nombre_curso = EXCLUDED.nombre_curso RETURNING id_curso',
           [grade]
         );
         courseId = insertedCourse.rows[0].id_curso;
       }
-      await pool.query('INSERT INTO matricula (id_alumno, id_curso) VALUES ($1, $2)', [idAlumno, courseId]);
+      await client.query('INSERT INTO matricula (id_alumno, id_curso) VALUES ($1, $2)', [idAlumno, courseId]);
     }
 
-    registrarAudit({
+    await client.query('COMMIT');
+
+    await registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'CREAR_ALUMNO',
@@ -1796,8 +1939,12 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
 
     res.json({ id_alumno: idAlumno, message: 'Miembro creado exitosamente.' });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err.message);
+    if (err.code === '23505') return res.status(409).json({ message: 'El RUT, usuario o código de barra ya se encuentra registrado.' });
     res.status(500).json({ message: 'Error al crear miembro.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1805,23 +1952,28 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
 app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
   const { nombres, paterno, materno, email, telefono, rol, grade } = req.body;
-
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query('BEGIN');
+    const updated = await client.query(
       `UPDATE alumno
        SET nombres = $1, paterno = $2, materno = $3, email = $4, telefono = $5, rol = $6
-       WHERE id_alumno = $7`,
+       WHERE id_alumno = $7 RETURNING id_alumno`,
       [nombres, paterno, materno || null, email || null, telefono || null, rol, id]
     );
+    if (updated.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Miembro no encontrado.' });
+    }
 
     if (grade) {
       let courseId;
-      const courseLookup = await pool.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
+      const courseLookup = await client.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
       if (courseLookup.rows.length > 0) {
         courseId = courseLookup.rows[0].id_curso;
       } else {
-        const insertedCourse = await pool.query(
-          'INSERT INTO curso (nombre_curso) VALUES ($1) RETURNING id_curso',
+        const insertedCourse = await client.query(
+          'INSERT INTO curso (nombre_curso) VALUES ($1) ON CONFLICT (nombre_curso) DO UPDATE SET nombre_curso = EXCLUDED.nombre_curso RETURNING id_curso',
           [grade]
         );
         courseId = insertedCourse.rows[0].id_curso;
@@ -1833,7 +1985,7 @@ app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res
       );
     }
 
-    registrarAudit({
+    await registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'EDITAR_ALUMNO',
@@ -1845,7 +1997,10 @@ app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res
 
     res.json({ message: 'Miembro actualizado exitosamente.' });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ message: 'Error al actualizar miembro.' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1855,7 +2010,7 @@ app.delete('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, 
   try {
     await pool.query('UPDATE alumno SET activo = false WHERE id_alumno = $1', [id]);
 
-    registrarAudit({
+    await registrarAudit({
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'DESACTIVAR_ALUMNO',
@@ -1885,15 +2040,30 @@ app.post('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
   if (!correo || !password || !rol) {
     return res.status(400).json({ message: 'Faltan campos requeridos.' });
   }
+  if (!validateSystemRole(rol)) {
+    return res.status(400).json({ message: 'El rol seleccionado no es válido.' });
+  }
+  const passwordError = validatePassword(password);
+  if (passwordError) return res.status(400).json({ message: passwordError });
   try {
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
-    await pool.query(
-      'INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, $3, $4)',
+    const created = await pool.query(
+      'INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, $3, $4) RETURNING id',
       [correo.trim(), hash, rol, nombre || null]
     );
+    await registrarAudit({
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'CREAR_USUARIO',
+      entidad: 'usuario',
+      entidad_id: created.rows[0].id,
+      detalle: { correo: correo.trim(), rol, nombre: nombre || null },
+      ip: getClientIp(req)
+    });
     res.json({ message: 'Usuario creado exitosamente.' });
   } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     res.status(500).json({ message: 'Error al crear usuario.' });
   }
 });
@@ -1901,7 +2071,25 @@ app.post('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
 app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
   const { correo, password, rol, nombre } = req.body;
+  if (!correo || !validateSystemRole(rol)) {
+    return res.status(400).json({ message: 'Correo y rol válido son obligatorios.' });
+  }
+  if (password) {
+    const passwordError = validatePassword(password);
+    if (passwordError) return res.status(400).json({ message: passwordError });
+  }
   try {
+    const targetRes = await pool.query('SELECT id, correo, rol FROM usuarios WHERE id = $1', [id]);
+    if (targetRes.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado.' });
+    const target = targetRes.rows[0];
+
+    if (target.rol === 'admin' && rol !== 'admin') {
+      const adminCount = await pool.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin'");
+      if (adminCount.rows[0].total <= 1) {
+        return res.status(409).json({ message: 'No se puede quitar el rol al último administrador.' });
+      }
+    }
+
     if (password) {
       const salt = await bcrypt.genSalt(10);
       const hash = await bcrypt.hash(password, salt);
@@ -1910,21 +2098,55 @@ app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) =
         [correo.trim(), hash, rol, nombre || null, id]
       );
     } else {
-      await pool.query(
-        'UPDATE usuarios SET correo = $1, rol = $2, nombre = $3 WHERE id = $4',
+      await client.query(
+        'UPDATE usuarios SET correo = $1, rol = $2, nombre = $3, token_version = token_version + 1 WHERE id = $4',
         [correo.trim(), rol, nombre || null, id]
       );
     }
+
+    await client.query('COMMIT');
+    await registrarAudit({
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'EDITAR_USUARIO',
+      entidad: 'usuario',
+      entidad_id: parseInt(id, 10),
+      detalle: { correo: correo.trim(), rol, nombre: nombre || null, cambio_password: Boolean(password) },
+      ip: getClientIp(req)
+    });
     res.json({ message: 'Usuario actualizado.' });
   } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     res.status(500).json({ message: 'Error al actualizar usuario.' });
   }
 });
 
 app.delete('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
+  if (parseInt(id, 10) === req.user.id) {
+    return res.status(409).json({ message: 'No puedes eliminar la cuenta con la que tienes la sesión iniciada.' });
+  }
   try {
+    const targetRes = await pool.query('SELECT id, correo, rol, nombre FROM usuarios WHERE id = $1', [id]);
+    if (targetRes.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado.' });
+    const target = targetRes.rows[0];
+    if (target.rol === 'admin') {
+      const adminCount = await pool.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin'");
+      if (adminCount.rows[0].total <= 1) {
+        return res.status(409).json({ message: 'No se puede eliminar el último administrador.' });
+      }
+    }
+
     await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+    await registrarAudit({
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'ELIMINAR_USUARIO',
+      entidad: 'usuario',
+      entidad_id: parseInt(id, 10),
+      detalle: { correo: target.correo, rol: target.rol, nombre: target.nombre },
+      ip: getClientIp(req)
+    });
     res.json({ message: 'Usuario eliminado.' });
   } catch (err) {
     res.status(500).json({ message: 'Error al eliminar usuario.' });
@@ -1975,32 +2197,52 @@ app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
   }
 });
 
-// START SERVER
-app.listen(PORT, async () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
-  try {
-    const isNewSchema = await bootstrapBaseSchema();
-    await runMigrations();
-    if (isNewSchema) {
-      const salt = await bcrypt.genSalt(10);
-      const hash = await bcrypt.hash(getDefaultUserPassword(), salt);
+const ensureBaseData = async (isNewSchema) => {
+  await pool.query(`
+    INSERT INTO configuracion_asistencia (hora_entrada, hora_limite_atraso)
+    SELECT '08:00:00', '08:15:00'
+    WHERE NOT EXISTS (SELECT 1 FROM configuracion_asistencia)
+  `);
 
-      // Default configurations
-      await pool.query(
-        "INSERT INTO configuracion_asistencia (hora_entrada, hora_limite_atraso) VALUES ('08:00:00', '08:15:00')"
-      );
-
-      // Default users
-      await pool.query(
-        "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta')",
-        ['lector@ldsm.local', hash]
-      );
-      await pool.query(
-        "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'admin', 'Administrador General')",
-        ['admin@ldsm.local', hash]
-      );
-    }
-  } catch (err) {
-    console.error('Error al arrancar/verificar base de datos:', err.message);
+  const baseCourses = [
+    'Pre-Kinder', 'Kinder', '1° Básico', '2° Básico', '3° Básico', '4° Básico',
+    '5° Básico', '6° Básico', '7° Básico', '8° Básico',
+    '1° Medio', '2° Medio', '3° Medio', '4° Medio'
+  ];
+  for (const course of baseCourses) {
+    await pool.query(
+      'INSERT INTO curso (nombre_curso) VALUES ($1) ON CONFLICT (nombre_curso) DO NOTHING',
+      [course]
+    );
   }
-});
+
+  if (!isNewSchema) return;
+  const hash = await bcrypt.hash(getDefaultUserPassword(), 12);
+  await pool.query(
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta') ON CONFLICT (correo) DO NOTHING",
+    ['lector@ldsm.local', hash]
+  );
+  await pool.query(
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'admin', 'Administrador General') ON CONFLICT (correo) DO NOTHING",
+    ['admin@ldsm.local', hash]
+  );
+};
+
+const startServer = async () => {
+  const isNewSchema = await bootstrapBaseSchema();
+  await runMigrations(pool);
+  await ensureBaseData(isNewSchema);
+
+  return app.listen(PORT, () => {
+    console.log(`Servidor listo en el puerto ${PORT}`);
+  });
+};
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error('No fue posible iniciar el servidor:', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, bootstrapBaseSchema, ensureBaseData, startServer };

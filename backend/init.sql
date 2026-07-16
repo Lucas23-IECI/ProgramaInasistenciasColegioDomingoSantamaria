@@ -1,13 +1,5 @@
--- Database initialization script for LDSM Attendance System
-
-DROP TABLE IF EXISTS attendance_registrations CASCADE;
-DROP TABLE IF EXISTS configuracion_asistencia CASCADE;
-DROP TABLE IF EXISTS alumno_excel_snapshot CASCADE;
-DROP TABLE IF EXISTS matricula CASCADE;
-DROP TABLE IF EXISTS curso CASCADE;
-DROP TABLE IF EXISTS alumno CASCADE;
-DROP TABLE IF EXISTS usuarios CASCADE;
-DROP TABLE IF EXISTS audit_log CASCADE;
+-- Esquema inicial para instalaciones nuevas del sistema de asistencia LDSM.
+-- Este archivo no elimina tablas y solo se ejecuta cuando no existe el esquema base.
 
 -- System configurations for attendance limits
 CREATE TABLE configuracion_asistencia (
@@ -38,7 +30,6 @@ CREATE TABLE alumno (
   genero VARCHAR(20),
   fecha_nacimiento DATE,
   nombre_usuario VARCHAR(100) UNIQUE,
-  contrasena VARCHAR(255),
   rut_apoderado VARCHAR(50),
   activo BOOLEAN DEFAULT true,
   fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -48,9 +39,10 @@ CREATE TABLE alumno (
 -- Matricula linking alumno and curso
 CREATE TABLE matricula (
   id_matricula SERIAL PRIMARY KEY,
-  id_alumno INT REFERENCES alumno(id_alumno) ON DELETE CASCADE,
-  id_curso INT REFERENCES curso(id_curso) ON DELETE CASCADE,
-  fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  id_alumno INT NOT NULL REFERENCES alumno(id_alumno) ON DELETE CASCADE,
+  id_curso INT NOT NULL REFERENCES curso(id_curso) ON DELETE RESTRICT,
+  fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT uq_matricula_alumno UNIQUE (id_alumno)
 );
 
 -- Attendance scan records
@@ -62,12 +54,13 @@ CREATE TABLE attendance_registrations (
   estado VARCHAR(50) NOT NULL,          -- 'Presente', 'Atrasado', 'Justificado'
   tipo_registro VARCHAR(50) NOT NULL DEFAULT 'Entrada', -- 'Entrada', 'Salida'
   comentario TEXT,
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   severidad VARCHAR(20) DEFAULT 'Normal',
   justificado BOOLEAN DEFAULT false,
   tipo_justificacion VARCHAR(50),
   comentario_justificacion TEXT,
-  archivo_justificacion VARCHAR(255)
+  archivo_justificacion VARCHAR(255),
+  CONSTRAINT uq_asistencia_alumno_fecha_tipo UNIQUE (id_alumno, fecha, tipo_registro)
 );
 
 -- Admin & Scanner user credentials
@@ -75,13 +68,28 @@ CREATE TABLE usuarios (
   id SERIAL PRIMARY KEY,
   correo VARCHAR(150) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  rol VARCHAR(20) NOT NULL,             -- 'admin', 'lector'
+  rol VARCHAR(20) NOT NULL CONSTRAINT ck_usuarios_rol CHECK (rol IN ('admin', 'secretaria', 'lector')),
   nombre VARCHAR(100),
-  fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  fecha_creacion TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   intentos_fallidos INT DEFAULT 0,
-  bloqueado_hasta TIMESTAMP,
+  bloqueado_hasta TIMESTAMPTZ,
   token_version INT DEFAULT 1
 );
+
+-- Metadata de certificados y documentos de justificación.
+CREATE TABLE justification_documents (
+  id_documento SERIAL PRIMARY KEY,
+  nombre_original VARCHAR(255) NOT NULL,
+  nombre_almacenado VARCHAR(255) UNIQUE NOT NULL,
+  mime_type VARCHAR(100) NOT NULL,
+  tamano_bytes INT NOT NULL CHECK (tamano_bytes > 0 AND tamano_bytes <= 8388608),
+  sha256 CHAR(64) NOT NULL,
+  creado_por INT REFERENCES usuarios(id) ON DELETE SET NULL,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE attendance_registrations
+  ADD COLUMN documento_id INT REFERENCES justification_documents(id_documento) ON DELETE RESTRICT;
 
 -- Audit logs
 CREATE TABLE audit_log (
@@ -93,7 +101,7 @@ CREATE TABLE audit_log (
   entidad_id INT,
   detalle JSONB,
   ip VARCHAR(45),
-  fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  fecha TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_fecha ON audit_log (fecha DESC);
@@ -104,5 +112,15 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_correo ON audit_log (usuario_correo);
 CREATE TABLE alumno_excel_snapshot (
   id_alumno INT PRIMARY KEY REFERENCES alumno(id_alumno) ON DELETE CASCADE,
   raw_payload JSONB NOT NULL,
-  fecha_importacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  fecha_importacion TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE schema_migrations (
+  id SERIAL PRIMARY KEY,
+  nombre VARCHAR(255) UNIQUE NOT NULL,
+  aplicada_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_asistencia_fecha_tipo ON attendance_registrations (fecha, tipo_registro);
+CREATE INDEX IF NOT EXISTS idx_asistencia_alumno_fecha ON attendance_registrations (id_alumno, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_asistencia_documento ON attendance_registrations (documento_id);
