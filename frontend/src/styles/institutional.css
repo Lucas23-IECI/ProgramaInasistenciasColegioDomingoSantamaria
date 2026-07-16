@@ -2082,6 +2082,144 @@ td {
   font-weight: 700;
 }
 
+/* Identidad visual oficial del Liceo Domingo Santa María de Concepción */
+.institutional-mark {
+  align-items: center;
+  gap: 13px;
+}
+
+.institutional-mark__crest {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  border: 2px solid rgb(255 255 255 / 45%);
+  border-radius: 12px;
+  background: #fff;
+  object-fit: cover;
+}
+
+.institutional-mark__copy {
+  line-height: 1.08;
+}
+
+.institutional-mark__copy strong {
+  max-width: 270px;
+  font-size: 0.94rem;
+  letter-spacing: 0.012em;
+}
+
+.institutional-mark__copy small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.035em;
+}
+
+.institutional-mark--compact .institutional-mark__crest {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+
+.login-context {
+  isolation: isolate;
+  overflow: hidden;
+  background-color: #073f43;
+  background-image: url('/institucional/fachada-ldsm-concepcion.jpg');
+  background-position: 28% center;
+  background-size: cover;
+}
+
+.login-context::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgb(4 39 42 / 86%);
+  content: "";
+}
+
+.login-context::after {
+  z-index: 1;
+  width: 92px;
+  background: #b71946;
+}
+
+.login-context__main {
+  margin-block: 44px 36px;
+}
+
+.login-context__motto {
+  max-width: 38ch;
+  margin: 30px 0 0;
+  padding: 18px 0 0 20px;
+  border-top: 1px solid rgb(255 255 255 / 24%);
+  border-left: 3px solid #f2b72b;
+  color: #e4eeee;
+  font-size: 0.82rem;
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.hub-intro--campus {
+  position: relative;
+  isolation: isolate;
+  min-height: 330px;
+  overflow: hidden;
+  background-color: #073f43;
+  background-image: url('/institucional/fachada-ldsm-concepcion.jpg');
+  background-position: 20% center;
+  background-size: cover;
+  color: #fff;
+}
+
+.hub-intro--campus::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgb(4 36 39 / 78%);
+  content: "";
+}
+
+.hub-intro--campus .section-kicker { color: #88d4d1; }
+.hub-intro--campus .hub-title { color: #fff; }
+.hub-intro--campus .hub-date { color: #d4e5e4; }
+
+.hub-intro__content {
+  position: relative;
+}
+
+.hub-campus-label {
+  display: inline-flex;
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid rgb(255 255 255 / 28%);
+  color: #d4e5e4;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+}
+
+.hub-intro--campus .hub-summary {
+  position: relative;
+  border-left-color: #f2b72b;
+  background: rgb(3 28 31 / 78%);
+}
+
+.hub-intro--campus .hub-summary strong { color: #88d4d1; }
+.hub-intro--campus .hub-summary span { color: #d4e5e4; }
+
+.hub-module {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.hub-module:hover {
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
 @media (max-width: 900px) {
   html { font-size: 16px; }
   .hub-header { position: static; }
@@ -2093,6 +2231,9 @@ td {
   .hub-grid { grid-template-columns: 1fr; }
   .hub-intro { align-items: flex-start; }
   .hub-summary { display: none; }
+  .institutional-mark__copy strong { max-width: 180px; font-size: 0.82rem; }
+  .institutional-mark__copy small { font-size: 0.62rem; }
+  .institutional-mark__crest { width: 46px; height: 46px; flex-basis: 46px; }
   .app-container,
   .admin-dashboard,
   .students-page { padding: 18px 16px; }

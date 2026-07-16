@@ -57,8 +57,8 @@ function header(context = 'Levantamiento institucional de asistencia') {
   return `
     <header class="site-header">
       <a class="brand" href="/" aria-label="Liceo Domingo Santa María">
-        <span class="brand__rule" aria-hidden="true"></span>
-        <span class="brand__copy"><strong>LDSM</strong><small>Liceo Domingo Santa María</small></span>
+        <img class="brand__crest" src="/institucional/escudo-ldsm-concepcion.jpg" width="58" height="58" alt="" decoding="async" />
+        <span class="brand__copy"><strong>Liceo Domingo Santa María</strong><small>Concepción · RBD 4565-9</small></span>
       </a>
       <span class="site-header__context">${escapeHtml(context)}</span>
     </header>
@@ -74,12 +74,18 @@ function renderHome() {
     ${header()}
     <main class="landing" id="main-content">
       <section class="landing__main">
-        <span class="eyebrow">Proceso institucional</span>
-        <h1>Definiciones que deben quedar claras.</h1>
-        <p class="landing__lead">Este espacio reúne las decisiones necesarias para configurar correctamente el registro de asistencia. El acceso se realiza mediante una invitación personal enviada por el responsable del proceso.</p>
+        <div class="landing__main-content">
+          <span class="eyebrow eyebrow--inverse">Proceso institucional</span>
+          <h1>Definiciones que deben quedar claras.</h1>
+          <p class="landing__lead">Este espacio reúne las decisiones necesarias para configurar correctamente el registro de asistencia. El acceso se realiza mediante una invitación personal enviada por el responsable del proceso.</p>
+          <span class="campus-caption">Liceo Domingo Santa María · Santa María 2350, Concepción</span>
+        </div>
       </section>
       <aside class="landing__aside" aria-label="Información de acceso">
-        <span class="aside-index">01</span>
+        <figure class="landing__photo">
+          <img src="/institucional/biblioteca-ldsm-concepcion.jpg" width="640" height="640" alt="Biblioteca del Liceo Domingo Santa María de Concepción" decoding="async" />
+          <figcaption>Espacios que acompañan el aprendizaje.</figcaption>
+        </figure>
         <div class="aside-copy">
           <h2>Acceso mediante enlace personal</h2>
           <p>Abra el enlace completo recibido por correo o mensajería institucional. No se solicita una cuenta externa.</p>
@@ -144,6 +150,7 @@ function respondentShell(content, actions = '') {
     <main class="questionnaire-shell" id="main-content">
       <aside class="questionnaire-nav">
         <div>
+          <img class="questionnaire-nav__crest" src="/institucional/escudo-ldsm-concepcion.jpg" width="72" height="72" alt="Escudo del Liceo Domingo Santa María de Concepción" decoding="async" />
           <span class="eyebrow">Cuestionario asignado</span>
           <p class="questionnaire-nav__role">${escapeHtml(questionnaire.label)}</p>
           <p class="questionnaire-nav__person">${escapeHtml(invitation.respondentName)}</p>
@@ -443,6 +450,7 @@ function renderAdminLogin(errorMessage = '') {
         <span class="eyebrow eyebrow--inverse">Acceso restringido</span>
         <h1>Control de respuestas.</h1>
         <p>Desde aquí se generan invitaciones personales, se verifica el avance y se exporta el levantamiento institucional.</p>
+        <span class="campus-caption">Liceo Domingo Santa María · Concepción</span>
       </section>
       <section class="login-admin__form">
         <form id="admin-login-form">

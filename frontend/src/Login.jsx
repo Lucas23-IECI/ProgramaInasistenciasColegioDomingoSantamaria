@@ -35,12 +35,16 @@ const Login = () => {
         <section className="login-context" aria-label="Información institucional">
           <InstitutionalMark inverse />
           <div className="login-context__main">
-            <span className="section-kicker">Plataforma institucional</span>
+            <span className="section-kicker">Liceo público · Concepción</span>
             <h1>Sistema de gestión de asistencia escolar</h1>
             <p>
               Registro, seguimiento y análisis de asistencia para la comunidad
               educativa del Liceo Domingo Santa María.
             </p>
+            <blockquote className="login-context__motto">
+              “Formando ciudadanos integrales, con la certeza que serán personas
+              que aportarán al desarrollo armónico de la sociedad”.
+            </blockquote>
           </div>
           <div className="login-context__status">
             <span className="system-status-dot" aria-hidden="true" />
@@ -52,7 +56,7 @@ const Login = () => {
         </section>
 
         <section className="login-card">
-          <div className="login-card__location"><MapPin size={14} /> Concepción, Región del Biobío</div>
+          <div className="login-card__location"><MapPin size={14} /> Santa María 2350 · Concepción, Región del Biobío</div>
           <div className="login-header">
             <span className="section-kicker">Acceso al sistema</span>
             <h2 className="login-title">Iniciar sesión</h2>

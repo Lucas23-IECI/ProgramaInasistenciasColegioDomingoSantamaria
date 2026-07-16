@@ -113,11 +113,12 @@ const AdminHub = () => {
           </div>
         </header>
 
-        <section className="hub-intro">
-          <div>
+        <section className="hub-intro hub-intro--campus" aria-label="Fachada del Liceo Domingo Santa María de Concepción">
+          <div className="hub-intro__content">
             <span className="section-kicker">Panel principal</span>
             <h1 className="hub-title">Gestión institucional</h1>
             <p className="hub-date">{formatCurrentDate()}</p>
+            <span className="hub-campus-label">Santa María 2350 · Concepción</span>
           </div>
           <div className="hub-summary">
             <strong>{modules.length}</strong>

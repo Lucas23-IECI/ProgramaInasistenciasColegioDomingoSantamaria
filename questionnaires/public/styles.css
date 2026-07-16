@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --navy-950: #0d1c2a;
-  --navy-900: #14283b;
-  --navy-800: #1d3a53;
-  --navy-700: #285a80;
-  --navy-100: #dce7ef;
-  --navy-050: #eff4f7;
-  --red-700: #9f353a;
-  --red-100: #f3dfe0;
+  --navy-950: #062b2e;
+  --navy-900: #073f43;
+  --navy-800: #005e63;
+  --navy-700: #00757b;
+  --navy-100: #cfe8e7;
+  --navy-050: #eef7f6;
+  --red-700: #a71943;
+  --red-100: #f4dfe6;
   --green-700: #226346;
   --green-100: #dcebe3;
   --amber-700: #7a5917;
@@ -18,7 +18,7 @@
   --line-strong: #aeb9c2;
   --paper: #ffffff;
   --canvas: #f4f6f7;
-  --focus: #185f96;
+  --focus: #006d73;
   --radius: 8px;
   --shadow: 0 18px 55px rgb(13 28 42 / 12%);
   font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
@@ -93,7 +93,7 @@ a { color: var(--navy-700); }
   justify-content: space-between;
   gap: 28px;
   padding: 18px clamp(22px, 5vw, 80px);
-  border-bottom: 1px solid #31495d;
+  border-bottom: 1px solid #1f666a;
   background: var(--navy-900);
   color: #fff;
 }
@@ -101,30 +101,25 @@ a { color: var(--navy-700); }
 .brand {
   display: inline-flex;
   min-width: 0;
-  align-items: stretch;
+  align-items: center;
   gap: 14px;
   color: inherit;
   text-decoration: none;
 }
 
-.brand__rule {
-  position: relative;
-  width: 5px;
-  flex: 0 0 5px;
-  background: #9dc1dc;
-}
-
-.brand__rule::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 34%;
-  background: #ca555a;
-  content: "";
-}
-
 .brand__copy { display: grid; align-content: center; line-height: 1.08; }
-.brand__copy strong { font-size: 1.28rem; letter-spacing: .09em; }
-.brand__copy small { margin-top: 7px; color: #bbc9d3; font-size: .73rem; font-weight: 600; }
+.brand__copy strong { font-size: .96rem; letter-spacing: .015em; }
+.brand__copy small { margin-top: 6px; color: #c3d8d7; font-size: .7rem; font-weight: 650; letter-spacing: .035em; }
+
+.brand__crest {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  border: 2px solid rgb(255 255 255 / 45%);
+  border-radius: 11px;
+  background: #fff;
+  object-fit: cover;
+}
 
 .site-header__context {
   max-width: 400px;
@@ -142,11 +137,40 @@ a { color: var(--navy-700); }
 }
 
 .landing__main {
+  position: relative;
+  isolation: isolate;
   display: flex;
+  overflow: hidden;
   flex-direction: column;
   justify-content: center;
   padding: clamp(54px, 9vw, 130px) clamp(28px, 8vw, 130px);
-  background: var(--paper);
+  background-color: var(--navy-900);
+  background-image: url('/institucional/fachada-ldsm-concepcion.jpg');
+  background-position: 24% center;
+  background-size: cover;
+}
+
+.landing__main::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: rgb(3 40 43 / 82%);
+  content: "";
+}
+
+.landing__main-content { max-width: 900px; }
+.landing .landing__main h1 { color: #fff; }
+.landing__main .landing__lead { color: #dce9e8; }
+
+.campus-caption {
+  display: inline-flex;
+  margin-top: 42px;
+  padding-top: 14px;
+  border-top: 1px solid rgb(255 255 255 / 28%);
+  color: #dce9e8;
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .04em;
 }
 
 .eyebrow {
@@ -179,13 +203,16 @@ a { color: var(--navy-700); }
 .landing__aside {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 34px;
   padding: clamp(40px, 6vw, 76px);
   border-left: 1px solid var(--line);
   background: var(--navy-050);
 }
 
-.aside-index { color: var(--red-700); font-size: 3rem; font-weight: 300; letter-spacing: -.06em; }
+.landing__photo { margin: 0; }
+.landing__photo img { display: block; width: 100%; height: clamp(190px, 28vh, 300px); border-radius: 6px; object-fit: cover; }
+.landing__photo figcaption { margin-top: 9px; color: var(--muted); font-size: .68rem; font-weight: 650; }
 .aside-copy h2 { margin: 0 0 12px; color: var(--navy-900); font-size: 1.22rem; }
 .aside-copy p { margin: 0; color: var(--muted); font-size: .92rem; }
 .aside-note { padding-top: 24px; border-top: 1px solid var(--line-strong); color: var(--muted); font-size: .76rem; }
@@ -203,6 +230,17 @@ a { color: var(--navy-700); }
   padding: clamp(30px, 5vw, 64px);
   border-right: 1px solid var(--line);
   background: var(--navy-050);
+}
+
+.questionnaire-nav__crest {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: #fff;
+  object-fit: cover;
 }
 
 .questionnaire-nav__role { margin: 12px 0 5px; color: var(--navy-900); font-size: 1.08rem; font-weight: 750; }
@@ -384,7 +422,8 @@ a { color: var(--navy-700); }
 .response-detail h3 { margin: 0 0 18px; color: var(--navy-900); }
 
 .login-admin { display: grid; min-height: calc(100vh - 82px); grid-template-columns: 1fr 1fr; }
-.login-admin__context { display: flex; flex-direction: column; justify-content: center; padding: clamp(45px, 8vw, 110px); background: var(--navy-900); color: #fff; }
+.login-admin__context { position: relative; isolation: isolate; display: flex; overflow: hidden; flex-direction: column; justify-content: center; padding: clamp(45px, 8vw, 110px); background-color: var(--navy-900); background-image: url('/institucional/fachada-ldsm-concepcion.jpg'); background-position: 24% center; background-size: cover; color: #fff; }
+.login-admin__context::before { position: absolute; z-index: -1; inset: 0; background: rgb(3 40 43 / 84%); content: ""; }
 .login-admin__context h1 { max-width: 10ch; margin: 18px 0; font-size: clamp(2.7rem, 6vw, 5rem); letter-spacing: -.055em; line-height: .98; }
 .login-admin__context p { max-width: 46ch; color: #bac8d2; }
 .login-admin__form { display: flex; flex-direction: column; justify-content: center; padding: clamp(45px, 8vw, 110px); background: var(--paper); }
@@ -412,8 +451,9 @@ a { color: var(--navy-700); }
   body { font-size: 16px; }
   .site-header { min-height: 72px; padding: 15px 20px; }
   .site-header__context { display: none; }
-  .brand__copy strong { font-size: 1.08rem; }
-  .brand__copy small { font-size: .66rem; white-space: nowrap; }
+  .brand__crest { width: 46px; height: 46px; flex-basis: 46px; }
+  .brand__copy strong { max-width: 185px; font-size: .8rem; }
+  .brand__copy small { font-size: .61rem; white-space: nowrap; }
   .landing,
   .questionnaire-shell,
   .status-page,
@@ -422,6 +462,7 @@ a { color: var(--navy-700); }
   .landing__main { padding: 60px 24px; }
   .landing h1 { font-size: clamp(2.7rem, 15vw, 4.5rem); }
   .landing__aside { padding: 42px 24px; }
+  .landing__photo img { height: 230px; }
   .question-stage__content { padding: 46px 24px; }
   .question-title { max-width: none; font-size: clamp(2.05rem, 10vw, 3.4rem); }
   .intro-list { grid-template-columns: 1fr; }
