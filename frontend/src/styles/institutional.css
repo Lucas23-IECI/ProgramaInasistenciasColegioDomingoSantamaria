@@ -2244,3 +2244,293 @@ td {
   .user-form-grid { grid-template-columns: 1fr; }
   .user-form-grid > div { grid-column: auto !important; }
 }
+
+/* Correcciones finales de tema y adaptacion movil */
+.admin-dashboard .glass-panel {
+  min-width: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.module-header__identity > div {
+  min-width: 0;
+}
+
+/* El terminal utiliza el tema claro como experiencia principal. */
+body.light-mode:has(.kiosk-mode),
+body.light-mode .kiosk-mode {
+  background: #edf1f3;
+}
+
+body.light-mode .kiosk-mode .kiosk-panel-inner {
+  border-color: #d5dde3 !important;
+  background: #f8fafb !important;
+  color: #202a35 !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-header {
+  border-bottom-color: #d5dde3;
+  background: #ffffff;
+}
+
+body.light-mode .kiosk-mode .institutional-mark--inverse,
+body.light-mode .kiosk-mode .kiosk-title-group h1,
+body.light-mode .kiosk-mode .kiosk-clock {
+  color: #14283b;
+}
+
+body.light-mode .kiosk-mode .institutional-mark--inverse .institutional-mark__copy small,
+body.light-mode .kiosk-mode .kiosk-context-subtitle {
+  color: #66727e;
+}
+
+body.light-mode .kiosk-mode .institutional-mark__crest {
+  border-color: #d5dde3;
+}
+
+body.light-mode .kiosk-mode .kiosk-divider {
+  background: #d5dde3;
+}
+
+body.light-mode .kiosk-mode .kiosk-eyebrow {
+  color: #28618c;
+}
+
+body.light-mode .kiosk-mode .kiosk-clock,
+body.light-mode .kiosk-mode .kiosk-logout-btn,
+body.light-mode .kiosk-mode .kiosk-view-btn,
+body.light-mode .kiosk-mode .kiosk-filter-btn {
+  border-color: #cbd5dc !important;
+  background: #ffffff !important;
+  color: #40505e !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-logout-btn:hover,
+body.light-mode .kiosk-mode .kiosk-view-btn:hover,
+body.light-mode .kiosk-mode .kiosk-filter-btn:hover,
+body.light-mode .kiosk-mode .kiosk-view-btn.active,
+body.light-mode .kiosk-mode .kiosk-filter-btn.active {
+  border-color: #28618c !important;
+  background: #edf4f8 !important;
+  color: #1c4d73 !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-scanner,
+body.light-mode .kiosk-mode .kiosk-topbar {
+  border-color: #d5dde3 !important;
+  background: #f8fafb !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-turno-badge {
+  border-color: #b9c6d0 !important;
+  background: #ffffff !important;
+  color: #202a35 !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-input-wrapper {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-input {
+  border-color: #b9c6d0 !important;
+  background: #ffffff !important;
+  color: #14283b !important;
+  box-shadow: 0 1px 2px rgb(25 41 56 / 5%) !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-input:focus {
+  border-color: #28618c !important;
+  box-shadow: 0 0 0 3px rgb(40 97 140 / 13%) !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-filters,
+body.light-mode .kiosk-mode .kiosk-search-results,
+body.light-mode .kiosk-mode .kiosk-feedback,
+body.light-mode .kiosk-mode .kiosk-col-empty,
+body.light-mode .kiosk-mode .kiosk-offline-card {
+  border-color: #d5dde3 !important;
+  background: #ffffff !important;
+  color: #202a35 !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-search-item {
+  border-bottom-color: #e1e6ea;
+  background: #ffffff;
+}
+
+body.light-mode .kiosk-mode .kiosk-search-item:hover,
+body.light-mode .kiosk-mode .kiosk-search-item.selected {
+  background: #edf4f8;
+}
+
+body.light-mode .kiosk-mode .kiosk-stats-bar {
+  border-top-color: #d5dde3 !important;
+  background: #ffffff !important;
+}
+
+body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
+  border-left-color: #d5dde3;
+}
+
+@media (max-width: 640px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .admin-dashboard,
+  .students-page,
+  .app-container {
+    min-width: 0;
+    padding: 12px;
+  }
+
+  .admin-dashboard .glass-panel {
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .module-header {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    margin: 0 0 24px;
+    padding: 0 0 20px;
+  }
+
+  .module-header__identity {
+    width: 100%;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 11px;
+  }
+
+  .module-header__icon {
+    width: 42px;
+    height: 42px;
+    flex-basis: 42px;
+  }
+
+  .module-header h1 {
+    max-width: 100%;
+    font-size: clamp(1.55rem, 8vw, 1.9rem);
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+  }
+
+  .module-header p {
+    max-width: 100%;
+    margin-top: 8px;
+    font-size: 0.91rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  .module-header__actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .module-header__button {
+    min-width: 0;
+    justify-content: center;
+    padding: 9px 8px;
+    font-size: 0.78rem;
+    text-align: center;
+  }
+
+  .admin-dashboard .stats-grid {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-dashboard .stat-card {
+    min-width: 0;
+    min-height: 132px;
+    padding: 16px 8px;
+  }
+
+  .admin-dashboard .stat-card:nth-child(2n) {
+    border-right: 0 !important;
+  }
+
+  .admin-dashboard .stat-card:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .stat-card__label {
+    max-width: 100%;
+    font-size: 0.68rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .dashboard-tabs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .dashboard-tab {
+    width: 100%;
+    padding: 12px 8px;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .absence-search-panel input,
+  .recent-activity,
+  .report-panel,
+  .students-table-wrap,
+  .table-scroll {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .students-table-wrap,
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  .theme-toggle-btn-floating {
+    width: 44px;
+    height: 44px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .kiosk-mode {
+    min-height: 100dvh;
+  }
+
+  .kiosk-header {
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .kiosk-header-right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .kiosk-clock,
+  .kiosk-logout-btn {
+    min-height: 44px;
+  }
+
+  .kiosk-scanner {
+    padding: 16px !important;
+  }
+
+  .kiosk-stats-bar {
+    gap: 8px;
+  }
+}

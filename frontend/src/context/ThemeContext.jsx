@@ -4,7 +4,8 @@ export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
   const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('ldsm-theme');
+    return savedTheme === 'dark' ? 'dark' : 'light';
   });
 
   useEffect(() => {
@@ -13,7 +14,7 @@ export const ThemeProvider = ({ children }) => {
     } else {
       document.body.classList.remove('light-mode');
     }
-    localStorage.setItem('theme', theme);
+    localStorage.setItem('ldsm-theme', theme);
   }, [theme]);
 
   const toggleTheme = () => {
