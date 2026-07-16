@@ -1,6 +1,6 @@
 export const QUESTIONNAIRES = {
   direccion: {
-    label: 'Dirección',
+    label: 'Directora del establecimiento',
     shortDescription: 'Definiciones institucionales, responsables y aprobación final.',
     estimatedMinutes: 7,
     questions: [
