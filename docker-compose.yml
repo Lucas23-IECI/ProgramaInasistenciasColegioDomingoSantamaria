@@ -1,14 +1,14 @@
 services:
-
-  # ── 1. Base de datos ─────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: ldsm_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME}
+      TZ: America/Santiago
+      PGTZ: America/Santiago
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,8 +16,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    mem_limit: 512m
 
-  # ── 2. Backend Express ───────────────────────────────────────────────────────
   backend:
     build: ./backend
     container_name: ldsm_backend
@@ -25,20 +25,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Al estar el archivo .env al lado de este docker-compose.yml, esto lee las variables directamente
     env_file:
       - .env
     environment:
-      DB_USER:     ${DB_USER}
-      DB_HOST:     postgres
-      DB_NAME:     ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_HOST: postgres
+      DB_NAME: ${DB_NAME}
       DB_PASSWORD: ${DB_PASSWORD}
-      DB_PORT:     5432
-      JWT_SECRET:  ${JWT_SECRET}
+      DB_PORT: 5432
+      JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
-      PORT:        5000
+      PORT: 5000
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_TIMEZONE: America/Santiago
+      UPLOADS_DIR: /app/uploads
+      DB_POOL_MAX: 10
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 256m
 
-  # ── 3. Frontend React + nginx (build estático + proxy /api → backend) ─────────
   frontend:
     build:
       context: ./frontend
@@ -49,9 +60,15 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
 
-  # ── 4. Respaldo Automático (INC-08) ──────────────────────────────────────────
   backup:
     image: postgres:16-alpine
     container_name: ldsm_backup
@@ -64,18 +81,21 @@ services:
     environment:
       DB_HOST: postgres
       PGPASSWORD: ${DB_PASSWORD}
+      TZ: America/Santiago
     volumes:
       - ./backups:/backups
-      - ./backend/backup.sh:/backup.sh
+      - uploads_data:/uploads:ro
+      - ./backend/backup.sh:/backup.sh:ro
     entrypoint: >
       sh -c "
-      chmod +x /backup.sh;
-      echo 'Servicio de backup automático diario iniciado.';
+      echo 'Servicio de respaldo diario iniciado.';
       while true; do
+        sh /backup.sh;
         sleep 86400;
-        /backup.sh;
       done
       "
+    mem_limit: 256m
 
 volumes:
   postgres_data:
+  uploads_data:
