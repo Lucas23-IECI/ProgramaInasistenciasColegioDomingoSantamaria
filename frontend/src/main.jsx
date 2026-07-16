@@ -3,9 +3,9 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import './styles/institutional.css'
+import './styles/design-system.css'
 import { AuthProvider, AuthContext } from './context/AuthContext'
-import { ThemeProvider, ThemeContext } from './context/ThemeContext'
-import { Sun, Moon } from 'lucide-react'
+import { ThemeProvider } from './context/ThemeContext'
 import App from './App.jsx'
 import Login from './Login.jsx'
 import AdminHub from './AdminHub.jsx'
@@ -13,6 +13,8 @@ import AppErrorBoundary from './components/AppErrorBoundary.jsx'
 import NotFound from './components/NotFound.jsx'
 import { FeedbackProvider } from './context/FeedbackContext.jsx'
 import ScrollToTop from './components/ScrollToTop.jsx'
+import GlobalTools from './components/GlobalTools.jsx'
+import { HelpTourProvider } from './context/HelpTourContext.jsx'
 
 const Students = lazy(() => import('./Students.jsx'))
 const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
@@ -42,16 +44,6 @@ const RoleBasedHome = () => {
   return <App />;
 }
 
-const ThemeToggler = () => {
-  const { theme, toggleTheme } = useContext(ThemeContext);
-  return (
-    <button onClick={toggleTheme} className="theme-toggle-btn-floating" title={theme === 'light' ? 'Modo oscuro' : 'Modo claro'} aria-label={theme === 'light' ? 'Activar modo oscuro' : 'Activar modo claro'}>
-      {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-      <span>{theme === 'light' ? 'Modo oscuro' : 'Modo claro'}</span>
-    </button>
-  );
-};
-
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AppErrorBoundary>
@@ -59,8 +51,9 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <FeedbackProvider>
             <BrowserRouter>
+          <HelpTourProvider>
           <ScrollToTop />
-          <ThemeToggler />
+          <GlobalTools />
           <Suspense fallback={<div className="route-loader" role="status">Cargando módulo…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -80,6 +73,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>
+          </HelpTourProvider>
             </BrowserRouter>
           </FeedbackProvider>
         </AuthProvider>

@@ -2,7 +2,7 @@ import { ArrowLeft, LogOut } from 'lucide-react';
 import { createElement } from 'react';
 
 const ModuleHeader = ({ icon, title, description, onBack, onLogout, children }) => (
-  <header className="module-header">
+  <header className="module-header" data-tour="page-header">
     <div className="module-header__identity">
       <span className="module-header__icon" aria-hidden="true">{createElement(icon, { size: 23 })}</span>
       <div>
