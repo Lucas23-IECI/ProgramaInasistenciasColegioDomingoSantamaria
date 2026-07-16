@@ -182,10 +182,13 @@ function renderRespondent() {
 
 function renderRespondentIntro() {
   const { questionnaire, invitation } = state.respondent;
+  const greeting = invitation.role === 'direccion'
+    ? 'Estimada Directora del establecimiento'
+    : `Estimada/o ${invitation.respondentName}`;
   respondentShell(`
     <span class="eyebrow">Antes de comenzar</span>
     <h1 class="question-title intro-title">Su experiencia permitirá definir una regla defendible.</h1>
-    <p class="question-help">Estimada/o ${escapeHtml(invitation.respondentName)}: responda desde la realidad actual del establecimiento. Si una definición todavía no existe, indíquelo expresamente.</p>
+    <p class="question-help">${escapeHtml(greeting)}: responda desde la realidad actual del establecimiento. Si una definición todavía no existe, indíquelo expresamente.</p>
     <div class="intro-list" aria-label="Características del proceso">
       <div><strong>${questionnaire.estimatedMinutes} minutos</strong><span>Tiempo aproximado</span></div>
       <div><strong>${questionnaire.questions.length} definiciones</strong><span>Asignadas a su cargo</span></div>
