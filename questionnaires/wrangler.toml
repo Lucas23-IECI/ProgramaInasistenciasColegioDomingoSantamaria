@@ -8,5 +8,4 @@ database_name = "ldsm-cuestionarios"
 database_id = "00000000-0000-0000-0000-000000000000"
 
 [vars]
-PUBLIC_BASE_URL = "http://localhost:8788"
 TURNSTILE_SITE_KEY = ""

@@ -28,7 +28,7 @@ El formulario no solicita contraseñas ni antecedentes de estudiantes.
 2. Reemplazar `database_id` en `wrangler.toml`.
 3. Crear el proyecto Pages `cuestionarios-ldsm`.
 4. Configurar `ADMIN_PASSWORD` y `SESSION_SECRET` como secretos de producción.
-5. Ajustar `PUBLIC_BASE_URL` al dominio definitivo.
+5. Definir `PUBLIC_BASE_URL` solo si los enlaces deben usar un dominio distinto del dominio desde el que se administra el portal.
 6. Aplicar migraciones remotas y publicar.
 
 Los valores de `.dev.vars`, tokens personales y exportaciones no se incorporan al repositorio.
