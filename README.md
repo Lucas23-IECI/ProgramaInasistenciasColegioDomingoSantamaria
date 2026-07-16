@@ -13,7 +13,9 @@ Sistema web para registrar entradas, atrasos e inasistencias de estudiantes medi
 - Reportes en Excel, indicadores y panel de analítica.
 - Registro de auditoría para acciones administrativas.
 - Tema claro/oscuro y modo de pantalla completa para el lector.
-- Respaldo diario de PostgreSQL al ejecutar con Docker Compose.
+- Certificados médicos validados por formato, tamaño y firma de archivo, con metadatos y hash SHA-256.
+- Respaldo diario verificado de PostgreSQL y certificados al ejecutar con Docker Compose.
+- Interfaz institucional de pantalla completa, con controles amplios y foco visible.
 
 ## Tecnologías
 
@@ -28,8 +30,11 @@ Sistema web para registrar entradas, atrasos e inasistencias de estudiantes medi
 ```text
 backend/
   middleware/       Autenticación y autorización
+  migrations/       Migraciones SQL versionadas
+  services/         Persistencia segura de documentos
+  test/             Pruebas automatizadas del backend
   init.sql          Esquema inicial
-  seed.js           Configuración y usuarios iniciales
+  seed.js           Bootstrap no destructivo
   server.js         API REST
 frontend/
   public/           Recursos estáticos
@@ -55,7 +60,9 @@ docker-compose.yml  Servicios de base de datos, API, web y respaldo
 
 4. Abrir `http://localhost`.
 
-Al crear una base nueva se generan cuentas locales para `lector@ldsm.local` y `admin@ldsm.local`. Ambas utilizan inicialmente el valor de `DEFAULT_USER_PASSWORD`; debe cambiarse después del primer acceso.
+Al crear una base nueva se generan cuentas locales para `lector@ldsm.local` y `admin@ldsm.local`. Ambas utilizan inicialmente el valor de `DEFAULT_USER_PASSWORD`; debe ser una clave de al menos 12 caracteres con mayúsculas, minúsculas y números, y debe cambiarse después del primer acceso.
+
+Las importaciones ERP crean o actualizan estudiantes y matrículas, pero ignoran columnas de contraseña y nunca crean cuentas de acceso al sistema. Las cuentas se administran exclusivamente desde el módulo **Usuarios y permisos**.
 
 ## Desarrollo local
 
@@ -87,8 +94,11 @@ El frontend queda disponible en `http://localhost:5173` y la API en `http://loca
 | `PORT` | Puerto del backend |
 | `JWT_SECRET` | Secreto obligatorio para firmar sesiones |
 | `CORS_ORIGIN` | Orígenes permitidos, separados por coma |
-| `DEFAULT_USER_PASSWORD` | Clave inicial para cuentas creadas por bootstrap o importación |
+| `DEFAULT_USER_PASSWORD` | Clave inicial para las cuentas locales de bootstrap |
 | `NODE_ENV` | Entorno de ejecución |
+| `TZ` | Zona horaria; se recomienda `America/Santiago` |
+| `DB_POOL_MAX` | Máximo de conexiones del pool del backend |
+| `UPLOADS_DIR` | Directorio persistente para certificados |
 
 ## Validación
 
@@ -98,11 +108,28 @@ npm run lint
 npm run build
 
 Set-Location ../backend
-node --check server.js
-node --check seed.js
+npm run check
+npm test
+
+Set-Location ..
+docker compose config --quiet
 ```
 
-El backend todavía no cuenta con una suite automatizada de pruebas. La comprobación actual cubre sintaxis, compilación del frontend, lint y validación de Docker Compose.
+La comprobación cubre lint y compilación del frontend, auditoría de dependencias, sintaxis y pruebas automatizadas del backend, validación de Docker Compose, migraciones reales, salud de los contenedores y un flujo de certificados con descarga, reutilización y revocación.
+
+## Respaldos y restauración
+
+El servicio `backup` genera al iniciar y luego diariamente:
+
+- un `pg_dump` en formato personalizado, validado con `pg_restore --list`;
+- un archivo comprimido del volumen de certificados, también validado;
+- un manifiesto SHA-256 de ambos artefactos.
+
+La restauración es deliberadamente explícita. Revise primero el respaldo y ejecute `backend/restore.sh` con las variables indicadas en el propio script. El proceso exige una confirmación textual para evitar restauraciones accidentales.
+
+## Decisión funcional pendiente
+
+El cálculo actual de presentes, ausentes y alertas tempranas se mantiene sin cambios en esta etapa. Antes de modificarlo, el establecimiento debe definir calendario escolar, hora y responsable del cierre diario, estados oficiales, reglas de ausencia inferida y vigencia histórica de las matrículas. El alcance y los criterios de aceptación están documentados en `docs/PLAN_INTEGRACION_INSTITUCIONAL.md`.
 
 ## Protección de datos
 
