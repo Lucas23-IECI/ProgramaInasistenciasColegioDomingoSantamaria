@@ -3,7 +3,7 @@ import axios from 'axios';
 import { AuthContext } from './context/AuthContext';
 import {
   Users, AlertTriangle, LogOut,
-  ShieldCheck, ShieldAlert, FileSpreadsheet, Calendar,
+  ShieldCheck, ShieldAlert, FileSpreadsheet,
   ChevronDown, Download, RefreshCw, Clock, TrendingUp,
   CheckCircle, X, Upload, Trash2, Globe2, School,
   UserRound, Settings2, ClipboardList, BarChart3, Stethoscope, Paperclip
@@ -11,11 +11,13 @@ import {
 import { useNavigate } from 'react-router-dom';
 import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
+import DateRangeField from './components/DateRangeField';
+import StudentPicker from './components/StudentPicker';
 
 import { API_URL } from './config';
 
 const REPORT_TYPES = [
-  { id: 'atrasado', label: 'Solo Atrasados', desc: 'Registros de alumnos que llegaron tarde (Atrasado)', icon: <AlertTriangle size={18} /> }
+  { id: 'atrasado', label: 'Atrasos registrados', desc: 'Ingresos clasificados como atraso dentro del período seleccionado.', icon: <AlertTriangle size={18} /> }
 ];
 
 const PAGE_SIZE = 10;
@@ -420,8 +422,8 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div className="app-container" style={{ maxWidth: '900px' }}>
-      <div className="glass-panel" style={{ maxWidth: '100%', width: '100%' }}>
+    <div className="app-container late-dashboard-page">
+      <div className="glass-panel late-dashboard-surface">
 
         <ModuleHeader
           icon={ShieldCheck}
@@ -432,7 +434,7 @@ const AdminDashboard = () => {
         />
 
         {/* ===== SECCIÓN 1: RESUMEN DEL DÍA ===== */}
-        <div style={{ marginBottom: '2rem' }}>
+        <section className="late-dashboard-section" data-tour="late-summary">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <h3 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
               <TrendingUp size={20} /> Resumen de Hoy
@@ -452,7 +454,7 @@ const AdminDashboard = () => {
           ) : (
             <>
               {/* Stats Cards */}
-              <div className="stats-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+              <div className="stats-grid late-metric-strip">
                 <div className="stat-card" style={{ borderLeftColor: '#10b981' }}>
                   <div className="stat-card__icon" style={{ color: '#10b981' }}><ShieldCheck size={22} /></div>
                   <div className="stat-card__value">{stats?.presentes || 0}</div>
@@ -471,7 +473,7 @@ const AdminDashboard = () => {
               </div>
 
               {/* Atrasos de Hoy */}
-              <div className="recent-activity" style={{ marginTop: '1.5rem' }}>
+              <div className="recent-activity" style={{ marginTop: '1.5rem' }} data-tour="late-list">
                 <h4 style={{ color: 'var(--text-dark)', margin: '0 0 1rem 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Clock size={18} style={{ color: 'var(--primary)' }} />
                   Atrasos de Hoy ({registrosHoy.filter(r => r.estado === 'Atrasado').length})
@@ -570,12 +572,12 @@ const AdminDashboard = () => {
               </div>
             </>
           )}
-        </div>
+        </section>
 
         <hr style={{ border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)', margin: '1.5rem 0' }} />
 
         {/* ===== SECCIÓN 2: GENERADOR DE REPORTES ===== */}
-        <div style={{ marginBottom: '2rem' }}>
+        <section className="late-dashboard-section report-builder-section" data-tour="report-builder">
           <button
             className="report-toggle-btn"
             onClick={() => setShowReportPanel(!showReportPanel)}
@@ -596,29 +598,16 @@ const AdminDashboard = () => {
           {showReportPanel && (
             <div className="report-panel fade-in">
 
-              {/* Período */}
-              <div className="report-section">
-                <label className="report-section-label">
-                  <Calendar size={14} /> Período del Reporte
-                </label>
-                <div className="report-dates">
-                  <div className="date-field">
-                    <label>Desde</label>
-                    <input
-                      type="date"
-                      value={reportDesde}
-                      onChange={(e) => setReportDesde(e.target.value)}
-                    />
-                  </div>
-                  <div className="date-field">
-                    <label>Hasta</label>
-                    <input
-                      type="date"
-                      value={reportHasta}
-                      onChange={(e) => setReportHasta(e.target.value)}
-                    />
-                  </div>
-                </div>
+              <div className="report-section report-section--period">
+                <DateRangeField
+                  label="Período del reporte"
+                  from={reportDesde}
+                  to={reportHasta}
+                  onChange={({ from, to }) => {
+                    setReportDesde(from);
+                    setReportHasta(to);
+                  }}
+                />
               </div>
 
               {/* Ámbito del Reporte */}
@@ -674,100 +663,41 @@ const AdminDashboard = () => {
                 )}
 
                 {reportScope === 'individual' && (
-                  <div className="report-scope-control fade-in" style={{ marginTop: '12px', position: 'relative' }}>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-light)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Buscar Alumno</label>
-                    {selectedAlumno ? (
-                      <div className="selected-item-display">
-                        <span>{selectedAlumno.name} ({selectedAlumno.rut}-{selectedAlumno.dv} &bull; {selectedAlumno.nombre_curso || 'Sin Curso'})</span>
-                        <button
-                          type="button"
-                          onClick={() => { setSelectedAlumno(null); setStudentSearchTerm(''); }}
-                          className="remove-btn"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <input
-                          type="text"
-                          placeholder="Escribe nombre, apellido o RUT del alumno..."
-                          value={studentSearchTerm}
-                          onChange={(e) => setStudentSearchTerm(e.target.value)}
-                          className="report-text-input"
-                        />
-                        {isSearchingStudents && <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginTop: '4px' }}>Buscando...</div>}
-                        {studentSearchResults.length > 0 && (
-                          <div className="report-search-results-dropdown">
-                            {studentSearchResults.map(s => (
-                              <div
-                                key={s.id_alumno}
-                                className="report-search-result-item"
-                                onClick={() => {
-                                  setSelectedAlumno(s);
-                                  setStudentSearchTerm('');
-                                  setStudentSearchResults([]);
-                                }}
-                              >
-                                {s.name} ({s.rut}-{s.dv} &bull; {s.nombre_curso || 'Sin Curso'})
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
+                  <div className="report-scope-control fade-in">
+                    <StudentPicker
+                      label="Buscar una persona"
+                      query={studentSearchTerm}
+                      onQueryChange={setStudentSearchTerm}
+                      results={studentSearchResults}
+                      loading={isSearchingStudents}
+                      selected={selectedAlumno ? [selectedAlumno] : []}
+                      onSelect={(student) => {
+                        setSelectedAlumno(student);
+                        setStudentSearchResults([]);
+                      }}
+                      onRemove={() => setSelectedAlumno(null)}
+                    />
                   </div>
                 )}
 
                 {reportScope === 'personalizado' && (
-                  <div className="report-scope-control fade-in" style={{ marginTop: '12px' }}>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-light)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Seleccionar Múltiples Alumnos ({selectedAlumnos.length} agregados)</label>
-                    <div style={{ position: 'relative', marginBottom: '10px' }}>
-                      <input
-                        type="text"
-                        placeholder="Buscar alumno para agregar al reporte..."
-                        value={studentSearchTerm}
-                        onChange={(e) => setStudentSearchTerm(e.target.value)}
-                        className="report-text-input"
-                      />
-                      {isSearchingStudents && <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginTop: '4px' }}>Buscando...</div>}
-                      {studentSearchResults.length > 0 && (
-                        <div className="report-search-results-dropdown">
-                          {studentSearchResults
-                            .filter(s => !selectedAlumnos.some(a => a.id_alumno === s.id_alumno))
-                            .map(s => (
-                              <div
-                                key={s.id_alumno}
-                                className="report-search-result-item"
-                                onClick={() => {
-                                  setSelectedAlumnos([...selectedAlumnos, s]);
-                                  setStudentSearchTerm('');
-                                  setStudentSearchResults([]);
-                                }}
-                              >
-                                {s.name} ({s.rut}-{s.dv} &bull; {s.nombre_curso || 'Sin Curso'})
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {selectedAlumnos.length > 0 && (
-                      <div className="selected-chips-container">
-                        {selectedAlumnos.map(a => (
-                          <div key={a.id_alumno} className="student-chip">
-                            <span>{a.name} ({a.nombre_curso || 'S/C'})</span>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedAlumnos(selectedAlumnos.filter(x => x.id_alumno !== a.id_alumno))}
-                              className="chip-remove-btn"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="report-scope-control fade-in">
+                    <StudentPicker
+                      label="Seleccionar varias personas"
+                      placeholder="Busca una persona para agregarla al reporte…"
+                      query={studentSearchTerm}
+                      onQueryChange={setStudentSearchTerm}
+                      results={studentSearchResults}
+                      loading={isSearchingStudents}
+                      selected={selectedAlumnos}
+                      multiple
+                      onSelect={(student) => {
+                        setSelectedAlumnos((current) => [...current, student]);
+                        setStudentSearchResults([]);
+                      }}
+                      onRemove={(student) => setSelectedAlumnos((current) => current.filter((item) => item.id_alumno !== student.id_alumno))}
+                      onClear={() => setSelectedAlumnos([])}
+                    />
                   </div>
                 )}
               </div>
@@ -777,17 +707,19 @@ const AdminDashboard = () => {
                 <label className="report-section-label">Tipo de Reporte</label>
                 <div className="report-types-grid">
                   {REPORT_TYPES.map(rt => (
-                    <div
+                    <button
+                      type="button"
                       key={rt.id}
                       className={`report-type-card ${reportType === rt.id ? 'active' : ''}`}
                       onClick={() => setReportType(rt.id)}
+                      aria-pressed={reportType === rt.id}
                     >
                       <div className="report-type-card__header">
                         {rt.icon}
                         <span>{rt.label}</span>
                       </div>
                       <p className="report-type-card__desc">{rt.desc}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -795,18 +727,18 @@ const AdminDashboard = () => {
               {/* Formato del Reporte */}
               <div className="report-section">
                 <label className="report-section-label">Formato</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div className="report-format-selector">
                   <button
                     className={`report-format-btn ${reportFormat === 'detallado' ? 'active' : ''}`}
                     onClick={() => setReportFormat('detallado')}
                   >
-                    <ClipboardList size={15} /> Detallado (marcas P/T/I por día)
+                    <ClipboardList size={15} /> Detallado por fecha y hora
                   </button>
                   <button
                     className={`report-format-btn ${reportFormat === 'resumido' ? 'active' : ''}`}
                     onClick={() => setReportFormat('resumido')}
                   >
-                    <BarChart3 size={15} /> Resumido (totales)
+                    <BarChart3 size={15} /> Resumido por persona
                   </button>
                 </div>
               </div>
@@ -830,13 +762,13 @@ const AdminDashboard = () => {
 
               <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', textAlign: 'center', marginTop: '8px' }}>
                 {reportFormat === 'detallado'
-                  ? 'Genera una hoja por mes con marcas D/A por cada día.'
-                  : 'Genera una tabla resumen con presentes, atrasos e inasistencias por estudiante.'
+                  ? 'Genera una hoja por mes con cada atraso, fecha, hora y curso.'
+                  : 'Genera una tabla con los totales de atrasos por persona.'
                 }
               </p>
             </div>
           )}
-        </div>
+        </section>
 
         {/* ===== JUSTIFICATION MODAL ===== */}
         {justifyModal && (
@@ -846,7 +778,7 @@ const AdminDashboard = () => {
                 <h3 style={{ margin: 0, color: 'var(--text-dark)', fontSize: '1.1rem' }}>
                   {justifyModal.id_registro !== undefined ? 'Justificar Atraso' : 'Justificar Inasistencia'}
                 </h3>
-                <button onClick={() => setJustifyModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer' }}>
+                <button aria-label="Cerrar regularización" onClick={() => setJustifyModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer' }}>
                   <X size={20} />
                 </button>
               </div>
