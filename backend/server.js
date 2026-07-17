@@ -483,6 +483,38 @@ app.get('/api/courses', verifyToken, async (req, res) => {
   }
 });
 
+// SUPERFICIE HEREDADA DE ASISTENCIA
+//
+// El producto vigente controla ingresos y atrasos. Estos endpoints se
+// conservan bloqueados durante la transición para que instalaciones antiguas
+// reciban una respuesta inequívoca sin permitir nuevas ausencias, inferencias
+// de asistencia ni mutaciones sobre el flujo histórico.
+const legacyAttendanceGone = (req, res) => res.status(410).json({
+  code: 'MODULO_ASISTENCIA_DESCONTINUADO',
+  message: 'Esta función fue retirada. Utiliza el módulo institucional de puntualidad y atrasos.',
+  replacement: '/api/puntualidad'
+});
+
+app.all([
+  '/api/attendance/config',
+  '/api/asistencia/today',
+  '/api/asistencia/today-stats',
+  '/api/asistencia/range-stats',
+  '/api/asistencia/inasistencias',
+  '/api/asistencia/history',
+  '/api/admin/reportes/asistencia',
+  '/api/asistencia/justificar-nueva',
+  '/api/asistencia/registrar-ausencia',
+  '/api/asistencia/justificaciones',
+  '/api/asistencia/alertas-tempranas'
+], verifyToken, legacyAttendanceGone);
+
+app.all('/api/asistencia/:id/justificar', verifyToken, legacyAttendanceGone);
+app.all('/api/asistencia/justificacion/:id', verifyToken, legacyAttendanceGone);
+app.all('/api/asistencia/download/:id', verifyToken, legacyAttendanceGone);
+app.put('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
+app.delete('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
+
 // ATTENDANCE CONFIGURATION
 app.get('/api/attendance/config', verifyToken, async (req, res) => {
   try {

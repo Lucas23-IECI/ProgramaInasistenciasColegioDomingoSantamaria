@@ -18,7 +18,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const [todayStats, setTodayStats] = useState({ total: 0, presentes: 0, atrasados: 0 }); // Presentes y Atrasados
 
   // Settings/Config
-  const [asistenciaConfig, setAsistenciaConfig] = useState({ hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' });
+  const [punctualityConfig, setPunctualityConfig] = useState({ hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' });
 
   // Layout mode: 'centered' | 'columns'
   const [layoutMode, setLayoutMode] = useState('centered');
@@ -62,7 +62,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Fetch Config on mount
   useEffect(() => {
     axios.get(`${API_URL}/puntualidad/config`)
-      .then(res => setAsistenciaConfig(res.data))
+      .then(res => setPunctualityConfig(res.data))
       .catch(() => {});
   }, []);
 
@@ -697,7 +697,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       <div className="kiosk-topbar">
         <div className="kiosk-turno-badge" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <Clock size={14} />
-          <span>Límite Ingreso: <strong>{asistenciaConfig.hora_limite_atraso.slice(0, 5)}</strong></span>
+          <span>Inicio de atraso: <strong>{punctualityConfig.hora_limite_atraso.slice(0, 5)}</strong></span>
         </div>
         <div className="kiosk-topbar-controls">
           <button

@@ -37,7 +37,7 @@ function App() {
   };
 
   return (
-    <div className="kiosk-mode kiosk-asistencia">
+    <div className="kiosk-mode kiosk-puntualidad">
       <div className="kiosk-panel">
         <div className="kiosk-panel-inner">
 
