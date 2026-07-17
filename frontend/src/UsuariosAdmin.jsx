@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { UserCog, Plus, Trash2, Pencil, X, Check } from 'lucide-react';
+import { UserCog, Plus, UserX, UserCheck, Pencil, X, Check, KeyRound } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
@@ -64,7 +64,7 @@ const UserFormPanel = ({ form, setForm, formMode, saving, handleSave, closeForm,
 );
 
 const UsuariosAdmin = () => {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, refreshUser } = useContext(AuthContext);
   const { notify } = useFeedback();
   const navigate = useNavigate();
 
@@ -125,10 +125,13 @@ const UsuariosAdmin = () => {
     try {
       if (formMode === 'crear') {
         await axios.post(`${API_URL}/users`, form, { withCredentials: true });
+        notify('Cuenta creada. La contraseña deberá cambiarse en el primer ingreso.', 'success');
       } else {
         const payload = { correo: form.correo, rol: form.rol, nombre: form.nombre };
         if (form.password) payload.password = form.password;
         await axios.put(`${API_URL}/users/${formMode}`, payload, { withCredentials: true });
+        if (formMode === user?.id) await refreshUser();
+        notify(form.password ? 'Cuenta actualizada con una nueva contraseña temporal.' : 'Cuenta actualizada.', 'success');
       }
       closeForm();
       setUsuPage(1);
@@ -140,14 +143,15 @@ const UsuariosAdmin = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleStatus = async (id, activo) => {
     try {
-      await axios.delete(`${API_URL}/users/${id}`, { withCredentials: true });
+      await axios.patch(`${API_URL}/users/${id}/status`, { activo }, { withCredentials: true });
       setConfirmDelete(null);
       setUsuPage(1);
       fetchUsuarios();
+      notify(activo ? 'Cuenta activada.' : 'Cuenta desactivada.', 'success');
     } catch (err) {
-      notify(err.response?.data?.message || 'No fue posible eliminar el usuario.', 'error');
+      notify(err.response?.data?.message || 'No fue posible cambiar el estado de la cuenta.', 'error');
     }
   };
 
@@ -161,7 +165,7 @@ const UsuariosAdmin = () => {
     return u.correo.slice(0, 2).toUpperCase();
   };
 
-  const COL = '1fr 130px 110px 190px';
+  const COL = 'minmax(240px, 1fr) 130px 120px 110px 210px';
 
   return (
     <div className="app-container">
@@ -207,7 +211,7 @@ const UsuariosAdmin = () => {
           <div className="users-table-shell" data-tour="users-list" style={{ overflow: 'auto' }}>
             {/* Cabecera */}
             <div className="users-table-grid users-table-grid--head" style={{ display: 'grid', gridTemplateColumns: COL, padding: '12px 16px', borderBottom: '1.5px solid rgba(0,0,0,0.07)' }}>
-              {[['Usuario', 'left'], ['Rol', 'left'], ['Creado', 'left'], ['Acciones', 'right']].map(([h, align]) => (
+              {[['Usuario', 'left'], ['Rol', 'left'], ['Estado', 'left'], ['Creado', 'left'], ['Acciones', 'right']].map(([h, align]) => (
                 <span key={h} style={{ fontSize: '0.7rem', fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: align }}>{h}</span>
               ))}
             </div>
@@ -228,7 +232,8 @@ const UsuariosAdmin = () => {
                     gridTemplateColumns: COL,
                     alignItems: 'center',
                     padding: '11px 16px',
-                    background: editando ? 'rgba(40,97,140,0.05)' : idx % 2 === 0 ? '#fff' : '#FAFAFA',
+                    background: editando ? 'rgba(40,97,140,0.05)' : !u.activo ? '#f5f6f7' : idx % 2 === 0 ? '#fff' : '#FAFAFA',
+                    opacity: u.activo ? 1 : 0.78,
                     borderBottom: (!isLast || editando) ? '1px solid rgba(0,0,0,0.05)' : 'none',
                     transition: 'background 0.12s',
                   }}>
@@ -241,6 +246,7 @@ const UsuariosAdmin = () => {
                         <span style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: '0.87rem', display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {u.nombre || u.correo}
                           {esMiUsuario && <span style={{ fontSize: '0.72rem', background: 'rgba(40,97,140,0.12)', color: '#1C4D73', borderRadius: '20px', padding: '2px 8px', fontWeight: 700, flexShrink: 0 }}>tú</span>}
+                          {u.debe_cambiar_password && <span title="Debe cambiar su contraseña" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.68rem', background: '#fff3d6', color: '#8a5b00', borderRadius: '20px', padding: '2px 7px', fontWeight: 750, flexShrink: 0 }}><KeyRound size={11} /> temporal</span>}
                         </span>
                         {u.nombre && <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{u.correo}</span>}
                       </div>
@@ -253,6 +259,12 @@ const UsuariosAdmin = () => {
                       </span>
                     </div>
 
+                    <div>
+                      <span className={`users-status-badge ${u.activo ? 'is-active' : 'is-inactive'}`}>
+                        <i /> {u.activo ? 'Activa' : 'Inactiva'}
+                      </span>
+                    </div>
+
                     {/* Creado */}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
                       {u.fecha_creacion ? new Date(u.fecha_creacion).toLocaleDateString('es-CL') : '—'}
@@ -262,8 +274,8 @@ const UsuariosAdmin = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
                       {confirmando ? (
                         <>
-                          <span style={{ fontSize: '0.75rem', color: '#6B7280' }}>¿Eliminar?</span>
-                          <button onClick={() => handleDelete(u.id)} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: '7px', padding: '5px 11px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>Sí</button>
+                          <span style={{ fontSize: '0.75rem', color: '#6B7280' }}>{u.activo ? '¿Desactivar?' : '¿Activar?'}</span>
+                          <button onClick={() => handleStatus(u.id, !u.activo)} style={{ background: u.activo ? '#B23A42' : '#157154', color: '#fff', border: 'none', borderRadius: '7px', padding: '5px 11px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>Sí</button>
                           <button onClick={() => setConfirmDelete(null)} style={{ background: 'rgba(0,0,0,0.07)', color: '#374151', border: 'none', borderRadius: '7px', padding: '5px 11px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>No</button>
                         </>
                       ) : (
@@ -272,8 +284,8 @@ const UsuariosAdmin = () => {
                             <Pencil size={12} /> {editando ? 'Cerrar' : 'Editar'}
                           </button>
                           {!esMiUsuario && (
-                            <button onClick={() => setConfirmDelete(u.id)} style={{ background: 'rgba(220,38,38,0.08)', color: '#DC2626', border: 'none', borderRadius: '7px', padding: '5px 11px', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <Trash2 size={12} /> Eliminar
+                            <button onClick={() => setConfirmDelete(u.id)} style={{ background: u.activo ? 'rgba(178,58,66,0.08)' : 'rgba(21,113,84,0.09)', color: u.activo ? '#A4343C' : '#116548', border: 'none', borderRadius: '7px', padding: '8px 11px', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              {u.activo ? <UserX size={13} /> : <UserCheck size={13} />} {u.activo ? 'Desactivar' : 'Activar'}
                             </button>
                           )}
                         </>

@@ -18,6 +18,19 @@ const sanitizeSnapshotRow = (row) => Object.fromEntries(
 
 const validateSystemRole = (role) => SYSTEM_ROLES.has(role);
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+const validateEmail = (email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized || normalized.length > 150) {
+    return 'El correo electrónico es obligatorio y no puede superar 150 caracteres.';
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return 'El correo electrónico no tiene un formato válido.';
+  }
+  return null;
+};
+
 const validatePassword = (password) => {
   if (typeof password !== 'string' || password.length < 12) {
     return 'La contraseña debe tener al menos 12 caracteres.';
@@ -30,8 +43,9 @@ const validatePassword = (password) => {
 
 module.exports = {
   SYSTEM_ROLES,
+  normalizeEmail,
   sanitizeSnapshotRow,
+  validateEmail,
   validatePassword,
   validateSystemRole
 };
-

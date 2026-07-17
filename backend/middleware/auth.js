@@ -12,24 +12,39 @@ const verifyToken = async (req, res, next) => {
   const token = req.cookies.token; // Recupera desde HttpOnly Cookie
 
   if (!token) {
-    return res.status(403).json({ message: 'Se requiere cookie de autenticación (HttpOnly)' });
+    return res.status(401).json({ message: 'Se requiere una sesión autenticada.' });
   }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // INC-04: Comparar versión del token con la BD
-    const userRes = await pool.query('SELECT token_version FROM usuarios WHERE id = $1', [decoded.id]);
+    const userRes = await pool.query(
+      `SELECT id, correo, rol, nombre, token_version, activo, debe_cambiar_password
+       FROM usuarios WHERE id = $1`,
+      [decoded.id]
+    );
     if (userRes.rows.length === 0) {
       return res.status(401).json({ message: 'Usuario no encontrado' });
     }
 
-    const currentVersion = userRes.rows[0].token_version;
+    const currentUser = userRes.rows[0];
+    if (!currentUser.activo) {
+      return res.status(401).json({ message: 'La cuenta se encuentra desactivada. Contacte a un administrador.' });
+    }
+
+    const currentVersion = currentUser.token_version;
     if ((decoded.token_version || 1) !== (currentVersion || 1)) {
       return res.status(401).json({ message: 'Sesión invalidada por cambio de contraseña. Por favor, inicie sesión de nuevo.' });
     }
 
-    req.user = decoded; // { id, correo, rol }
+    req.user = {
+      id: currentUser.id,
+      correo: currentUser.correo,
+      rol: currentUser.rol,
+      nombre: currentUser.nombre,
+      token_version: currentUser.token_version,
+      debe_cambiar_password: currentUser.debe_cambiar_password
+    };
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Token de Cookie inválido o expirado' });

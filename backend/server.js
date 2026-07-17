@@ -20,7 +20,9 @@ const {
   resolveDocumentPath
 } = require('./services/documentService');
 const {
+  normalizeEmail,
   sanitizeSnapshotRow,
+  validateEmail,
   validatePassword,
   validateSystemRole
 } = require('./utils/security');
@@ -86,6 +88,33 @@ const cookieOptions = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/'
+};
+
+const toPublicUser = (user) => ({
+  id: user.id,
+  correo: user.correo,
+  rol: user.rol,
+  nombre: user.nombre,
+  debe_cambiar_password: Boolean(user.debe_cambiar_password)
+});
+
+const setSessionCookie = (res, user) => {
+  const token = jwt.sign(
+    {
+      id: user.id,
+      correo: user.correo,
+      rol: user.rol,
+      nombre: user.nombre,
+      token_version: user.token_version
+    },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  res.cookie('token', token, {
+    ...cookieOptions,
+    maxAge: 12 * 60 * 60 * 1000
+  });
 };
 
 const getDefaultUserPassword = () => {
@@ -203,13 +232,17 @@ const getInstitutionalClock = async (queryable = pool) => {
 };
 
 // AUDIT HELPER
-const registrarAudit = async ({ usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip }) => {
+const insertarAudit = async (queryable, { usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip }) => {
+  await queryable.query(
+    `INSERT INTO audit_log (usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [usuario_id, usuario_correo, accion, entidad, entidad_id, detalle ? JSON.stringify(detalle) : null, ip]
+  );
+};
+
+const registrarAudit = async (event) => {
   try {
-    await pool.query(
-      `INSERT INTO audit_log (usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [usuario_id, usuario_correo, accion, entidad, entidad_id, detalle ? JSON.stringify(detalle) : null, ip]
-    );
+    await insertarAudit(pool, event);
   } catch (err) {
     console.error('Audit Log Error:', err.message);
   }
@@ -246,19 +279,19 @@ app.get('/api/health', async (req, res) => {
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { correo, password } = req.body;
   if (!correo || !password) {
-    return res.status(400).json({ message: 'Correo/Usuario y Contraseña son requeridos.' });
+    return res.status(400).json({ message: 'Correo y contraseña son requeridos.' });
   }
 
   try {
-    // Find by email or username
+    const normalizedEmail = normalizeEmail(correo);
     const userRes = await pool.query(
-      'SELECT * FROM usuarios WHERE LOWER(correo) = LOWER($1) OR LOWER(nombre) = LOWER($1) LIMIT 1',
-      [correo.trim()]
+      'SELECT * FROM usuarios WHERE LOWER(correo) = $1 LIMIT 1',
+      [normalizedEmail]
     );
 
     if (userRes.rows.length === 0) {
       await registrarAudit({
-        usuario_correo: sanitizeText(correo).slice(0, 150),
+        usuario_correo: normalizedEmail.slice(0, 150),
         accion: 'LOGIN_FALLIDO',
         detalle: { motivo: 'credenciales_invalidas' },
         ip: getClientIp(req)
@@ -268,19 +301,35 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
     const user = userRes.rows[0];
 
-    // Check if blocked
+    if (!user.activo) {
+      await registrarAudit({
+        usuario_id: user.id,
+        usuario_correo: user.correo,
+        accion: 'LOGIN_FALLIDO',
+        detalle: { motivo: 'cuenta_desactivada' },
+        ip: getClientIp(req)
+      });
+      return res.status(401).json({ message: 'Credenciales inválidas.' });
+    }
+
     if (user.bloqueado_hasta && new Date(user.bloqueado_hasta) > new Date()) {
-      return res.status(403).json({ message: 'Cuenta bloqueada temporalmente. Intente más tarde.' });
+      return res.status(423).json({ message: 'Cuenta bloqueada temporalmente. Intente más tarde.' });
     }
 
     const validPass = await bcrypt.compare(password, user.password_hash);
     if (!validPass) {
-      // Increment failed attempts
-      await pool.query('UPDATE usuarios SET intentos_fallidos = intentos_fallidos + 1 WHERE id = $1', [user.id]);
-      if (user.intentos_fallidos >= 4) {
-        const blockUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 mins block
-        await pool.query('UPDATE usuarios SET bloqueado_hasta = $1, intentos_fallidos = 0 WHERE id = $2', [blockUntil, user.id]);
-      }
+      await pool.query(`
+        UPDATE usuarios
+        SET bloqueado_hasta = CASE
+              WHEN intentos_fallidos + 1 >= 5 THEN CURRENT_TIMESTAMP + interval '15 minutes'
+              ELSE NULL
+            END,
+            intentos_fallidos = CASE
+              WHEN intentos_fallidos + 1 >= 5 THEN 0
+              ELSE intentos_fallidos + 1
+            END
+        WHERE id = $1
+      `, [user.id]);
       await registrarAudit({
         usuario_id: user.id,
         usuario_correo: user.correo,
@@ -291,30 +340,24 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ message: 'Credenciales inválidas.' });
     }
 
-    // Reset failed attempts
-    await pool.query('UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = $1', [user.id]);
-
-    const token = jwt.sign(
-      { id: user.id, correo: user.correo, rol: user.rol, nombre: user.nombre, token_version: user.token_version },
-      JWT_SECRET,
-      { expiresIn: '12h' }
+    const updatedUser = await pool.query(
+      `UPDATE usuarios
+       SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_acceso = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING id, correo, rol, nombre, token_version, debe_cambiar_password`,
+      [user.id]
     );
-
-    res.cookie('token', token, {
-      ...cookieOptions,
-      maxAge: 12 * 60 * 60 * 1000 // 12 hours
-    });
+    const sessionUser = updatedUser.rows[0];
+    setSessionCookie(res, sessionUser);
 
     await registrarAudit({
-      usuario_id: user.id,
-      usuario_correo: user.correo,
+      usuario_id: sessionUser.id,
+      usuario_correo: sessionUser.correo,
       accion: 'LOGIN_EXITOSO',
       ip: getClientIp(req)
     });
 
-    res.json({
-      user: { id: user.id, correo: user.correo, rol: user.rol, nombre: user.nombre }
-    });
+    res.json({ user: toPublicUser(sessionUser) });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Error en el servidor.' });
@@ -323,17 +366,100 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
 app.get('/api/auth/me', verifyToken, async (req, res) => {
   try {
-    const userRes = await pool.query('SELECT id, correo, rol, nombre FROM usuarios WHERE id = $1', [req.user.id]);
+    const userRes = await pool.query(
+      'SELECT id, correo, rol, nombre, debe_cambiar_password FROM usuarios WHERE id = $1 AND activo = true',
+      [req.user.id]
+    );
     if (userRes.rows.length === 0) {
       return res.status(404).json({ message: 'Usuario no encontrado' });
     }
-    res.json({ user: userRes.rows[0] });
+    res.json({ user: toPublicUser(userRes.rows[0]) });
   } catch (err) {
     res.status(500).json({ message: 'Error en el servidor.' });
   }
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/change-password', verifyToken, async (req, res) => {
+  const { current_password: currentPassword, new_password: newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'La contraseña actual y la nueva son obligatorias.' });
+  }
+
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) return res.status(400).json({ message: passwordError });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const userRes = await client.query('SELECT * FROM usuarios WHERE id = $1 FOR UPDATE', [req.user.id]);
+    if (userRes.rows.length === 0 || !userRes.rows[0].activo) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    const user = userRes.rows[0];
+    const currentIsValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!currentIsValid) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'La contraseña actual no es correcta.' });
+    }
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'La nueva contraseña debe ser distinta de la actual.' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 12);
+    const updated = await client.query(`
+      UPDATE usuarios
+      SET password_hash = $1,
+          debe_cambiar_password = false,
+          password_actualizado_en = CURRENT_TIMESTAMP,
+          token_version = token_version + 1,
+          intentos_fallidos = 0,
+          bloqueado_hasta = NULL
+      WHERE id = $2
+      RETURNING id, correo, rol, nombre, token_version, debe_cambiar_password
+    `, [hash, user.id]);
+
+    await insertarAudit(client, {
+      usuario_id: user.id,
+      usuario_correo: user.correo,
+      accion: 'CAMBIAR_PASSWORD_PROPIA',
+      entidad: 'usuario',
+      entidad_id: user.id,
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+
+    const sessionUser = updated.rows[0];
+    setSessionCookie(res, sessionUser);
+    res.json({ message: 'Contraseña actualizada.', user: toPublicUser(sessionUser) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err.message);
+    res.status(500).json({ message: 'No fue posible actualizar la contraseña.' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  const token = req.cookies.token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      await registrarAudit({
+        usuario_id: decoded.id,
+        usuario_correo: decoded.correo,
+        accion: 'LOGOUT',
+        entidad: 'usuario',
+        entidad_id: decoded.id,
+        ip: getClientIp(req)
+      });
+    } catch {
+      // La cookie se limpia aunque la sesión haya vencido.
+    }
+  }
   res.clearCookie('token', cookieOptions);
   res.json({ message: 'Sesión cerrada exitosamente.' });
 });
@@ -2019,7 +2145,12 @@ app.delete('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, 
 // SYSTEM USERS CRUD
 app.get('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
   try {
-    const resU = await pool.query('SELECT id, correo, rol, nombre, fecha_creacion FROM usuarios ORDER BY nombre ASC');
+    const resU = await pool.query(`
+      SELECT id, correo, rol, nombre, fecha_creacion, activo, debe_cambiar_password,
+             ultimo_acceso, password_actualizado_en
+      FROM usuarios
+      ORDER BY activo DESC, COALESCE(nombre, correo) ASC
+    `);
     res.json(resU.rows);
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener usuarios.' });
@@ -2031,118 +2162,190 @@ app.post('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
   if (!correo || !password || !rol) {
     return res.status(400).json({ message: 'Faltan campos requeridos.' });
   }
+  const normalizedEmail = normalizeEmail(correo);
+  const emailError = validateEmail(normalizedEmail);
+  if (emailError) return res.status(400).json({ message: emailError });
   if (!validateSystemRole(rol)) {
     return res.status(400).json({ message: 'El rol seleccionado no es válido.' });
   }
   const passwordError = validatePassword(password);
   if (passwordError) return res.status(400).json({ message: passwordError });
+
+  const client = await pool.connect();
   try {
-    const salt = await bcrypt.genSalt(10);
-    const hash = await bcrypt.hash(password, salt);
-    const created = await pool.query(
-      'INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, $3, $4) RETURNING id',
-      [correo.trim(), hash, rol, nombre || null]
+    await client.query('BEGIN');
+    const hash = await bcrypt.hash(password, 12);
+    const created = await client.query(
+      `INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, correo, rol, nombre, fecha_creacion, activo, debe_cambiar_password`,
+      [normalizedEmail, hash, rol, sanitizeText(nombre).slice(0, 100) || null]
     );
-    await registrarAudit({
+    await insertarAudit(client, {
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'CREAR_USUARIO',
       entidad: 'usuario',
       entidad_id: created.rows[0].id,
-      detalle: { correo: correo.trim(), rol, nombre: nombre || null },
+      detalle: { correo: normalizedEmail, rol, nombre: sanitizeText(nombre).slice(0, 100) || null },
       ip: getClientIp(req)
     });
-    res.json({ message: 'Usuario creado exitosamente.' });
+    await client.query('COMMIT');
+    res.status(201).json({ message: 'Usuario creado con contraseña temporal.', user: created.rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     res.status(500).json({ message: 'Error al crear usuario.' });
+  } finally {
+    client.release();
   }
 });
 
 app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
   const { id } = req.params;
   const { correo, password, rol, nombre } = req.body;
-  if (!correo || !validateSystemRole(rol)) {
-    return res.status(400).json({ message: 'Correo y rol válido son obligatorios.' });
-  }
+  const normalizedEmail = normalizeEmail(correo);
+  const emailError = validateEmail(normalizedEmail);
+  if (emailError) return res.status(400).json({ message: emailError });
+  if (!validateSystemRole(rol)) return res.status(400).json({ message: 'El rol seleccionado no es válido.' });
   if (password) {
     const passwordError = validatePassword(password);
     if (passwordError) return res.status(400).json({ message: passwordError });
   }
+
+  const client = await pool.connect();
   try {
-    const targetRes = await pool.query('SELECT id, correo, rol FROM usuarios WHERE id = $1', [id]);
-    if (targetRes.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado.' });
+    await client.query('BEGIN');
+    const targetRes = await client.query('SELECT * FROM usuarios WHERE id = $1 FOR UPDATE', [id]);
+    if (targetRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
     const target = targetRes.rows[0];
 
-    if (target.rol === 'admin' && rol !== 'admin') {
-      const adminCount = await pool.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin'");
+    if (target.activo && target.rol === 'admin' && rol !== 'admin') {
+      const adminCount = await client.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin' AND activo = true");
       if (adminCount.rows[0].total <= 1) {
+        await client.query('ROLLBACK');
         return res.status(409).json({ message: 'No se puede quitar el rol al último administrador.' });
       }
     }
 
+    const safeName = sanitizeText(nombre).slice(0, 100) || null;
+    const securityChanged = target.correo !== normalizedEmail || target.rol !== rol || Boolean(password);
+    let hash = null;
     if (password) {
-      const salt = await bcrypt.genSalt(10);
-      const hash = await bcrypt.hash(password, salt);
-      await pool.query(
-        'UPDATE usuarios SET correo = $1, password_hash = $2, rol = $3, nombre = $4, token_version = token_version + 1 WHERE id = $5',
-        [correo.trim(), hash, rol, nombre || null, id]
-      );
-    } else {
-      await client.query(
-        'UPDATE usuarios SET correo = $1, rol = $2, nombre = $3, token_version = token_version + 1 WHERE id = $4',
-        [correo.trim(), rol, nombre || null, id]
-      );
+      hash = await bcrypt.hash(password, 12);
     }
 
-    await client.query('COMMIT');
-    await registrarAudit({
+    const updated = await client.query(`
+      UPDATE usuarios
+      SET correo = $1,
+          password_hash = COALESCE($2, password_hash),
+          rol = $3,
+          nombre = $4,
+          debe_cambiar_password = CASE
+            WHEN $2::text IS NOT NULL AND id <> $5 THEN true
+            WHEN $2::text IS NOT NULL THEN false
+            ELSE debe_cambiar_password
+          END,
+          password_actualizado_en = CASE WHEN $2::text IS NOT NULL THEN CURRENT_TIMESTAMP ELSE password_actualizado_en END,
+          token_version = token_version + CASE WHEN $6 THEN 1 ELSE 0 END
+      WHERE id = $7
+      RETURNING id, correo, rol, nombre, token_version, fecha_creacion, activo,
+                debe_cambiar_password, ultimo_acceso, password_actualizado_en
+    `, [normalizedEmail, hash, rol, safeName, req.user.id, securityChanged, id]);
+
+    await insertarAudit(client, {
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'EDITAR_USUARIO',
       entidad: 'usuario',
       entidad_id: parseInt(id, 10),
-      detalle: { correo: correo.trim(), rol, nombre: nombre || null, cambio_password: Boolean(password) },
+      detalle: {
+        antes: { correo: target.correo, rol: target.rol, nombre: target.nombre },
+        despues: { correo: normalizedEmail, rol, nombre: safeName },
+        cambio_password: Boolean(password)
+      },
       ip: getClientIp(req)
     });
-    res.json({ message: 'Usuario actualizado.' });
+    await client.query('COMMIT');
+
+    const user = updated.rows[0];
+    if (parseInt(id, 10) === req.user.id && securityChanged) setSessionCookie(res, user);
+    res.json({ message: 'Usuario actualizado.', user });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     res.status(500).json({ message: 'Error al actualizar usuario.' });
+  } finally {
+    client.release();
   }
 });
 
-app.delete('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
+const setUserActiveStatus = async (req, res, forcedStatus = null) => {
   const { id } = req.params;
-  if (parseInt(id, 10) === req.user.id) {
-    return res.status(409).json({ message: 'No puedes eliminar la cuenta con la que tienes la sesión iniciada.' });
+  const requestedStatus = forcedStatus === null ? req.body?.activo : forcedStatus;
+  if (typeof requestedStatus !== 'boolean') {
+    return res.status(400).json({ message: 'El estado activo debe ser verdadero o falso.' });
   }
+  if (!requestedStatus && parseInt(id, 10) === req.user.id) {
+    return res.status(409).json({ message: 'No puedes desactivar la cuenta con la que tienes la sesión iniciada.' });
+  }
+
+  const client = await pool.connect();
   try {
-    const targetRes = await pool.query('SELECT id, correo, rol, nombre FROM usuarios WHERE id = $1', [id]);
-    if (targetRes.rows.length === 0) return res.status(404).json({ message: 'Usuario no encontrado.' });
+    await client.query('BEGIN');
+    const targetRes = await client.query('SELECT id, correo, rol, nombre, activo FROM usuarios WHERE id = $1 FOR UPDATE', [id]);
+    if (targetRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
     const target = targetRes.rows[0];
-    if (target.rol === 'admin') {
-      const adminCount = await pool.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin'");
+    if (!requestedStatus && target.activo && target.rol === 'admin') {
+      const adminCount = await client.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin' AND activo = true");
       if (adminCount.rows[0].total <= 1) {
-        return res.status(409).json({ message: 'No se puede eliminar el último administrador.' });
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'No se puede desactivar el último administrador.' });
       }
     }
 
-    await pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
-    await registrarAudit({
+    const updated = await client.query(`
+      UPDATE usuarios
+      SET activo = $1,
+          token_version = token_version + CASE WHEN activo IS DISTINCT FROM $1 THEN 1 ELSE 0 END,
+          intentos_fallidos = CASE WHEN $1 THEN 0 ELSE intentos_fallidos END,
+          bloqueado_hasta = CASE WHEN $1 THEN NULL ELSE bloqueado_hasta END
+      WHERE id = $2
+      RETURNING id, correo, rol, nombre, activo, debe_cambiar_password, fecha_creacion,
+                ultimo_acceso, password_actualizado_en
+    `, [requestedStatus, id]);
+
+    const action = requestedStatus ? 'ACTIVAR_USUARIO' : 'DESACTIVAR_USUARIO';
+    await insertarAudit(client, {
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
-      accion: 'ELIMINAR_USUARIO',
+      accion: action,
       entidad: 'usuario',
       entidad_id: parseInt(id, 10),
-      detalle: { correo: target.correo, rol: target.rol, nombre: target.nombre },
+      detalle: { correo: target.correo, rol: target.rol, nombre: target.nombre, activo: requestedStatus },
       ip: getClientIp(req)
     });
-    res.json({ message: 'Usuario eliminado.' });
+    await client.query('COMMIT');
+    res.json({
+      message: requestedStatus ? 'Usuario activado.' : 'Usuario desactivado.',
+      user: updated.rows[0]
+    });
   } catch (err) {
-    res.status(500).json({ message: 'Error al eliminar usuario.' });
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ message: 'Error al cambiar el estado del usuario.' });
+  } finally {
+    client.release();
   }
-});
+};
+
+app.patch('/api/users/:id/status', verifyToken, verifyRole(['admin']), (req, res) => setUserActiveStatus(req, res));
+app.delete('/api/users/:id', verifyToken, verifyRole(['admin']), (req, res) => setUserActiveStatus(req, res, false));
 
 // SYSTEM AUDIT
 app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
@@ -2210,11 +2413,11 @@ const ensureBaseData = async (isNewSchema) => {
   if (!isNewSchema) return;
   const hash = await bcrypt.hash(getDefaultUserPassword(), 12);
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'lector', 'Lector Puerta') ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password) VALUES ($1, $2, 'lector', 'Lector Puerta', true) ON CONFLICT (correo) DO NOTHING",
     ['lector@ldsm.local', hash]
   );
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre) VALUES ($1, $2, 'admin', 'Administrador General') ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password) VALUES ($1, $2, 'admin', 'Administrador General', true) ON CONFLICT (correo) DO NOTHING",
     ['admin@ldsm.local', hash]
   );
 };

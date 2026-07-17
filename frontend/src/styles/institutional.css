@@ -2534,3 +2534,274 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
     gap: 8px;
   }
 }
+/* Cambio de contraseña institucional */
+.password-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  background:
+    linear-gradient(90deg, rgba(12, 35, 54, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(12, 35, 54, 0.035) 1px, transparent 1px),
+    #eef2f4;
+  background-size: 32px 32px;
+}
+
+.password-shell {
+  width: min(1080px, 100%);
+  min-height: min(720px, calc(100vh - 3rem));
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(430px, 1.08fr);
+  background: #ffffff;
+  border: 1px solid rgba(15, 38, 58, 0.14);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(15, 38, 58, 0.15);
+}
+
+.password-context {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: clamp(2rem, 5vw, 4.25rem);
+  color: #ffffff;
+  background: #10283c;
+}
+
+.password-context::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: url('/institucional/biblioteca-ldsm-concepcion.jpg') center / cover;
+  opacity: 0.18;
+  filter: grayscale(35%);
+}
+
+.password-context::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(9, 31, 48, 0.82);
+}
+
+.password-context h1 {
+  max-width: 9ch;
+  margin: 0.8rem 0 1rem;
+  font-size: clamp(2.2rem, 4vw, 3.65rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+.password-context p {
+  max-width: 36rem;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 1.03rem;
+  line-height: 1.7;
+}
+
+.password-context__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.password-context__identity span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.password-context__identity small {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.password-context__identity strong {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.password-card {
+  align-self: center;
+  width: min(520px, 100%);
+  justify-self: center;
+  padding: clamp(2rem, 5vw, 4.5rem);
+}
+
+.password-card__icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 1.4rem;
+  color: #1c5a82;
+  background: #e9f2f7;
+  border: 1px solid #c8dae5;
+  border-radius: 14px;
+}
+
+.password-card h2 {
+  margin: 0.55rem 0 0.6rem;
+  color: #11273a;
+  font-size: clamp(1.8rem, 3vw, 2.35rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.password-card__lead {
+  margin: 0 0 1.6rem;
+  color: #5f6f7c;
+  line-height: 1.55;
+}
+
+.password-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 1.15rem;
+  padding: 0.85rem 1rem;
+  color: #9f2f35;
+  background: #fff2f2;
+  border: 1px solid #ecc9cb;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.password-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.password-form > label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.password-form > label > span {
+  color: #263e51;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.password-input-wrap {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0 0.9rem;
+  color: #6c7d8a;
+  background: #fbfcfd;
+  border: 1.5px solid #cfd9e0;
+  border-radius: 10px;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.password-input-wrap:focus-within {
+  color: #1c5a82;
+  background: #ffffff;
+  border-color: #3678a2;
+  box-shadow: 0 0 0 4px rgba(54, 120, 162, 0.11);
+}
+
+.password-input-wrap input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.85rem 0;
+  color: #142c40;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+.password-rules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem 0.8rem;
+  margin: 0.15rem 0 0.45rem;
+  padding: 0.9rem 1rem;
+  background: #f4f7f9;
+  border: 1px solid #dce4e9;
+  border-radius: 10px;
+}
+
+.password-rules span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #71808c;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.password-rules span[data-passed='true'] {
+  color: #187553;
+}
+
+.password-submit {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.8rem 1.2rem;
+  color: #ffffff;
+  background: #174e72;
+  border: 1px solid #174e72;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 780;
+  cursor: pointer;
+  transition: transform 150ms ease, background 150ms ease, opacity 150ms ease;
+}
+
+.password-submit:not(:disabled):hover {
+  background: #103d5b;
+  transform: translateY(-1px);
+}
+
+.password-submit:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+}
+
+.password-logout {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+  padding: 0.65rem;
+  color: #687985;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (max-width: 820px) {
+  .password-page { padding: 0; place-items: stretch; }
+  .password-shell { min-height: 100vh; grid-template-columns: 1fr; border: 0; border-radius: 0; }
+  .password-context { min-height: 270px; gap: 1.8rem; padding: 1.5rem; }
+  .password-context h1 { max-width: 14ch; font-size: 2.2rem; }
+  .password-context p { font-size: 0.92rem; line-height: 1.55; }
+  .password-card { padding: 2rem 1.4rem 2.5rem; }
+}
+
+@media (max-width: 480px) {
+  .password-rules { grid-template-columns: 1fr; }
+}

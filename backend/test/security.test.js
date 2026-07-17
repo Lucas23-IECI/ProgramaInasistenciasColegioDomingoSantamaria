@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  normalizeEmail,
   sanitizeSnapshotRow,
+  validateEmail,
   validatePassword,
   validateSystemRole
 } = require('../utils/security');
@@ -35,3 +37,8 @@ test('solo se aceptan roles del sistema', () => {
   assert.equal(validateSystemRole('director'), false);
 });
 
+test('normaliza y valida correos antes de persistir cuentas', () => {
+  assert.equal(normalizeEmail('  Admin@LDSM.Local '), 'admin@ldsm.local');
+  assert.equal(validateEmail('persona@ldsm.local'), null);
+  assert.match(validateEmail('correo-invalido'), /formato/);
+});

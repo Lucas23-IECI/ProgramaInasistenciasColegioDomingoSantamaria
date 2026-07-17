@@ -1350,3 +1350,29 @@ body:has(.kiosk-mode) .kiosk-header-right {
     border-left: 0 !important;
   }
 }
+.users-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.users-status-badge i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.users-status-badge.is-active {
+  color: #116548;
+  background: #e6f4ee;
+}
+
+.users-status-badge.is-inactive {
+  color: #6b7480;
+  background: #e8ebee;
+}

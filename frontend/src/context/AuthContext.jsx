@@ -25,6 +25,12 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptor);
   }, []);
 
+  const refreshUser = async () => {
+    const res = await axios.get(`${API_URL}/auth/me`);
+    setUser(res.data.user);
+    return res.data.user;
+  };
+
   useEffect(() => {
     // Intentar restaurar la sesión desde el backend a través de la cookie HttpOnly
     const checkSession = async () => {
@@ -46,6 +52,15 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
+  const changePassword = async (currentPassword, newPassword) => {
+    const res = await axios.post(`${API_URL}/auth/change-password`, {
+      current_password: currentPassword,
+      new_password: newPassword
+    });
+    setUser(res.data.user);
+    return res.data.user;
+  };
+
   const logout = async () => {
     try {
       await axios.post(`${API_URL}/auth/logout`);
@@ -56,7 +71,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, changePassword, refreshUser, loading }}>
       {children}
     </AuthContext.Provider>
   );

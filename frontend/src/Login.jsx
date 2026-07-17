@@ -21,9 +21,13 @@ const Login = () => {
       await login(correo, password);
       navigate('/');
     } catch (error) {
-      setErrorMsg(error.response?.status === 401
-        ? 'Las credenciales no son válidas.'
-        : 'No fue posible conectar con el sistema. Intenta nuevamente.');
+      if (error.response?.status === 401) {
+        setErrorMsg('Las credenciales no son válidas.');
+      } else if (error.response?.status === 423) {
+        setErrorMsg('La cuenta está bloqueada temporalmente por varios intentos fallidos.');
+      } else {
+        setErrorMsg(error.response?.data?.message || 'No fue posible conectar con el sistema. Intenta nuevamente.');
+      }
     } finally {
       setLoading(false);
     }

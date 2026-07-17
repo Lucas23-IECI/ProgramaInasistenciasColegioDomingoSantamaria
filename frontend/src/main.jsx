@@ -21,14 +21,23 @@ const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
 const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
 const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
 const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
+const ChangePassword = lazy(() => import('./ChangePassword.jsx'))
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useContext(AuthContext);
   if (loading) return <div className="route-loader" role="status">Verificando sesión…</div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.debe_cambiar_password) return <Navigate to="/cambiar-clave" replace />;
   if (allowedRoles && !allowedRoles.includes(user.rol)) {
     return <Navigate to="/" replace />;
   }
+  return children;
+};
+
+const ProtectedPasswordRoute = ({ children }) => {
+  const { user, loading } = useContext(AuthContext);
+  if (loading) return <div className="route-loader" role="status">Verificando sesión…</div>;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 };
 
@@ -36,6 +45,7 @@ const RoleBasedHome = () => {
   const { user, loading } = useContext(AuthContext);
   if (loading) return <div className="route-loader" role="status">Verificando sesión…</div>;
   if (!user) return <Navigate to="/login" />;
+  if (user.debe_cambiar_password) return <Navigate to="/cambiar-clave" replace />;
 
   if (user.rol === 'admin' || user.rol === 'secretaria') {
       return <Navigate to="/admin" />;
@@ -56,6 +66,7 @@ createRoot(document.getElementById('root')).render(
           <Suspense fallback={<div className="route-loader" role="status">Cargando módulo…</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/cambiar-clave" element={<ProtectedPasswordRoute><ChangePassword /></ProtectedPasswordRoute>} />
             <Route path="/" element={<RoleBasedHome />} />
 
             {/* Lector Only (Opcional admin test) */}
