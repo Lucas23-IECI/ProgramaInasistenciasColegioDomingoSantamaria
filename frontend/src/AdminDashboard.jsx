@@ -1,912 +1,399 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AuthContext } from './context/AuthContext';
-import {
-  Users, AlertTriangle, LogOut,
-  ShieldCheck, ShieldAlert, FileSpreadsheet,
-  ChevronDown, Download, RefreshCw, Clock, TrendingUp,
-  CheckCircle, X, Upload, Trash2, Globe2, School,
-  UserRound, Settings2, ClipboardList, BarChart3, Stethoscope, Paperclip
-} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CalendarClock,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Download,
+  FileClock,
+  FileSpreadsheet,
+  History,
+  RotateCcw,
+  Save,
+  Search,
+  Settings,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserRound,
+  Users,
+  X
+} from 'lucide-react';
+import { AuthContext } from './context/AuthContext';
+import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
-import { useFeedback } from './context/FeedbackContext';
 import DateRangeField from './components/DateRangeField';
 import StudentPicker from './components/StudentPicker';
+import { useFeedback } from './context/FeedbackContext';
+import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
 
-import { API_URL } from './config';
+const PAGE_SIZE = 12;
 
-const REPORT_TYPES = [
-  { id: 'atrasado', label: 'Atrasos registrados', desc: 'Ingresos clasificados como atraso dentro del período seleccionado.', icon: <AlertTriangle size={18} /> }
-];
+const localIsoDate = (date = new Date()) => [
+  date.getFullYear(),
+  String(date.getMonth() + 1).padStart(2, '0'),
+  String(date.getDate()).padStart(2, '0')
+].join('-');
 
-const PAGE_SIZE = 10;
+const initialPeriod = () => {
+  const today = new Date();
+  return {
+    from: localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: localIsoDate(today)
+  };
+};
 
+const formatTime = (value) => String(value || '').slice(0, 5) || '—';
+const formatDateTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
+const studentName = (row) => [row.nombres, row.paterno, row.materno].filter(Boolean).join(' ');
+
+const Metric = ({ icon: Icon, value, label, tone = 'blue', note }) => (
+  <div className="punctuality-metric" data-tone={tone}>
+    {React.createElement(Icon, { size: 22, 'aria-hidden': true })}
+    <div><strong>{value}</strong><span>{label}</span>{note && <small>{note}</small>}</div>
+  </div>
+);
+
+const ScopeButton = ({ active, icon: Icon, children, onClick }) => (
+  <button type="button" className="report-scope-option" data-active={active || undefined} onClick={onClick}>
+    {React.createElement(Icon, { size: 18 })} <span>{children}</span>
+  </button>
+);
 
 const AdminDashboard = () => {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [showReportPanel, setShowReportPanel] = useState(false);
-  const [reportType, setReportType] = useState('atrasado');
-  const [reportFormat, setReportFormat] = useState('detallado'); // 'detallado' | 'resumido'
-  const [reportDesde, setReportDesde] = useState('');
-  const [reportHasta, setReportHasta] = useState('');
-  const [generatingReport, setGeneratingReport] = useState(false);
-  const [registrosHoy, setRegistrosHoy] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const { logout } = useContext(AuthContext);
   const navigate = useNavigate();
-  const { notify } = useFeedback();
-
-  // Estados de segmentación de reportes
-  const [reportScope, setReportScope] = useState('masivo'); // 'masivo' | 'curso' | 'individual' | 'personalizado'
+  const { user, logout } = useContext(AuthContext);
+  const { notify, confirm } = useFeedback();
+  const [summary, setSummary] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [config, setConfig] = useState(null);
   const [courses, setCourses] = useState([]);
-  const [selectedCursoId, setSelectedCursoId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedRow, setSelectedRow] = useState(null);
+  const [actionMode, setActionMode] = useState(null);
+  const [actionReason, setActionReason] = useState('');
+  const [correctedDate, setCorrectedDate] = useState(localIsoDate());
+  const [correctedTime, setCorrectedTime] = useState('');
+  const [savingAction, setSavingAction] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Para reporte individual
-  const [selectedAlumno, setSelectedAlumno] = useState(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [period, setPeriod] = useState(initialPeriod);
+  const [scope, setScope] = useState('institucional');
+  const [courseId, setCourseId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  const [studentQuery, setStudentQuery] = useState('');
+  const [studentResults, setStudentResults] = useState([]);
+  const [searchingStudents, setSearchingStudents] = useState(false);
+  const [reportFormat, setReportFormat] = useState('detalle');
+  const [generatingReport, setGeneratingReport] = useState(false);
 
-  // Para reporte personalizado
-  const [selectedAlumnos, setSelectedAlumnos] = useState([]);
-
-  // Para buscar alumnos
-  const [studentSearchTerm, setStudentSearchTerm] = useState('');
-  const [studentSearchResults, setStudentSearchResults] = useState([]);
-  const [isSearchingStudents, setIsSearchingStudents] = useState(false);
-
-  // States for Justification Modal
-  const [justifyModal, setJustifyModal] = useState(null); // registration object or student object
-  const [justifyType, setJustifyType] = useState('apoderado'); // 'apoderado' | 'medica'
-  const [justifyComment, setJustifyComment] = useState('');
-  const [justifyFile, setJustifyFile] = useState(null);
-  const [submittingJustify, setSubmittingJustify] = useState(false);
-  const [justifyIsRange, setJustifyIsRange] = useState(false);
-  const [justifyStartDate, setJustifyStartDate] = useState('');
-  const [justifyEndDate, setJustifyEndDate] = useState('');
-
-  const openJustifyModal = (registro) => {
-    setJustifyModal(registro);
-    setJustifyType('apoderado');
-    setJustifyComment('');
-    setJustifyFile(null);
-  };
-
-  const submitJustification = async () => {
-    if (!justifyModal) return;
-    if (justifyType === 'medica' && !justifyFile) {
-      notify('Adjunta el certificado médico antes de guardar.', 'error');
-      return;
-    }
-    if (justifyFile && justifyFile.size > 8 * 1024 * 1024) {
-      notify('El certificado no puede superar 8 MB.', 'error');
-      return;
-    }
-    if (justifyFile && !['application/pdf', 'image/png', 'image/jpeg'].includes(justifyFile.type)) {
-      notify('Formato no permitido. Utiliza PDF, PNG o JPG.', 'error');
-      return;
-    }
-    setSubmittingJustify(true);
+  const loadOperationalData = useCallback(async ({ quiet = false } = {}) => {
+    if (quiet) setRefreshing(true); else setLoading(true);
     try {
-      let fileData = null;
-      let fileName = null;
-      if (justifyFile) {
-        fileName = justifyFile.name;
-        fileData = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = (error) => reject(error);
-          reader.readAsDataURL(justifyFile);
-        });
-      }
-
-      if (justifyModal.id_registro !== undefined) {
-        await axios.post(`${API_URL}/asistencia/${justifyModal.id_registro}/justificar`, {
-          tipo_justificacion: justifyType,
-          comentario_justificacion: justifyComment,
-          fileName,
-          fileData
-        }, {
-          withCredentials: true
-        });
-      }
-
-      setJustifyModal(null);
-      fetchRegistrosHoy();
-      fetchResumen();
-    } catch (err) {
-      console.error(err);
-      notify('No fue posible guardar la justificación.', 'error');
-    } finally {
-      setSubmittingJustify(false);
-    }
-  };
-
-  const fetchRegistrosHoy = async () => {
-    try {
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-      const res = await axios.get(`${API_URL}/asistencia/history`, {
-        params: { from: today, to: today }
+      const [summaryResponse, rowsResponse, configResponse, coursesResponse] = await Promise.all([
+        axios.get(`${API_URL}/puntualidad/resumen-hoy`),
+        axios.get(`${API_URL}/puntualidad/hoy`),
+        axios.get(`${API_URL}/puntualidad/config`),
+        axios.get(`${API_URL}/courses`)
+      ]);
+      setSummary(summaryResponse.data);
+      setRows(rowsResponse.data || []);
+      setConfig(configResponse.data);
+      setCourses(coursesResponse.data || []);
+      setSelectedRow((currentSelection) => {
+        if (!currentSelection) return null;
+        const updatedSelection = (rowsResponse.data || []).find(
+          (row) => row.id_registro === currentSelection.id_registro
+        );
+        if (!updatedSelection) {
+          setActionMode(null);
+          setActionReason('');
+          setHistory([]);
+          return null;
+        }
+        return updatedSelection;
       });
-      setRegistrosHoy(res.data);
-      setCurrentPage(1);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const fetchResumen = async () => {
-    setLoading(true);
-    try {
-      const res = await axios.get(`${API_URL}/asistencia/today-stats`);
-      setStats(res.data);
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible actualizar la operación del día.', 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  }, [notify]);
+
+  useEffect(() => { loadOperationalData(); }, [loadOperationalData]);
+
+  useEffect(() => {
+    if (!reportOpen || !['individual', 'personalizado'].includes(scope) || studentQuery.trim().length < 2) {
+      setStudentResults([]);
+      return undefined;
+    }
+    const timer = setTimeout(async () => {
+      setSearchingStudents(true);
+      try {
+        const response = await axios.get(`${API_URL}/students/search`, { params: { q: studentQuery.trim() } });
+        setStudentResults(response.data || []);
+      } catch {
+        setStudentResults([]);
+      } finally {
+        setSearchingStudents(false);
+      }
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [reportOpen, scope, studentQuery]);
+
+  const filteredRows = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('es');
+    return rows.filter((row) => {
+      const haystack = `${studentName(row)} ${row.rut}-${row.dv} ${row.curso || ''}`.toLocaleLowerCase('es');
+      return (!normalized || haystack.includes(normalized))
+        && (!severity || row.severidad === severity)
+        && (!status || (status === 'justificado' ? row.justificado : row.estado === status));
+    });
+  }, [query, rows, severity, status]);
+
+  useEffect(() => { setPage(1); }, [query, severity, status]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const visibleRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const closeDrawer = () => {
+    setSelectedRow(null);
+    setActionMode(null);
+    setActionReason('');
+    setHistory([]);
+  };
+
+  const openRow = (row) => {
+    setSelectedRow(row);
+    setActionMode(null);
+    setActionReason('');
+    setCorrectedDate(String(row.fecha).slice(0, 10));
+    setCorrectedTime(formatTime(row.hora));
+    setHistory([]);
+  };
+
+  const openHistory = async () => {
+    setActionMode('historial');
+    setHistoryLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/puntualidad/registros/${selectedRow.id_registro}/historial`);
+      setHistory(response.data || []);
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible cargar el historial.', 'error');
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
-  useEffect(() => {
-    const now = new Date();
-    const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const firstDay = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
-    const today = localDate(now);
-
-    setReportDesde(firstDay);
-    setReportHasta(today);
-
-    fetchResumen();
-    fetchRegistrosHoy();
-
-    axios.get(`${API_URL}/courses`, { withCredentials: true })
-      .then(res => setCourses(res.data))
-      .catch(err => console.error(err));
-  }, []);
-
-  useEffect(() => {
-    if (showReportPanel && courses.length === 0) {
-      axios.get(`${API_URL}/courses`, { withCredentials: true })
-        .then(res => setCourses(res.data))
-        .catch(err => console.error(err));
-    }
-  }, [showReportPanel, courses.length]);
-
-  // Búsqueda inteligente de alumnos para reportes individuales/personalizados
-  useEffect(() => {
-    if (studentSearchTerm.trim().length < 2) {
-      setStudentSearchResults([]);
+  const saveAction = async () => {
+    if (!selectedRow) return;
+    if (actionMode !== 'justificar' && actionReason.trim().length < 10) {
+      notify('Describe el motivo con al menos 10 caracteres.', 'error');
       return;
     }
-    const delayDebounceFn = setTimeout(async () => {
-      setIsSearchingStudents(true);
-      try {
-        const res = await axios.get(`${API_URL}/students/search`, {
-          params: { q: studentSearchTerm },
-          withCredentials: true
+    if (actionMode === 'justificar' && actionReason.trim().length < 5) {
+      notify('Registra una observación de al menos 5 caracteres.', 'error');
+      return;
+    }
+    setSavingAction(true);
+    try {
+      const id = selectedRow.id_registro;
+      if (actionMode === 'corregir') {
+        await axios.patch(`${API_URL}/puntualidad/registros/${id}/corregir`, { fecha: correctedDate, hora: correctedTime, motivo: actionReason });
+        notify('Registro corregido y respaldado en el historial.', 'success');
+      } else if (actionMode === 'justificar') {
+        await axios.post(`${API_URL}/puntualidad/registros/${id}/justificar`, { comentario: actionReason });
+        notify('Justificación de apoderado registrada.', 'success');
+      } else if (actionMode === 'revocar') {
+        await axios.patch(`${API_URL}/puntualidad/registros/${id}/revocar-justificacion`, { motivo: actionReason });
+        notify('Justificación revocada con trazabilidad.', 'success');
+      } else if (actionMode === 'anular') {
+        const accepted = await confirm({
+          title: 'Anular registro de ingreso',
+          message: 'El registro dejará de contabilizarse, pero permanecerá en el historial institucional.',
+          confirmLabel: 'Anular registro',
+          danger: true
         });
-        setStudentSearchResults(res.data);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsSearchingStudents(false);
+        if (!accepted) return;
+        await axios.patch(`${API_URL}/puntualidad/registros/${id}/anular`, { motivo: actionReason });
+        notify('Registro anulado sin eliminar su trazabilidad.', 'success');
       }
-    }, 300);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [studentSearchTerm]);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+      closeDrawer();
+      await loadOperationalData({ quiet: true });
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible completar la acción.', 'error');
+    } finally {
+      setSavingAction(false);
+    }
   };
 
   const generateReport = async () => {
-    if (!reportDesde || !reportHasta) return;
-
-    if (reportScope === 'curso' && !selectedCursoId) {
-      notify('Selecciona un curso para generar el reporte.');
-      return;
-    }
-
-    if (reportScope === 'individual' && !selectedAlumno) {
-      notify('Busca y selecciona un alumno para continuar.');
-      return;
-    }
-    if (reportScope === 'personalizado' && selectedAlumnos.length === 0) {
-      notify('Agrega al menos un alumno al reporte.');
-      return;
-    }
+    if (scope === 'curso' && !courseId) return notify('Selecciona un curso.', 'error');
+    if (scope === 'individual' && !selectedStudent) return notify('Selecciona una persona.', 'error');
+    if (scope === 'personalizado' && selectedStudents.length === 0) return notify('Agrega al menos una persona.', 'error');
 
     setGeneratingReport(true);
     try {
-      const params = { desde: reportDesde, hasta: reportHasta, tipo: reportType };
-      if (reportScope === 'curso') {
-        params.cursoId = selectedCursoId;
-      } else if (reportScope === 'individual') {
-        params.alumnoId = selectedAlumno.id_alumno;
-      } else if (reportScope === 'personalizado') {
-        params.alumnosIds = selectedAlumnos.map(a => a.id_alumno).join(',');
-      }
-
-      const res = await axios.get(`${API_URL}/admin/reportes/asistencia`, {
-        params,
-        withCredentials: true
-      });
-
-      const rawData = res.data;
-      if (rawData.length === 0) {
-        notify('No se encontraron registros para el período y tipo seleccionados.');
-        setGeneratingReport(false);
-        return;
-      }
+      const params = { desde: period.from, hasta: period.to };
+      if (scope === 'curso') params.curso_id = courseId;
+      if (scope === 'individual') params.alumno_id = selectedStudent.id_alumno;
+      if (scope === 'personalizado') params.alumnos_ids = selectedStudents.map((student) => student.id_alumno).join(',');
+      const response = await axios.get(`${API_URL}/puntualidad/reporte`, { params });
+      const records = response.data.registros || [];
+      if (!records.length) return notify('No existen atrasos en el período y alcance seleccionados.', 'info');
 
       const XLSX = await import('xlsx');
-      const wb = XLSX.utils.book_new();
+      const rowsForSheet = reportFormat === 'detalle' ? buildDetailedRows(records) : buildSummaryRows(records);
+      const title = `REPORTE DE ATRASOS · ${period.from} A ${period.to}`;
+      const worksheet = XLSX.utils.aoa_to_sheet([[title], [], ...rowsForSheet]);
+      const columnCount = rowsForSheet[0].length;
+      worksheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: columnCount - 1 } }];
+      worksheet['!autofilter'] = {
+        ref: XLSX.utils.encode_range({
+          s: { r: 2, c: 0 },
+          e: { r: 2 + rowsForSheet.length - 1, c: columnCount - 1 }
+        })
+      };
+      worksheet['!cols'] = reportFormat === 'detalle'
+        ? [{ wch: 5 }, { wch: 12 }, { wch: 8 }, { wch: 17 }, { wch: 12 }, { wch: 13 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 42 }]
+        : [{ wch: 5 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 9 }, { wch: 9 }, { wch: 14 }, { wch: 17 }, { wch: 13 }];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, reportFormat === 'detalle' ? 'Detalle de atrasos' : 'Resumen por persona');
 
-      // Group raw data by student
-      const studentsMap = {};
-      rawData.forEach(r => {
-        const key = r.id_alumno;
-        if (!studentsMap[key]) {
-          studentsMap[key] = {
-            apellidos: `${r.paterno} ${r.materno || ''}`.trim(),
-            nombres: r.nombres,
-            curso: r.nombre_curso || 'S/C',
-            correo: r.email || '',
-            days: {}
-          };
-        }
-        if (r.fecha_registro) {
-          const dateKey = r.fecha_registro.substring(0, 10);
-          if (!studentsMap[key].days[dateKey]) {
-            studentsMap[key].days[dateKey] = [];
-          }
-          studentsMap[key].days[dateKey].push((r.estado_asistencia || '').toString().trim().toLowerCase());
-        }
-      });
-
-      const students = Object.values(studentsMap);
-      students.sort((a, b) => a.apellidos.localeCompare(b.apellidos));
-      // Determine months in range
-      const startDate = new Date(reportDesde + 'T12:00:00');
-      const endDate = new Date(reportHasta + 'T12:00:00');
-      const months = [];
-      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-      while (cursor <= endDate) {
-        months.push({ year: cursor.getFullYear(), month: cursor.getMonth() });
-        cursor.setMonth(cursor.getMonth() + 1);
-      }
-
-      const schoolDays = new Set();
-      rawData.forEach(r => {
-        if (r.fecha_registro) {
-          schoolDays.add(r.fecha_registro.substring(0, 10));
-        }
-      });
-      const sortedSchoolDays = Array.from(schoolDays).sort();
-
-      const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-      const reportLabel = REPORT_TYPES.find(r => r.id === reportType)?.label || 'Reporte';
-
-      if (reportFormat === 'resumido') {
-        // === FORMATO RESUMIDO: tabla simple con totales ===
-        const titleRow = [`RESUMEN ASISTENCIA Y INASISTENCIAS — ${reportLabel.toUpperCase()} — ${reportDesde} a ${reportHasta}`];
-        const headerRow = ['N°', 'APELLIDOS', 'NOMBRE', 'CURSO', 'Presentes', 'Atrasados', 'Inas. Justificadas', 'Inas. Injustificadas', 'Días Registrados', 'ESTADO', 'CORREO'];
-        const dataRows = students.map((s, idx) => {
-          let totalD = 0, totalA = 0, totalIJ = 0, totalII = 0;
-          const diasUnicos = new Set();
-
-          sortedSchoolDays.forEach(date => {
-            const marcas = s.days[date] || [];
-            if (marcas.length > 0) {
-              diasUnicos.add(date);
-              if (marcas.includes('presente')) totalD++;
-              if (marcas.includes('atrasado')) totalA++;
-              if (marcas.includes('ausente')) totalIJ++;
-            } else {
-              totalII++;
-            }
-          });
-
-          const totalRegistrados = diasUnicos.size;
-          const estado = totalRegistrados > 0 ? 'Con asistencia' : 'Sin registro';
-          return [idx + 1, s.apellidos, s.nombres, s.curso, totalD, totalA, totalIJ, totalII, totalRegistrados, estado, s.correo];
-        });
-
-        const aoa = [titleRow, headerRow, ...dataRows];
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        const totalResumidoCols = 11;
-        ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: totalResumidoCols - 1 } }];
-        const colWidthsResumido = [{ wch: 4 }, { wch: 22 }, { wch: 20 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 30 }];
-        ws['!cols'] = colWidthsResumido;
-        XLSX.utils.book_append_sheet(wb, ws, reportLabel.substring(0, 31));
-
-      } else {
-        // === FORMATO DETALLADO: marcas P/T/I por día ===
-        months.forEach(({ year, month }) => {
-          const daysInMonth = new Date(year, month + 1, 0).getDate();
-          const monthName = MONTH_NAMES[month];
-
-          const titleRow = [`REPORTE ASISTENCIA Y INASISTENCIAS — ${reportLabel.toUpperCase()}`];
-          const headerRow1 = ['N°', 'APELLIDOS', 'NOMBRE', 'CURSO'];
-          const headerRow2 = ['', '', '', ''];
-
-          for (let d = 1; d <= daysInMonth; d++) {
-            headerRow1.push(d, '', '');
-            headerRow2.push('P', 'T', 'I');
-          }
-          headerRow1.push('ESTADO', 'CORREO');
-          headerRow2.push('', '');
-          const dataRows = students.map((s, idx) => {
-            const row = [idx + 1, s.apellidos, s.nombres, s.curso];
-
-            let totalMarcasMes = 0;
-            for (let d = 1; d <= daysInMonth; d++) {
-              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-              const marcas = s.days[dateStr] || [];
-              const isSchoolDay = sortedSchoolDays.includes(dateStr);
-
-              if (marcas.includes('presente')) {
-                row.push('X', '', '');
-              } else if (marcas.includes('atrasado')) {
-                row.push('', 'X', '');
-              } else if (marcas.includes('ausente')) {
-                row.push('', '', 'J'); // J = Justificada
-              } else if (isSchoolDay) {
-                row.push('', '', 'X'); // X = Injustificada
-              } else {
-                row.push('', '', ''); // No hay clases / fin de semana sin registros
-              }
-
-              totalMarcasMes += marcas.length;
-            }
-
-            const estadoMes = totalMarcasMes > 0 ? 'Con asistencia' : 'Sin registro';
-            row.push(estadoMes);
-            row.push(s.correo);
-            return row;
-          });
-
-          const aoa = [titleRow, headerRow1, headerRow2, ...dataRows];
-          const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-          const totalCols = 4 + (daysInMonth * 3) + 2;
-          ws['!merges'] = [
-            { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } }
-          ];
-          for (let d = 0; d < daysInMonth; d++) {
-            const colStart = 4 + (d * 3);
-            ws['!merges'].push({ s: { r: 1, c: colStart }, e: { r: 1, c: colStart + 2 } });
-          }
-
-          const colWidths = [{ wch: 4 }, { wch: 22 }, { wch: 20 }, { wch: 10 }];
-          for (let d = 0; d < daysInMonth; d++) {
-            colWidths.push({ wch: 2.5 }, { wch: 2.5 }, { wch: 2.5 });
-          }
-          colWidths.push({ wch: 15 }, { wch: 30 });
-          ws['!cols'] = colWidths;
-
-          const sheetName = months.length === 1
-            ? reportLabel.substring(0, 31)
-            : `${monthName} ${year}`.substring(0, 31);
-          XLSX.utils.book_append_sheet(wb, ws, sheetName);
-        });
-      }
-
-      let scopeFilename = reportScope;
-      if (reportScope === 'curso') {
-        const cName = courses.find(c => c.id_curso.toString() === selectedCursoId.toString())?.nombre_curso || selectedCursoId;
-        scopeFilename = `curso_${cName.replace(/\s+/g, '_')}`;
-
-      } else if (reportScope === 'individual' && selectedAlumno) {
-        scopeFilename = `alumno_${selectedAlumno.paterno}_${selectedAlumno.nombres.split(' ')[0]}`;
-      } else if (reportScope === 'personalizado') {
-        scopeFilename = `personalizado_${selectedAlumnos.length}_alumnos`;
-      }
-
-      XLSX.writeFile(wb, `reporte_${scopeFilename}_${reportType}_${reportFormat}_${reportDesde}_${reportHasta}.xlsx`);
-
-    } catch (err) {
-      console.error(err);
-      notify('No fue posible generar el reporte.', 'error');
+      const scopeLabel = scope === 'curso'
+        ? courses.find((course) => String(course.id_curso) === String(courseId))?.nombre_curso || 'curso'
+        : scope === 'individual'
+          ? studentName(selectedStudent)
+          : scope === 'personalizado' ? `${selectedStudents.length}_personas` : 'institucional';
+      XLSX.writeFile(workbook, reportFileName({ scope: scopeLabel, from: period.from, to: period.to }));
+      notify(`Reporte generado con ${records.length} atraso${records.length === 1 ? '' : 's'}.`, 'success');
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible generar el reporte.', 'error');
     } finally {
       setGeneratingReport(false);
     }
   };
 
-
-  const formatTime = (timeStr) => {
-    if (!timeStr) return '';
-    return timeStr.substring(0, 5);
-  };
+  const handleLogout = async () => { await logout(); navigate('/login'); };
 
   return (
-    <div className="app-container late-dashboard-page">
-      <div className="glass-panel late-dashboard-surface">
-
+    <div className="app-container punctuality-page">
+      <div className="punctuality-surface">
         <ModuleHeader
-          icon={ShieldCheck}
+          icon={Clock3}
           title="Control de atrasos"
-          description="Registro diario, seguimiento de puntualidad y generación de reportes."
+          description="Operación diaria, correcciones trazables y reportes institucionales."
           onBack={() => navigate('/admin')}
           onLogout={handleLogout}
         />
 
-        {/* ===== SECCIÓN 1: RESUMEN DEL DÍA ===== */}
-        <section className="late-dashboard-section" data-tour="late-summary">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3 style={{ color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-              <TrendingUp size={20} /> Resumen de Hoy
-            </h3>
-            <button
-              onClick={() => { fetchResumen(); fetchRegistrosHoy(); }}
-              className="action-btn"
-              style={{ background: 'rgba(79,70,229,0.07)', color: 'var(--primary)', border: 'none' }}
-              title="Recargar"
-            >
-              <RefreshCw size={14} />
-            </button>
+        <section className="punctuality-hero" data-tour="late-summary">
+          <div className="punctuality-hero__heading">
+            <span className="section-kicker">Jornada en curso</span>
+            <h2>{new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</h2>
+            <p>
+              {config?.nombre_jornada || 'Jornada principal'} · Entrada {formatTime(config?.hora_entrada)} ·
+              atraso desde las {formatTime(config?.hora_limite_atraso)}
+            </p>
           </div>
-
-          {loading ? (
-            <div className="loader">Cargando resumen...</div>
-          ) : (
-            <>
-              {/* Stats Cards */}
-              <div className="stats-grid late-metric-strip">
-                <div className="stat-card" style={{ borderLeftColor: '#10b981' }}>
-                  <div className="stat-card__icon" style={{ color: '#10b981' }}><ShieldCheck size={22} /></div>
-                  <div className="stat-card__value">{stats?.presentes || 0}</div>
-                  <div className="stat-card__label">Ingresos a Tiempo</div>
-                </div>
-                <div className="stat-card" style={{ borderLeftColor: '#f59e0b' }}>
-                  <div className="stat-card__icon" style={{ color: '#f59e0b' }}><AlertTriangle size={22} /></div>
-                  <div className="stat-card__value">{stats?.atrasados || 0}</div>
-                  <div className="stat-card__label">Atrasados de Hoy</div>
-                </div>
-                <div className="stat-card" style={{ borderLeftColor: '#3b82f6' }}>
-                  <div className="stat-card__icon" style={{ color: '#3b82f6' }}><Users size={22} /></div>
-                  <div className="stat-card__value">{stats?.totalAlumnos || 0}</div>
-                  <div className="stat-card__label">Matrícula Activa</div>
-                </div>
-              </div>
-
-              {/* Atrasos de Hoy */}
-              <div className="recent-activity" style={{ marginTop: '1.5rem' }} data-tour="late-list">
-                <h4 style={{ color: 'var(--text-dark)', margin: '0 0 1rem 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Clock size={18} style={{ color: 'var(--primary)' }} />
-                  Atrasos de Hoy ({registrosHoy.filter(r => r.estado === 'Atrasado').length})
-                </h4>
-
-                {(() => {
-                  const activeList = registrosHoy.filter(r => r.estado === 'Atrasado');
-
-                  if (activeList.length === 0) {
-                    return (
-                      <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', textAlign: 'center', padding: '1.5rem 0' }}>
-                        Sin atrasos registrados hoy.
-                      </p>
-                    );
-                  }
-
-                  return (
-                    <>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {activeList
-                          .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-                          .map((r) => {
-                            const uniqueKey = `reg_${r.id_registro}`;
-                            return (
-                              <div key={uniqueKey} className="recent-item">
-                                <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                    <span style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: '0.88rem' }}>
-                                      {`${r.paterno}${r.materno ? ' ' + r.materno : ''}, ${r.nombres}`.toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div style={{ fontSize: '0.78rem', color: 'var(--text-light)', marginTop: '2px' }}>
-                                    {r.rut}-{r.dv} &bull; {r.grade || 'S/C'} ({r.rol})
-                                  </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                  <span className="status-badge late-badge" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                                    {r.estado}
-                                  </span>
-                                  {r.severidad && (
-                                    <span className={`severity-badge severity-badge--${r.severidad.toLowerCase()}`}>
-                                      {r.severidad}
-                                    </span>
-                                  )}
-                                  {r.justificado ? (
-                                    <span className={`justify-badge justify-badge--${r.tipo_justificacion || 'apoderado'}`} title={r.comentario_justificacion || ''}>
-                                      ✓ {r.tipo_justificacion === 'medica' ? 'Médica' : 'Apoderado'}
-                                    </span>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      className="justify-badge justify-badge--pending"
-                                      onClick={() => openJustifyModal(r)}
-                                      title="Justificar este atraso"
-                                      style={{ cursor: 'pointer' }}
-                                    >
-                                      Justificar
-                                    </button>
-                                  )}
-                                  <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
-                                    {formatTime(r.hora)}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                      {Math.ceil(activeList.length / PAGE_SIZE) > 1 && (
-                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
-                          <button
-                            type="button"
-                            className="action-btn"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                            style={{ fontSize: '0.8rem', padding: '4px 14px' }}
-                          >
-                            ← Anterior
-                          </button>
-                          <span style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
-                            Página {currentPage} de {Math.ceil(activeList.length / PAGE_SIZE)}
-                          </span>
-                          <button
-                            type="button"
-                            className="action-btn"
-                            onClick={() => setCurrentPage(p => Math.min(Math.ceil(activeList.length / PAGE_SIZE), p + 1))}
-                            disabled={currentPage === Math.ceil(activeList.length / PAGE_SIZE)}
-                            style={{ fontSize: '0.8rem', padding: '4px 14px' }}
-                          >
-                            Siguiente →
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </>
-          )}
+          <div className="punctuality-hero__actions">
+            {user?.rol === 'admin' && <button type="button" className="quiet-action" onClick={() => navigate('/admin/configuracion')}><Settings size={18} /> Configurar jornada</button>}
+            <button type="button" className="primary-action" onClick={() => navigate('/scanner')}><FileClock size={18} /> Abrir lector <ArrowRight size={17} /></button>
+          </div>
         </section>
 
-        <hr style={{ border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)', margin: '1.5rem 0' }} />
-
-        {/* ===== SECCIÓN 2: GENERADOR DE REPORTES ===== */}
-        <section className="late-dashboard-section report-builder-section" data-tour="report-builder">
-          <button
-            className="report-toggle-btn"
-            onClick={() => setShowReportPanel(!showReportPanel)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <FileSpreadsheet size={20} />
-              <span>Generar Reportes</span>
-            </div>
-            <ChevronDown
-              size={18}
-              style={{
-                transition: 'transform 0.3s ease',
-                transform: showReportPanel ? 'rotate(180deg)' : 'rotate(0deg)'
-              }}
-            />
-          </button>
-
-          {showReportPanel && (
-            <div className="report-panel fade-in">
-
-              <div className="report-section report-section--period">
-                <DateRangeField
-                  label="Período del reporte"
-                  from={reportDesde}
-                  to={reportHasta}
-                  onChange={({ from, to }) => {
-                    setReportDesde(from);
-                    setReportHasta(to);
-                  }}
-                />
-              </div>
-
-              {/* Ámbito del Reporte */}
-              <div className="report-section">
-                <label className="report-section-label">Ámbito de Selección de Alumnos</label>
-                <div className="report-scope-selector">
-                  <button
-                    type="button"
-                    className={`report-scope-btn ${reportScope === 'masivo' ? 'active' : ''}`}
-                    onClick={() => setReportScope('masivo')}
-                  >
-                    <Globe2 size={15} /> Masivo
-                  </button>
-                  <button
-                    type="button"
-                    className={`report-scope-btn ${reportScope === 'curso' ? 'active' : ''}`}
-                    onClick={() => setReportScope('curso')}
-                  >
-                    <School size={15} /> Por curso
-                  </button>
-
-                  <button
-                    type="button"
-                    className={`report-scope-btn ${reportScope === 'individual' ? 'active' : ''}`}
-                    onClick={() => setReportScope('individual')}
-                  >
-                    <UserRound size={15} /> Individual
-                  </button>
-                  <button
-                    type="button"
-                    className={`report-scope-btn ${reportScope === 'personalizado' ? 'active' : ''}`}
-                    onClick={() => setReportScope('personalizado')}
-                  >
-                    <Settings2 size={15} /> Personalizado
-                  </button>
-                </div>
-
-                {/* Controles Dinámicos */}
-                {reportScope === 'curso' && (
-                  <div className="report-scope-control fade-in" style={{ marginTop: '12px' }}>
-                    <label style={{ fontSize: '0.8rem', color: 'var(--text-light)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>Curso</label>
-                    <select
-                      value={selectedCursoId}
-                      onChange={(e) => setSelectedCursoId(e.target.value)}
-                      className="report-select-input"
-                    >
-                      <option value="">-- Selecciona un Curso --</option>
-                      {courses.map(c => (
-                        <option key={c.id_curso} value={c.id_curso}>{c.nombre_curso}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {reportScope === 'individual' && (
-                  <div className="report-scope-control fade-in">
-                    <StudentPicker
-                      label="Buscar una persona"
-                      query={studentSearchTerm}
-                      onQueryChange={setStudentSearchTerm}
-                      results={studentSearchResults}
-                      loading={isSearchingStudents}
-                      selected={selectedAlumno ? [selectedAlumno] : []}
-                      onSelect={(student) => {
-                        setSelectedAlumno(student);
-                        setStudentSearchResults([]);
-                      }}
-                      onRemove={() => setSelectedAlumno(null)}
-                    />
-                  </div>
-                )}
-
-                {reportScope === 'personalizado' && (
-                  <div className="report-scope-control fade-in">
-                    <StudentPicker
-                      label="Seleccionar varias personas"
-                      placeholder="Busca una persona para agregarla al reporte…"
-                      query={studentSearchTerm}
-                      onQueryChange={setStudentSearchTerm}
-                      results={studentSearchResults}
-                      loading={isSearchingStudents}
-                      selected={selectedAlumnos}
-                      multiple
-                      onSelect={(student) => {
-                        setSelectedAlumnos((current) => [...current, student]);
-                        setStudentSearchResults([]);
-                      }}
-                      onRemove={(student) => setSelectedAlumnos((current) => current.filter((item) => item.id_alumno !== student.id_alumno))}
-                      onClear={() => setSelectedAlumnos([])}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Tipo de Reporte */}
-              <div className="report-section">
-                <label className="report-section-label">Tipo de Reporte</label>
-                <div className="report-types-grid">
-                  {REPORT_TYPES.map(rt => (
-                    <button
-                      type="button"
-                      key={rt.id}
-                      className={`report-type-card ${reportType === rt.id ? 'active' : ''}`}
-                      onClick={() => setReportType(rt.id)}
-                      aria-pressed={reportType === rt.id}
-                    >
-                      <div className="report-type-card__header">
-                        {rt.icon}
-                        <span>{rt.label}</span>
-                      </div>
-                      <p className="report-type-card__desc">{rt.desc}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Formato del Reporte */}
-              <div className="report-section">
-                <label className="report-section-label">Formato</label>
-                <div className="report-format-selector">
-                  <button
-                    className={`report-format-btn ${reportFormat === 'detallado' ? 'active' : ''}`}
-                    onClick={() => setReportFormat('detallado')}
-                  >
-                    <ClipboardList size={15} /> Detallado por fecha y hora
-                  </button>
-                  <button
-                    className={`report-format-btn ${reportFormat === 'resumido' ? 'active' : ''}`}
-                    onClick={() => setReportFormat('resumido')}
-                  >
-                    <BarChart3 size={15} /> Resumido por persona
-                  </button>
-                </div>
-              </div>
-
-              {/* Botón Generar */}
-              <button
-                className="generate-report-btn"
-                onClick={generateReport}
-                disabled={generatingReport || !reportDesde || !reportHasta}
-              >
-                {generatingReport ? (
-                  <>
-                    <RefreshCw size={16} className="spin" /> Generando...
-                  </>
-                ) : (
-                  <>
-                    <Download size={16} /> Descargar Reporte Excel
-                  </>
-                )}
-              </button>
-
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', textAlign: 'center', marginTop: '8px' }}>
-                {reportFormat === 'detallado'
-                  ? 'Genera una hoja por mes con cada atraso, fecha, hora y curso.'
-                  : 'Genera una tabla con los totales de atrasos por persona.'
-                }
-              </p>
-            </div>
-          )}
-        </section>
-
-        {/* ===== JUSTIFICATION MODAL ===== */}
-        {justifyModal && (
-          <div className="justify-modal-overlay" onClick={() => setJustifyModal(null)}>
-            <div className="justify-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="justify-modal__header">
-                <h3 style={{ margin: 0, color: 'var(--text-dark)', fontSize: '1.1rem' }}>
-                  {justifyModal.id_registro !== undefined ? 'Justificar Atraso' : 'Justificar Inasistencia'}
-                </h3>
-                <button aria-label="Cerrar regularización" onClick={() => setJustifyModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer' }}>
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="justify-modal__body">
-                <div style={{
-                  marginBottom: '12px',
-                  padding: '10px',
-                  background: justifyModal.id_registro !== undefined ? 'rgba(245, 158, 11, 0.06)' : 'rgba(239, 68, 68, 0.06)',
-                  borderRadius: '8px',
-                  border: justifyModal.id_registro !== undefined ? '1px solid rgba(245, 158, 11, 0.12)' : '1px solid rgba(239, 68, 68, 0.12)'
-                }}>
-                  <div style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: '0.9rem' }}>
-                    {`${justifyModal.paterno}${justifyModal.materno ? ' ' + justifyModal.materno : ''}, ${justifyModal.nombres}`.toUpperCase()}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginTop: '2px' }}>
-                    {justifyModal.rut}-{justifyModal.dv} &bull; {justifyModal.id_registro !== undefined ? `${formatTime(justifyModal.hora)} • Atraso ${justifyModal.severidad || 'Normal'}` : 'Inasistencia Completa'}
-                  </div>
-                </div>
-
-                {justifyModal.id_registro === undefined ? (
-                  <>
-                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-dark)', marginBottom: '6px', display: 'block' }}>
-                      Tipo de Justificación
-                    </label>
-                    <div className="justify-type-selector">
-                      <button className={`justify-type-btn ${justifyType === 'apoderado' ? 'active' : ''}`} onClick={() => setJustifyType('apoderado')}>
-                        <UserRound size={16} /> Apoderado
-                      </button>
-                      <button className={`justify-type-btn ${justifyType === 'medica' ? 'active' : ''}`} onClick={() => setJustifyType('medica')}>
-                        <Stethoscope size={16} /> Médica
-                      </button>
-                    </div>
-
-                    <div style={{ marginTop: '14px', marginBottom: '10px' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-dark)', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={justifyIsRange}
-                          onChange={(e) => setJustifyIsRange(e.target.checked)}
-                          style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-                        />
-                        Justificar rango de fechas
-                      </label>
-                    </div>
-
-                    {justifyIsRange && (
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-                        <div>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)', display: 'block', marginBottom: '4px' }}>
-                            Fecha Inicio
-                          </label>
-                          <input
-                            type="date"
-                            value={justifyStartDate}
-                            onChange={(e) => setJustifyStartDate(e.target.value)}
-                            style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1.5px solid rgba(0,0,0,0.12)', fontSize: '0.82rem', background: '#fff', color: 'var(--text-dark)', outline: 'none' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)', display: 'block', marginBottom: '4px' }}>
-                            Fecha Fin
-                          </label>
-                          <input
-                            type="date"
-                            value={justifyEndDate}
-                            onChange={(e) => setJustifyEndDate(e.target.value)}
-                            style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1.5px solid rgba(0,0,0,0.12)', fontSize: '0.82rem', background: '#fff', color: 'var(--text-dark)', outline: 'none' }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div style={{ marginBottom: '12px' }}>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-dark)', display: 'block', marginBottom: '4px' }}>
-                      Tipo de Justificación
-                    </span>
-                    <span style={{ fontSize: '0.88rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(0,0,0,0.03)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
-                      <UserRound size={15} /> Apoderado (los atrasos solo admiten justificación de apoderados)
-                    </span>
-                  </div>
-                )}
-
-                <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-dark)', marginBottom: '6px', display: 'block', marginTop: '12px' }}>
-                  Comentario
-                </label>
-                <textarea
-                  className="justify-textarea"
-                  value={justifyComment}
-                  onChange={(e) => setJustifyComment(e.target.value)}
-                  placeholder={justifyType === 'apoderado' ? 'Comentario del apoderado...' : 'Descripción del certificado médico...'}
-                  rows={3}
-                />
-
-                {justifyModal.id_registro === undefined && justifyType === 'medica' && (
-                  <div style={{ marginTop: '12px' }}>
-                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-dark)', marginBottom: '6px', display: 'block' }}>
-                      <Upload size={14} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Certificado Médico (opcional)
-                    </label>
-                    <div className="justify-file-input">
-                      <input
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        onChange={(e) => setJustifyFile(e.target.files[0] || null)}
-                        style={{ fontSize: '0.82rem' }}
-                      />
-                      {justifyFile && <span style={{ fontSize: '0.78rem', color: 'var(--secondary)', display: 'inline-flex', alignItems: 'center', gap: '5px' }}><Paperclip size={14} /> {justifyFile.name}</span>}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="justify-modal__footer">
-                <button className="justify-cancel-btn" onClick={() => setJustifyModal(null)}>
-                  Cancelar
-                </button>
-                <button className="justify-submit-btn" onClick={submitJustification} disabled={submittingJustify}>
-                  {submittingJustify ? (
-                    <><RefreshCw size={14} className="spin" /> Guardando...</>
-                  ) : (
-                    <><CheckCircle size={14} /> Confirmar Justificación</>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
+        {loading ? <div className="punctuality-loading">Preparando la jornada…</div> : (
+          <section className="punctuality-metrics" aria-label="Resumen operativo">
+            <Metric icon={Users} value={summary?.matricula_activa ?? 0} label="Matrícula activa" tone="slate" note="Dato de referencia" />
+            <Metric icon={CalendarClock} value={summary?.ingresos_registrados ?? 0} label="Ingresos registrados" tone="blue" />
+            <Metric icon={CheckCircle2} value={summary?.a_tiempo ?? 0} label="A tiempo" tone="green" />
+            <Metric icon={AlertTriangle} value={summary?.atrasos ?? 0} label="Atrasos" tone="amber" note={`${summary?.atrasos_graves ?? 0} graves`} />
+            <Metric icon={BarChart3} value={summary?.puntualidad_registrada === null ? '—' : `${summary?.puntualidad_registrada}%`} label="Puntualidad registrada" tone="navy" note="Solo sobre ingresos marcados" />
+          </section>
         )}
 
+        <div className="calculation-notice"><ShieldCheck size={18} /><span>El sistema no presume asistencia ni ausencia: los indicadores consideran únicamente ingresos efectivamente registrados.</span></div>
+
+        <section className="operation-section" data-tour="late-list">
+          <div className="operation-heading">
+            <div><span className="section-kicker">Registro del día</span><h2>Ingresos procesados</h2><p>{filteredRows.length} resultado{filteredRows.length === 1 ? '' : 's'} visible{filteredRows.length === 1 ? '' : 's'}</p></div>
+            <button type="button" className="icon-text-action" onClick={() => loadOperationalData({ quiet: true })} disabled={refreshing}><RotateCcw size={18} className={refreshing ? 'spin' : ''} /> Actualizar</button>
+          </div>
+
+          <div className="operation-filters">
+            <label className="operation-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, RUT o curso" /></label>
+            <label><span>Estado</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Todos</option><option value="Presente">A tiempo</option><option value="Atrasado">Atrasados</option><option value="justificado">Justificados</option></select></label>
+            <label><span>Severidad</span><select value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="">Todas</option><option value="Leve">Leve</option><option value="Grave">Grave</option></select></label>
+          </div>
+
+          <div className="operation-table-wrap">
+            <table className="operation-table">
+              <thead><tr><th>Persona</th><th>Curso</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
+              <tbody>
+                {visibleRows.map((row) => (
+                  <tr key={row.id_registro}>
+                    <td data-label="Persona"><strong>{studentName(row)}</strong><small>{row.rut}-{row.dv}</small></td>
+                    <td data-label="Curso">{row.curso || 'Sin curso'}</td>
+                    <td data-label="Hora" className="time-cell">{formatTime(row.hora)}{row.corregido_en && <small>Corregido</small>}</td>
+                    <td data-label="Clasificación"><span className="status-pill" data-status={row.estado === 'Presente' ? 'ontime' : row.severidad?.toLowerCase()}>{row.estado === 'Presente' ? 'A tiempo' : `Atraso ${row.severidad?.toLowerCase()}`}</span></td>
+                    <td data-label="Respaldo">{row.estado === 'Atrasado' ? <span className="justification-state" data-active={row.justificado || undefined}>{row.justificado ? 'Justificado' : 'Pendiente'}</span> : <span className="muted-cell">No aplica</span>}</td>
+                    <td><button type="button" className="manage-action" onClick={() => openRow(row)}>Gestionar <ChevronRight size={17} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!visibleRows.length && <div className="operation-empty"><ShieldCheck size={34} /><strong>No hay registros con estos filtros</strong><span>Prueba otra búsqueda o actualiza la jornada.</span></div>}
+          </div>
+
+          {totalPages > 1 && <div className="operation-pagination"><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {page} de {totalPages}</span><button type="button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
+        </section>
+
+        <section className="report-section-v2" data-tour="report-builder">
+          <div className="report-intro">
+            <div className="report-intro__icon"><FileSpreadsheet size={25} /></div>
+            <div><span className="section-kicker">Documentación institucional</span><h2>Reporte de atrasos</h2><p>Exporta solo atrasos registrados, con minutos, severidad y respaldo de apoderado.</p></div>
+            <button type="button" className="report-toggle" onClick={() => setReportOpen((open) => !open)}>{reportOpen ? 'Cerrar configuración' : 'Configurar reporte'} <SlidersHorizontal size={18} /></button>
+          </div>
+
+          {reportOpen && <div className="report-builder-v2">
+            <div className="report-builder-v2__period"><DateRangeField label="Período del reporte" from={period.from} to={period.to} maxValue={localIsoDate()} onChange={setPeriod} /></div>
+            <div className="report-builder-v2__block"><span className="field-label">Alcance</span><div className="report-scope-grid"><ScopeButton icon={ShieldCheck} active={scope === 'institucional'} onClick={() => setScope('institucional')}>Toda la institución</ScopeButton><ScopeButton icon={Users} active={scope === 'curso'} onClick={() => setScope('curso')}>Un curso</ScopeButton><ScopeButton icon={UserRound} active={scope === 'individual'} onClick={() => setScope('individual')}>Una persona</ScopeButton><ScopeButton icon={SlidersHorizontal} active={scope === 'personalizado'} onClick={() => setScope('personalizado')}>Selección múltiple</ScopeButton></div></div>
+
+            {scope === 'curso' && <label className="report-control"><span className="field-label">Curso</span><select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">Seleccionar curso</option>{courses.map((course) => <option value={course.id_curso} key={course.id_curso}>{course.nombre_curso}</option>)}</select></label>}
+            {scope === 'individual' && <StudentPicker label="Persona" query={studentQuery} onQueryChange={setStudentQuery} results={studentResults} loading={searchingStudents} selected={selectedStudent ? [selectedStudent] : []} onSelect={setSelectedStudent} onRemove={() => setSelectedStudent(null)} />}
+            {scope === 'personalizado' && <StudentPicker label="Personas" multiple query={studentQuery} onQueryChange={setStudentQuery} results={studentResults} loading={searchingStudents} selected={selectedStudents} onSelect={(student) => setSelectedStudents((current) => [...current, student])} onRemove={(student) => setSelectedStudents((current) => current.filter((item) => item.id_alumno !== student.id_alumno))} onClear={() => setSelectedStudents([])} />}
+
+            <div className="report-builder-v2__footer"><div><span className="field-label">Formato</span><div className="report-format-switch"><button type="button" data-active={reportFormat === 'detalle' || undefined} onClick={() => setReportFormat('detalle')}>Detalle de cada atraso</button><button type="button" data-active={reportFormat === 'resumen' || undefined} onClick={() => setReportFormat('resumen')}>Resumen por persona</button></div></div><button type="button" className="download-report-action" onClick={generateReport} disabled={generatingReport}><Download size={19} /> {generatingReport ? 'Generando…' : 'Descargar Excel'}</button></div>
+          </div>}
+        </section>
       </div>
+
+      {selectedRow && <div className="record-drawer-backdrop" onMouseDown={closeDrawer}>
+        <aside className="record-drawer" role="dialog" aria-modal="true" aria-label="Gestionar registro" onMouseDown={(event) => event.stopPropagation()}>
+          <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {selectedRow.rut}-{selectedRow.dv}</p></div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
+          <div className="record-summary"><div><small>Fecha</small><strong>{String(selectedRow.fecha).slice(0, 10)}</strong></div><div><small>Hora</small><strong>{formatTime(selectedRow.hora)}</strong></div><div><small>Resultado</small><strong>{selectedRow.estado === 'Presente' ? 'A tiempo' : `Atraso ${selectedRow.severidad}`}</strong></div></div>
+
+          {!actionMode && <div className="record-actions"><button type="button" onClick={() => setActionMode('corregir')}><Clock3 size={19} /><span><strong>Corregir fecha u hora</strong><small>Recalcula automáticamente la clasificación.</small></span><ChevronRight size={18} /></button>{selectedRow.estado === 'Atrasado' && !selectedRow.justificado && <button type="button" onClick={() => setActionMode('justificar')}><ShieldCheck size={19} /><span><strong>Registrar justificación</strong><small>Constancia entregada por apoderado.</small></span><ChevronRight size={18} /></button>}{selectedRow.estado === 'Atrasado' && selectedRow.justificado && <button type="button" onClick={() => setActionMode('revocar')}><RotateCcw size={19} /><span><strong>Revocar justificación</strong><small>Conserva el cambio en el historial.</small></span><ChevronRight size={18} /></button>}<button type="button" onClick={openHistory}><History size={19} /><span><strong>Ver historial</strong><small>Correcciones y respaldos anteriores.</small></span><ChevronRight size={18} /></button><button type="button" className="danger" onClick={() => setActionMode('anular')}><ShieldAlert size={19} /><span><strong>Anular registro</strong><small>Deja de contabilizarlo sin eliminarlo.</small></span><ChevronRight size={18} /></button></div>}
+
+          {actionMode && actionMode !== 'historial' && <div className="record-form"><button type="button" className="back-inline" onClick={() => { setActionMode(null); setActionReason(''); }}><ChevronLeft size={17} /> Volver a opciones</button><h3>{actionMode === 'corregir' ? 'Corregir registro' : actionMode === 'justificar' ? 'Justificar atraso' : actionMode === 'revocar' ? 'Revocar justificación' : 'Anular registro'}</h3>{actionMode === 'corregir' && <div className="record-form__row"><label><span>Fecha</span><input type="date" max={localIsoDate()} value={correctedDate} onChange={(event) => setCorrectedDate(event.target.value)} /></label><label><span>Hora</span><input type="time" step="1" value={correctedTime} onChange={(event) => setCorrectedTime(event.target.value)} /></label></div>}<label><span>{actionMode === 'justificar' ? 'Observación del apoderado' : 'Motivo obligatorio'}</span><textarea rows="5" maxLength="500" value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={actionMode === 'justificar' ? 'Indica quién informó y el motivo comunicado…' : 'Explica por qué se realiza este cambio…'} /></label><small className="character-count">{actionReason.length}/500 caracteres</small><div className="record-form__notice"><ShieldCheck size={17} /><span>La persona, fecha, valores anteriores y responsable quedarán registrados.</span></div><button type="button" className={actionMode === 'anular' ? 'drawer-submit danger' : 'drawer-submit'} onClick={saveAction} disabled={savingAction}><Save size={18} /> {savingAction ? 'Guardando…' : 'Confirmar y guardar'}</button></div>}
+
+          {actionMode === 'historial' && <div className="record-history"><button type="button" className="back-inline" onClick={() => setActionMode(null)}><ChevronLeft size={17} /> Volver a opciones</button><h3>Historial del registro</h3>{historyLoading ? <div className="drawer-loading">Cargando historial…</div> : history.length ? <div className="history-timeline">{history.map((event) => <article key={event.id}><i /><div><span>{event.accion.replaceAll('_', ' ')}</span><strong>{event.motivo}</strong><small>{formatDateTime(event.realizado_en)} · {event.realizado_por_nombre || event.realizado_por_correo || 'Usuario histórico'}</small></div></article>)}</div> : <div className="drawer-empty"><History size={28} /><span>Este registro todavía no tiene modificaciones.</span></div>}</div>}
+        </aside>
+      </div>}
     </div>
   );
 };

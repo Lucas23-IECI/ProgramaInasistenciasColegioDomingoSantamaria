@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import './styles/institutional.css'
 import './styles/design-system.css'
+import './styles/punctuality.css'
 import { AuthProvider, AuthContext } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import App from './App.jsx'
@@ -22,6 +23,7 @@ const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
 const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
 const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
 const ChangePassword = lazy(() => import('./ChangePassword.jsx'))
+const PunctualitySettings = lazy(() => import('./PunctualitySettings.jsx'))
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useContext(AuthContext);
@@ -80,6 +82,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/usuarios" element={<ProtectedRoute allowedRoles={['admin']}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute allowedRoles={['admin']}><AuditoriaAdmin /></ProtectedRoute>} />
             <Route path="/admin/analiticas" element={<ProtectedRoute allowedRoles={['admin', 'secretaria']}><AnaliticasAdmin /></ProtectedRoute>} />
+            <Route path="/admin/configuracion" element={<ProtectedRoute allowedRoles={['admin']}><PunctualitySettings /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>

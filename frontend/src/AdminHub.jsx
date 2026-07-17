@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Clock3,
   LogOut,
+  Settings2,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -51,6 +52,16 @@ const ALL_MODULES = [
     description: 'Cuentas de acceso, perfiles y permisos administrativos.',
     path: '/admin/usuarios',
     tone: 'ochre',
+    roles: ['admin'],
+  },
+  {
+    key: 'configuracion',
+    icon: Settings2,
+    category: 'Operación',
+    title: 'Configuración de jornada',
+    description: 'Horarios, severidad y umbrales preventivos de atrasos.',
+    path: '/admin/configuracion',
+    tone: 'slate',
     roles: ['admin'],
   },
   {

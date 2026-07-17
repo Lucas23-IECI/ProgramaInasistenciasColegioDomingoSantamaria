@@ -61,12 +61,12 @@ function Students() {
 
   const fetchAlertasTempranas = async () => {
     try {
-      const res = await axios.get(`${API_URL}/asistencia/alertas-tempranas`, {
+      const res = await axios.get(`${API_URL}/puntualidad/alertas`, {
         withCredentials: true
       });
-      setAlertasMap(res.data || {});
+      setAlertasMap(Object.fromEntries((res.data?.alertas || []).map((alerta) => [alerta.id_alumno, alerta])));
     } catch (err) {
-      console.error('Error fetching early warning alerts:', err);
+      console.error('Error al obtener alertas de atrasos:', err);
     }
   };
 
@@ -380,22 +380,22 @@ function Students() {
                                <td className="students-cell-name" data-label="Nombre">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
-                            {alertasMap[s.id_alumno]?.alertaCritica && (
+                            {alertasMap[s.id_alumno]?.nivel === 'critica' && (
                               <span
                                 className="severity-badge severity-badge--grave"
-                                title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
+                                title={`${alertasMap[s.id_alumno].atrasos} atrasos registrados en los últimos 30 días, ${alertasMap[s.id_alumno].graves} graves`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                <AlertTriangle size={12} /> Crítica ({alertasMap[s.id_alumno].rate}%)
+                                <AlertTriangle size={12} /> Seguimiento crítico
                               </span>
                             )}
-                            {alertasMap[s.id_alumno]?.alertaConsecutiva && (
+                            {alertasMap[s.id_alumno]?.nivel === 'preventiva' && (
                               <span
                                 className="severity-badge severity-badge--leve"
-                                title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
+                                title={`${alertasMap[s.id_alumno].atrasos} atrasos registrados; racha actual de ${alertasMap[s.id_alumno].racha_atrasos}`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                <BellRing size={12} /> {alertasMap[s.id_alumno].consecutive} seguidas
+                                <BellRing size={12} /> Seguimiento preventivo
                               </span>
                             )}
                           </div>
@@ -528,22 +528,22 @@ function Students() {
                         <td className="students-cell-name" data-label="Nombre">
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span>{s.nombres} {s.paterno} {s.materno}</span>
-                            {alertasMap[s.id_alumno]?.alertaCritica && (
+                            {alertasMap[s.id_alumno]?.nivel === 'critica' && (
                               <span
                                 className="severity-badge severity-badge--grave"
-                                title={`Alerta Crítica: ${alertasMap[s.id_alumno].rate}% de inasistencias injustificadas (Límite 10%)`}
+                                title={`${alertasMap[s.id_alumno].atrasos} atrasos registrados en los últimos 30 días, ${alertasMap[s.id_alumno].graves} graves`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                <AlertTriangle size={12} /> Crítica ({alertasMap[s.id_alumno].rate}%)
+                                <AlertTriangle size={12} /> Seguimiento crítico
                               </span>
                             )}
-                            {alertasMap[s.id_alumno]?.alertaConsecutiva && (
+                            {alertasMap[s.id_alumno]?.nivel === 'preventiva' && (
                               <span
                                 className="severity-badge severity-badge--leve"
-                                title={`Alerta Consecutiva: ${alertasMap[s.id_alumno].consecutive} inasistencias seguidas sin justificar`}
+                                title={`${alertasMap[s.id_alumno].atrasos} atrasos registrados; racha actual de ${alertasMap[s.id_alumno].racha_atrasos}`}
                                 style={{ cursor: 'help', fontSize: '0.7rem', padding: '1px 5px', display: 'inline-flex', alignItems: 'center' }}
                               >
-                                <BellRing size={12} /> {alertasMap[s.id_alumno].consecutive} seguidas
+                                <BellRing size={12} /> Seguimiento preventivo
                               </span>
                             )}
                           </div>

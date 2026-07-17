@@ -1,544 +1,166 @@
-import React, { useCallback, useEffect, useState, useContext } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AuthContext } from './context/AuthContext';
-import {
-  LogOut, Clock, TrendingUp, BarChart2, PieChart, Activity,
-  Percent, Users, ShieldCheck, CheckCircle, ArrowLeft, Download,
-  Calendar, ShieldAlert
-} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
+import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
+import DateRangeField from './components/DateRangeField';
+import { useFeedback } from './context/FeedbackContext';
 
-/* ═══════════════════ SVG CHART COMPONENTS ═══════════════════ */
+const localIsoDate = (date = new Date()) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+const initialPeriod = () => ({ from: localIsoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: localIsoDate() });
+const formatShortDate = (value) => new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`)).replace('.', '');
 
-const JustifiedDonutChart = ({ justified = 0, unjustified = 0, colorJustified = 'var(--secondary)', colorUnjustified = '#ef4444' }) => {
-  const total = justified + unjustified;
-  const pctJust = total > 0 ? (justified / total) * 100 : 0;
-  const pctUnjust = total > 0 ? (unjustified / total) * 100 : 100;
+const AnalyticsMetric = ({ icon: Icon, value, label, detail, tone }) => (
+  <article className="analytics-kpi" data-tone={tone}>
+    <div className="analytics-kpi__icon">{React.createElement(Icon, { size: 22 })}</div>
+    <div><strong>{value}</strong><span>{label}</span>{detail && <small>{detail}</small>}</div>
+  </article>
+);
 
-  const radius = 55;
-  const circumference = 2 * Math.PI * radius;
-
-  const strokeJust = (pctJust / 100) * circumference;
-  const strokeUnjust = (pctUnjust / 100) * circumference;
-
-  const offsetJust = 0;
-  const offsetUnjust = strokeJust;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', width: '100%' }}>
-      <svg className="donut-chart-svg" viewBox="0 0 160 160" style={{ maxWidth: '140px', maxHeight: '140px' }}>
-        <circle cx="80" cy="80" r={radius} fill="transparent" stroke="rgba(255,255,255,0.06)" strokeWidth="12" />
-        {pctJust > 0 && (
-          <circle
-            cx="80" cy="80" r={radius} fill="transparent"
-            stroke={colorJustified} strokeWidth="12"
-            strokeDasharray={`${strokeJust} ${circumference - strokeJust}`}
-            strokeDashoffset={-offsetJust}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 0.8s ease-in-out', transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
-          />
-        )}
-        {pctUnjust > 0 && (
-          <circle
-            cx="80" cy="80" r={radius} fill="transparent"
-            stroke={colorUnjustified} strokeWidth="12"
-            strokeDasharray={`${strokeUnjust} ${circumference - strokeUnjust}`}
-            strokeDashoffset={-offsetUnjust}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 0.8s ease-in-out', transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
-          />
-        )}
-        <text x="80" y="76" textAnchor="middle" fill="var(--text-dark)" fontSize="1.2rem" fontWeight="800">
-          {total > 0 ? pctJust.toFixed(1) + '%' : '0%'}
-        </text>
-        <text x="80" y="94" textAnchor="middle" fill="var(--text-light)" fontSize="0.65rem" fontWeight="600" letterSpacing="0.05em">
-          JUSTIFICADO
-        </text>
-      </svg>
-
-      <div style={{ display: 'flex', gap: '12px', fontSize: '0.72rem', justifyContent: 'center', flexWrap: 'wrap', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorJustified }}></span>
-          <span style={{ color: 'var(--text-light)' }}>Justificados: {justified} ({pctJust.toFixed(0)}%)</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorUnjustified }}></span>
-          <span style={{ color: 'var(--text-light)' }}>Sin Justificar: {unjustified} ({pctUnjust.toFixed(0)}%)</span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const getRangeDates = (periodType) => {
-  const hasta = new Date();
-  const desde = new Date();
-  switch (periodType) {
-    case 'semana': desde.setDate(hasta.getDate() - 7); break;
-    case 'mes': desde.setDate(hasta.getDate() - 30); break;
-    case 'trimestre': desde.setDate(hasta.getDate() - 90); break;
-    case 'semestre': desde.setDate(hasta.getDate() - 180); break;
-    case 'ano': desde.setDate(hasta.getDate() - 365); break;
-    default: desde.setDate(hasta.getDate() - 7);
-  }
-  const fmt = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  return { desde: fmt(desde), hasta: fmt(hasta) };
-};
-
-const SVGLineChart = ({ data = [], color = 'var(--primary)', label = 'Registros' }) => {
-  if (data.length === 0) {
-    return (
-      <div style={{ color: 'var(--text-light)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0' }}>
-        Sin registros en este período.
-      </div>
-    );
-  }
-  const width = 500, height = 200, padding = 30;
-  const maxCount = Math.max(...data.map(d => parseInt(d.count, 10)), 5);
-
-  const points = data.map((d, index) => {
-    const x = padding + (index / Math.max(1, data.length - 1)) * (width - 2 * padding);
-    const y = height - padding - (parseInt(d.count, 10) / maxCount) * (height - 2 * padding);
-    return { x, y, date: d.fecha || d.date, count: parseInt(d.count, 10) };
+const DailyChart = ({ data }) => {
+  if (!data?.length) return <div className="analytics-empty">No hay ingresos registrados en este período.</div>;
+  const width = 920;
+  const height = 260;
+  const pad = { x: 48, top: 24, bottom: 42 };
+  const max = Math.max(1, ...data.map((item) => Number(item.atrasos)));
+  const usableWidth = width - pad.x * 2;
+  const usableHeight = height - pad.top - pad.bottom;
+  const point = (item, index) => ({
+    x: pad.x + (data.length === 1 ? usableWidth / 2 : index * usableWidth / (data.length - 1)),
+    y: pad.top + usableHeight - (Number(item.atrasos) / max) * usableHeight
   });
-
-  const linePath = points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const formatLabelDate = (dateStr) => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length < 3) return dateStr;
-    const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    return `${parts[2]} ${months[parseInt(parts[1], 10) - 1]}`;
-  };
+  const points = data.map(point);
+  const path = points.map((item, index) => `${index ? 'L' : 'M'} ${item.x} ${item.y}`).join(' ');
+  const area = `${path} L ${points.at(-1).x} ${height - pad.bottom} L ${points[0].x} ${height - pad.bottom} Z`;
+  const labelStep = Math.max(1, Math.ceil(data.length / 7));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%' }}>
-      <svg className="line-chart-svg" viewBox={`0 0 ${width} ${height}`}>
-        {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
-          const y = padding + ratio * (height - 2 * padding);
-          const val = Math.round(maxCount * (1 - ratio));
-          return (
-            <g key={i}>
-              <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="4" />
-              <text x={padding - 8} y={y + 4} textAnchor="end" fill="var(--text-light)" fontSize="10">{val}</text>
-            </g>
-          );
-        })}
-
-        {linePath && (
-          <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        )}
-
-        {points.map((p, idx) => (
-          <g key={idx}>
-            <circle cx={p.x} cy={p.y} r="3.5" fill={color} stroke="var(--bg-card, #0b1329)" strokeWidth="1.2" />
-            <circle cx={p.x} cy={p.y} r="12" fill="transparent" style={{ cursor: 'pointer' }} />
-            <title>{`${formatLabelDate(p.date)}\n${label}: ${p.count}`}</title>
-          </g>
-        ))}
-
-        {data.length > 0 && [0, Math.floor(data.length / 2), data.length - 1].map((idx) => {
-          if (idx >= data.length || idx < 0) return null;
-          const p = points[idx];
-          return (
-            <text key={idx} x={p.x} y={height - padding + 16}
-              textAnchor={idx === 0 ? 'start' : idx === data.length - 1 ? 'end' : 'middle'}
-              fill="var(--text-light)" fontSize="10">
-              {formatLabelDate(p.date)}
-            </text>
-          );
-        })}
+    <div className="daily-chart" role="img" aria-label="Evolución diaria de atrasos">
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => <line key={ratio} x1={pad.x} x2={width - pad.x} y1={pad.top + usableHeight * ratio} y2={pad.top + usableHeight * ratio} className="chart-grid-line" />)}
+        <path d={area} className="chart-area" />
+        <path d={path} className="chart-line" />
+        {points.map((item, index) => <circle key={data[index].fecha} cx={item.x} cy={item.y} r="5" className="chart-point"><title>{formatShortDate(data[index].fecha)}: {data[index].atrasos} atrasos de {data[index].ingresos} ingresos</title></circle>)}
+        {data.map((item, index) => index % labelStep === 0 || index === data.length - 1 ? <text key={item.fecha} x={point(item, index).x} y={height - 13} textAnchor="middle" className="chart-label">{formatShortDate(item.fecha)}</text> : null)}
       </svg>
-
-      <div style={{ display: 'flex', gap: '6px', fontSize: '0.72rem', justifyContent: 'center', width: '100%', alignItems: 'center' }}>
-        <span style={{ width: 12, height: 3, background: color, display: 'inline-block' }}></span>
-        <span style={{ color: 'var(--text-light)' }}>{label}</span>
-      </div>
     </div>
   );
 };
 
-const CourseBarChart = ({ data = [], label = 'registro(s)', color = 'var(--primary)' }) => {
-  if (data.length === 0) {
-    return (
-      <div style={{ color: 'var(--text-light)', fontSize: '0.85rem', textAlign: 'center', padding: '2rem 0', width: '100%' }}>
-        Sin registros por curso.
-      </div>
-    );
-  }
-  const maxCount = Math.max(...data.map(d => parseInt(d.count, 10)), 1);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', padding: '4px' }}>
-      {data.slice(0, 6).map((d, idx) => {
-        const count = parseInt(d.count, 10);
-        const pct = (count / maxCount) * 100;
-        return (
-          <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-dark)', fontWeight: 500 }}>
-              <span>{d.curso || 'Sin Curso'}</span>
-              <strong style={{ color: 'var(--primary)' }}>{count} {label}</strong>
-            </div>
-            <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: '4px', transition: 'width 0.8s ease' }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+const DistributionBars = ({ data, valueKey = 'atrasos', labelKey, suffix = 'atrasos' }) => {
+  if (!data?.length) return <div className="analytics-empty">Sin datos para mostrar.</div>;
+  const max = Math.max(1, ...data.map((item) => Number(item[valueKey])));
+  return <div className="distribution-list">{data.map((item) => <div className="distribution-row" key={item[labelKey]}><div><strong>{item[labelKey]}</strong><span>{item[valueKey]} {suffix}</span></div><div className="distribution-track"><i style={{ width: `${Math.max(3, (Number(item[valueKey]) / max) * 100)}%` }} /></div></div>)}</div>;
 };
-
-const TimeSlotBarChart = ({ data = [] }) => {
-  const defaultSlots = [
-    { slot: '08:15 - 08:20', label: '08:15-20' },
-    { slot: '08:21 - 08:25', label: '08:21-25' },
-    { slot: '08:26 - 08:30', label: '08:26-30' },
-    { slot: '08:31 - 08:40', label: '08:31-40' },
-    { slot: 'Después 08:40', label: '> 08:40' }
-  ];
-
-  const slotMap = {};
-  data.forEach(d => { slotMap[d.slot] = parseInt(d.count, 10); });
-  const mergedData = defaultSlots.map(s => ({ label: s.label, count: slotMap[s.slot] || 0 }));
-  const maxCount = Math.max(...mergedData.map(d => d.count), 1);
-
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', height: '180px', width: '100%', padding: '0 10px' }}>
-      {mergedData.map((d, idx) => {
-        const pct = (d.count / maxCount) * 120;
-        return (
-          <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: d.count > 0 ? 'var(--primary)' : 'var(--text-light)' }}>
-              {d.count}
-            </div>
-            <div style={{
-              width: '20px', height: `${Math.max(4, pct)}px`,
-              background: d.label.includes('>') ? '#ef4444' : 'var(--primary)',
-              borderRadius: '4px 4px 0 0', transition: 'height 0.8s ease'
-            }} />
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-light)', textAlign: 'center', lineHeight: 1.1 }}>
-              {d.label}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-/* ═══════════════════ MAIN COMPONENT ═══════════════════ */
 
 const AnaliticasAdmin = () => {
-  const [period, setPeriod] = useState('semana');
-  const subTab = 'atrasos';
-  const [courses, setCourses] = useState([]);
-  const [selectedCurso, setSelectedCurso] = useState('');
-  const [selectedJustificado, setSelectedJustificado] = useState('');
-  const [selectedSeveridad, setSelectedSeveridad] = useState('');
-  const [analyticsData, setAnalyticsData] = useState(null);
-  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
-  const { logout, user } = useContext(AuthContext);
   const navigate = useNavigate();
+  const { logout } = useContext(AuthContext);
+  const { notify } = useFeedback();
+  const [period, setPeriod] = useState(initialPeriod);
+  const [courseId, setCourseId] = useState('');
+  const [justified, setJustified] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [courses, setCourses] = useState([]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchCourses = async () => {
-      try {
-        const res = await axios.get(`${API_URL}/courses`, { withCredentials: true });
-        setCourses(res.data);
-      } catch (err) {
-        console.error("Error al obtener cursos", err);
-      }
-    };
-    fetchCourses();
-  }, []);
+    axios.get(`${API_URL}/courses`).then((response) => setCourses(response.data || [])).catch(() => notify('No fue posible cargar los cursos.', 'error'));
+  }, [notify]);
 
-  const fetchAnalytics = useCallback(async () => {
-    setLoadingAnalytics(true);
-    const { desde, hasta } = getRangeDates(period);
+  const loadAnalytics = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/asistencia/range-stats`, {
+      const response = await axios.get(`${API_URL}/puntualidad/analitica`, {
         params: {
-          desde,
-          hasta,
-          id_curso: selectedCurso,
-          justificado: selectedJustificado,
-          severidad: selectedSeveridad
-        },
-        withCredentials: true
+          desde: period.from,
+          hasta: period.to,
+          id_curso: courseId || undefined,
+          justificado: justified || undefined,
+          severidad: severity || undefined
+        }
       });
-      setAnalyticsData(res.data);
-    } catch (err) {
-      console.error(err);
+      setData(response.data);
+    } catch (error) {
+      setData(null);
+      notify(error.response?.data?.message || 'No fue posible calcular los indicadores.', 'error');
     } finally {
-      setLoadingAnalytics(false);
+      setLoading(false);
     }
-  }, [period, selectedCurso, selectedJustificado, selectedSeveridad]);
+  }, [courseId, justified, notify, period.from, period.to, severity]);
 
-  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
+  useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
 
-  const handleLogout = () => { logout(); navigate('/login'); };
+  const insight = useMemo(() => {
+    const daily = data?.por_dia || [];
+    if (!daily.length) return null;
+    const peak = [...daily].sort((a, b) => b.atrasos - a.atrasos)[0];
+    const split = Math.max(1, Math.floor(daily.length / 2));
+    const first = daily.slice(0, split).reduce((sum, item) => sum + Number(item.atrasos), 0) / split;
+    const secondItems = daily.slice(split);
+    const second = secondItems.length ? secondItems.reduce((sum, item) => sum + Number(item.atrasos), 0) / secondItems.length : first;
+    return { peak, trend: second > first ? 'up' : second < first ? 'down' : 'flat', change: first > 0 ? Math.abs(((second - first) / first) * 100).toFixed(0) : 0 };
+  }, [data]);
 
-  const formatLabelDate = (dateStr) => {
-    if (!dateStr) return 'N/D';
-    const parts = dateStr.split('-');
-    if (parts.length < 3) return dateStr;
-    const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-    return `${parts[2]} ${months[parseInt(parts[1], 10) - 1]}`;
+  const resetFilters = () => {
+    setPeriod(initialPeriod());
+    setCourseId('');
+    setJustified('');
+    setSeverity('');
   };
 
-  const periodIdx = { semana: 0, mes: 1, trimestre: 2, semestre: 3, ano: 4 };
+  const handleLogout = async () => { await logout(); navigate('/login'); };
+  const summary = data?.resumen;
 
   return (
-    <div className="admin-dashboard fade-in">
-      <div className="glass-panel" style={{ padding: '2rem' }}>
+    <div className="app-container analytics-page-v2">
+      <div className="analytics-surface-v2">
+        <ModuleHeader icon={BarChart3} title="Estadísticas de puntualidad" description="Análisis basado exclusivamente en ingresos registrados y atrasos reales." onBack={() => navigate('/admin')} onLogout={handleLogout} />
 
-        <ModuleHeader
-          icon={BarChart2}
-          title="Estadísticas"
-          description={`Indicadores institucionales de atrasos y puntualidad · ${user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}`}
-          onBack={() => navigate('/admin')}
-          onLogout={handleLogout}
-        >
-          <button type="button" onClick={() => window.print()} className="module-header__button">
-            <Download size={15} /> Exportar PDF
-          </button>
-        </ModuleHeader>
-
-        {/* Segmented Period Slider */}
-        <div className="segmented-control">
-          <div
-            className="segmented-control__slider"
-            style={{
-              width: 'calc(20% - 8px)',
-              transform: `translateX(calc(${(periodIdx[period] || 0) * 100}% + ${(periodIdx[period] || 0) * 8}px))`
-            }}
-          />
-          <button className={`segmented-control__option ${period === 'semana' ? 'active' : ''}`} onClick={() => setPeriod('semana')}>Semana</button>
-          <button className={`segmented-control__option ${period === 'mes' ? 'active' : ''}`} onClick={() => setPeriod('mes')}>Mes</button>
-          <button className={`segmented-control__option ${period === 'trimestre' ? 'active' : ''}`} onClick={() => setPeriod('trimestre')}>Trimestre</button>
-          <button className={`segmented-control__option ${period === 'semestre' ? 'active' : ''}`} onClick={() => setPeriod('semestre')}>Semestre</button>
-          <button className={`segmented-control__option ${period === 'ano' ? 'active' : ''}`} onClick={() => setPeriod('ano')}>Año</button>
-        </div>
-
-        {/* Interactive Filters Panel */}
-        <div className="analytics-filter-bar" data-tour="analytics-filters" style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap', margin: '20px 0', padding: '12px', background: 'rgba(59, 130, 246, 0.04)', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.08)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
-            <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)' }}>Curso</label>
-            <select
-              value={selectedCurso}
-              onChange={(e) => setSelectedCurso(e.target.value)}
-              className="analytics-select-input"
-              style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', background: 'var(--glass-bg)', color: 'var(--text-dark)', fontSize: '0.82rem', outline: 'none' }}
-            >
-              <option value="">Todos los Cursos</option>
-              {courses.map(c => (
-                <option key={c.id_curso} value={c.id_curso}>{c.nombre_curso}</option>
-              ))}
-            </select>
+        <section className="analytics-control-band" data-tour="analytics-filters">
+          <div className="analytics-control-band__period"><DateRangeField label="Período de análisis" from={period.from} to={period.to} maxValue={localIsoDate()} onChange={setPeriod} /></div>
+          <div className="analytics-filter-fields">
+            <label><span>Curso</span><select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">Toda la institución</option>{courses.map((course) => <option key={course.id_curso} value={course.id_curso}>{course.nombre_curso}</option>)}</select></label>
+            <label><span>Justificación</span><select value={justified} onChange={(event) => setJustified(event.target.value)}><option value="">Todas</option><option value="false">Sin justificar</option><option value="true">Justificados</option></select></label>
+            <label><span>Severidad</span><select value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="">Todas</option><option value="Leve">Leve</option><option value="Grave">Grave</option></select></label>
+            <button type="button" className="analytics-reset" onClick={resetFilters}><RefreshCw size={17} /> Restablecer</button>
           </div>
+        </section>
 
-          {subTab === 'atrasos' && (
-            <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)' }}>Justificación</label>
-                <select
-                  value={selectedJustificado}
-                  onChange={(e) => setSelectedJustificado(e.target.value)}
-                  className="analytics-select-input"
-                  style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', background: 'var(--glass-bg)', color: 'var(--text-dark)', fontSize: '0.82rem', outline: 'none' }}
-                >
-                  <option value="">Todas las marcas</option>
-                  <option value="false">Solo Sin Justificar</option>
-                  <option value="true">Solo Justificados</option>
-                </select>
-              </div>
+        {loading ? <div className="analytics-loading-v2"><Activity size={24} className="spin" /> Calculando indicadores…</div> : data ? <>
+          <section className="analytics-kpi-grid">
+            <AnalyticsMetric icon={ShieldCheck} value={summary.puntualidad_registrada === null ? '—' : `${summary.puntualidad_registrada}%`} label="Puntualidad registrada" detail="Sobre ingresos marcados" tone="green" />
+            <AnalyticsMetric icon={Users} value={summary.ingresos} label="Ingresos registrados" detail={`${summary.a_tiempo} a tiempo`} tone="blue" />
+            <AnalyticsMetric icon={AlertTriangle} value={summary.atrasos} label="Atrasos" detail={`${summary.leves} leves · ${summary.graves} graves`} tone="amber" />
+            <AnalyticsMetric icon={Clock3} value={summary.promedio_minutos_atraso ? `${summary.promedio_minutos_atraso} min` : '—'} label="Promedio de atraso" detail={`${summary.justificados} justificados`} tone="navy" />
+          </section>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-light)' }}>Severidad</label>
-                <select
-                  value={selectedSeveridad}
-                  onChange={(e) => setSelectedSeveridad(e.target.value)}
-                  className="analytics-select-input"
-                  style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', background: 'var(--glass-bg)', color: 'var(--text-dark)', fontSize: '0.82rem', outline: 'none' }}
-                >
-                  <option value="">Todas las severidades</option>
-                  <option value="Leve">Solo Atrasos Leves</option>
-                  <option value="Grave">Solo Atrasos Graves</option>
-                </select>
-              </div>
-            </>
-          )}
-        </div>
+          <div className="analytics-scope-notice"><CheckCircle2 size={18} /><span>Ningún indicador interpreta la falta de escaneo como presencia o ausencia.</span></div>
 
-        {loadingAnalytics ? (
-          <div className="loader" style={{ margin: '4rem auto' }}>Cargando analíticas...</div>
-        ) : (
-          <div className="fade-in" style={{ marginTop: '1.5rem' }}>
+          <section className="analytics-story-grid">
+            <article className="analytics-panel analytics-panel--wide">
+              <header><div><span className="section-kicker">Comportamiento diario</span><h2>Evolución de atrasos</h2></div><span className="panel-period">{period.from} · {period.to}</span></header>
+              <DailyChart data={data.por_dia} />
+            </article>
+            <aside className="analytics-insight-panel">
+              <span className="section-kicker">Lectura rápida</span><h2>Qué muestra el período</h2>
+              {insight ? <div className="insight-stack"><article><AlertTriangle size={20} /><div><small>Día con más atrasos</small><strong>{formatShortDate(insight.peak.fecha)}</strong><span>{insight.peak.atrasos} de {insight.peak.ingresos} ingresos</span></div></article><article>{insight.trend === 'up' ? <TrendingUp size={20} /> : insight.trend === 'down' ? <TrendingDown size={20} /> : <Activity size={20} />}<div><small>Tendencia entre mitades</small><strong>{insight.trend === 'up' ? 'En aumento' : insight.trend === 'down' ? 'En descenso' : 'Estable'}</strong><span>{insight.change}% de variación aproximada</span></div></article><article><ShieldCheck size={20} /><div><small>Respaldos</small><strong>{summary.justificados}</strong><span>atrasos justificados por apoderado</span></div></article></div> : <div className="analytics-empty">Aún no hay información suficiente.</div>}
+            </aside>
+          </section>
 
-            {subTab === 'atrasos' ? (
-              <>
-                {/* KPI Cards Atrasos */}
-                <div className="analytics-metrics-grid">
-                  <div className="stat-card" style={{ '--card-accent': '#10b981' }}>
-                    <div className="stat-card__icon" style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)' }}><Percent size={20} /></div>
-                    <div className="stat-card__value" style={{ color: '#10b981' }}>
-                      {analyticsData ? (
-                        (analyticsData.totalPresentes / Math.max(1, analyticsData.totalPresentes + analyticsData.totalAtrasados) * 100).toFixed(1) + '%'
-                      ) : '100%'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Puntualidad General</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': 'var(--primary)' }}>
-                    <div className="stat-card__icon" style={{ color: 'var(--primary)', background: 'rgba(59, 130, 246, 0.1)' }}><Clock size={20} /></div>
-                    <div className="stat-card__value" style={{ color: 'var(--primary)' }}>{analyticsData?.totalAtrasados || 0}</div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Total Atrasos</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': 'var(--secondary)' }}>
-                    <div className="stat-card__icon" style={{ color: 'var(--secondary)', background: 'rgba(16, 185, 129, 0.1)' }}><CheckCircle size={20} /></div>
-                    <div className="stat-card__value" style={{ color: 'var(--secondary)' }}>{analyticsData?.totalAtrasadosJustificados || 0}</div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Atrasos Justificados</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': '#8b5cf6' }}>
-                    <div className="stat-card__icon" style={{ color: '#8b5cf6', background: 'rgba(139, 92, 246, 0.1)' }}><Users size={20} /></div>
-                    <div className="stat-card__value" style={{ fontSize: '1.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#8b5cf6' }} title={analyticsData?.courseLate?.[0]?.curso || 'N/D'}>
-                      {analyticsData?.courseLate?.[0]?.curso || 'N/D'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Peor Curso</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': '#f59e0b' }}>
-                    <div className="stat-card__icon" style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}><TrendingUp size={20} /></div>
-                    <div className="stat-card__value" style={{ fontSize: '1rem', color: '#f59e0b' }}>
-                      {analyticsData?.dailyLate?.length > 0
-                        ? formatLabelDate([...analyticsData.dailyLate].sort((a,b) => b.count - a.count)[0]?.fecha)
-                        : 'N/D'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Día Pico Atrasos</div>
-                  </div>
-                </div>
+          <section className="analytics-detail-grid">
+            <article className="analytics-panel"><header><div><span className="section-kicker">Distribución</span><h2>Minutos de atraso</h2></div></header><DistributionBars data={data.por_tramo} labelKey="tramo" /></article>
+            <article className="analytics-panel"><header><div><span className="section-kicker">Cursos</span><h2>Atrasos por curso</h2></div></header><DistributionBars data={data.por_curso.slice(0, 8)} labelKey="curso" /></article>
+          </section>
 
-                {/* Charts Grid Atrasos */}
-                <div className="analytics-charts-grid">
-                  <div className="chart-card chart-card--full">
-                    <div className="chart-card__title"><Activity size={16} /> Frecuencia Diaria de Atrasos</div>
-                    <div className="chart-container">
-                      <SVGLineChart data={analyticsData?.dailyLate} color="var(--primary)" label="Atrasos" />
-                    </div>
-                  </div>
-
-                  <div className="chart-card">
-                    <div className="chart-card__title"><PieChart size={16} /> Proporción de Atrasos Justificados</div>
-                    <div className="chart-container">
-                      <JustifiedDonutChart
-                        justified={analyticsData?.totalAtrasadosJustificados || 0}
-                        unjustified={(analyticsData?.totalAtrasados || 0) - (analyticsData?.totalAtrasadosJustificados || 0)}
-                        label="Atrasos"
-                        colorJustified="var(--secondary)"
-                        colorUnjustified="#f59e0b"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="chart-card">
-                    <div className="chart-card__title"><BarChart2 size={16} /> Peores Cursos (Atrasos)</div>
-                    <div className="chart-container">
-                      <CourseBarChart data={analyticsData?.courseLate} label="atraso(s)" color="var(--primary)" />
-                    </div>
-                  </div>
-
-                  <div className="chart-card chart-card--full">
-                    <div className="chart-card__title"><Clock size={16} /> Distribución por Rango Horario de Atrasos</div>
-                    <div className="chart-container">
-                      <TimeSlotBarChart data={analyticsData?.slotLate} />
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* KPI Cards Inasistencias */}
-                <div className="analytics-metrics-grid">
-                  <div className="stat-card" style={{ '--card-accent': 'var(--secondary)' }}>
-                    <div className="stat-card__icon" style={{ color: 'var(--secondary)', background: 'rgba(16, 185, 129, 0.1)' }}><Percent size={20} /></div>
-                    <div className="stat-card__value" style={{ color: 'var(--secondary)' }}>
-                      {analyticsData ? (
-                        (() => {
-                          const totalMatriculaDias = (analyticsData.totalAlumnos || 0) * (analyticsData.diasActivos || 1);
-                          const totalInas = (analyticsData.totalInasistencias || 0) + (analyticsData.totalJustificados || 0);
-                          return totalMatriculaDias > 0
-                            ? ((totalMatriculaDias - totalInas) / totalMatriculaDias * 100).toFixed(1) + '%'
-                            : '100%';
-                        })()
-                      ) : '100%'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Asistencia General</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': '#ef4444' }}>
-                    <div className="stat-card__icon" style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)' }}><ShieldAlert size={20} /></div>
-                    <div className="stat-card__value" style={{ color: '#ef4444' }}>
-                      {(analyticsData?.totalInasistencias || 0) + (analyticsData?.totalJustificados || 0)}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Total Inasistencias</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': 'var(--primary)' }}>
-                    <div className="stat-card__icon" style={{ color: 'var(--primary)', background: 'rgba(59, 130, 246, 0.1)' }}><CheckCircle size={20} /></div>
-                    <div className="stat-card__value" style={{ color: 'var(--primary)' }}>{analyticsData?.totalJustificados || 0}</div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Inasistencias Justificadas</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': '#8b5cf6' }}>
-                    <div className="stat-card__icon" style={{ color: '#8b5cf6', background: 'rgba(139, 92, 246, 0.1)' }}><Users size={20} /></div>
-                    <div className="stat-card__value" style={{ fontSize: '1.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#8b5cf6' }} title={analyticsData?.courseAbsences?.[0]?.curso || 'N/D'}>
-                      {analyticsData?.courseAbsences?.[0]?.curso || 'N/D'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Peor Curso Abs.</div>
-                  </div>
-                  <div className="stat-card" style={{ '--card-accent': '#f59e0b' }}>
-                    <div className="stat-card__icon" style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}><TrendingUp size={20} /></div>
-                    <div className="stat-card__value" style={{ fontSize: '1rem', color: '#f59e0b' }}>
-                      {analyticsData?.dailyAbsences?.length > 0
-                        ? formatLabelDate([...analyticsData.dailyAbsences].sort((a,b) => b.count - a.count)[0]?.fecha)
-                        : 'N/D'}
-                    </div>
-                    <div className="stat-card__label" style={{ fontSize: '0.78rem' }}>Día Pico Ausencias</div>
-                  </div>
-                </div>
-
-                {/* Charts Grid Inasistencias */}
-                <div className="analytics-charts-grid">
-                  <div className="chart-card chart-card--full">
-                    <div className="chart-card__title"><Activity size={16} /> Frecuencia Diaria de Inasistencias</div>
-                    <div className="chart-container">
-                      <SVGLineChart data={analyticsData?.dailyAbsences} color="#ef4444" label="Inasistencias" />
-                    </div>
-                  </div>
-
-                  <div className="chart-card">
-                    <div className="chart-card__title"><PieChart size={16} /> Proporción de Inasistencias Justificadas</div>
-                    <div className="chart-container">
-                      <JustifiedDonutChart
-                        justified={analyticsData?.totalJustificados || 0}
-                        unjustified={analyticsData?.totalInasistencias || 0}
-                        label="Inasistencias"
-                        colorJustified="var(--secondary)"
-                        colorUnjustified="#ef4444"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="chart-card">
-                    <div className="chart-card__title"><BarChart2 size={16} /> Cursos con Más Inasistencias</div>
-                    <div className="chart-container">
-                      <CourseBarChart data={analyticsData?.courseAbsences} label="ausencia(s)" color="#ef4444" />
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-          </div>
-        )}
-
+          <section className="analytics-recurrence">
+            <header><div><span className="section-kicker">Seguimiento</span><h2>Personas con recurrencia en el período</h2><p>Ordenadas por cantidad de atrasos efectivamente registrados.</p></div></header>
+            <div className="recurrence-table-wrap"><table className="recurrence-table"><thead><tr><th>Persona</th><th>Curso</th><th>Atrasos</th><th>Graves</th><th>Nivel</th></tr></thead><tbody>{data.recurrentes.map((person, index) => <tr key={person.id_alumno}><td data-label="Persona"><span className="rank-number">{index + 1}</span><strong>{[person.nombres, person.paterno, person.materno].filter(Boolean).join(' ')}</strong></td><td data-label="Curso">{person.curso}</td><td data-label="Atrasos"><strong>{person.atrasos}</strong></td><td data-label="Graves">{person.graves}</td><td data-label="Nivel"><span className="recurrence-level" data-level={person.graves >= 3 ? 'critical' : person.atrasos >= 3 ? 'warning' : 'normal'}>{person.graves >= 3 ? 'Prioritario' : person.atrasos >= 3 ? 'Preventivo' : 'Observación'}</span></td></tr>)}</tbody></table>{!data.recurrentes.length && <div className="analytics-empty">No hay atrasos recurrentes con estos filtros.</div>}</div>
+          </section>
+        </> : <div className="analytics-empty analytics-empty--page">No fue posible mostrar el análisis.</div>}
       </div>
     </div>
   );

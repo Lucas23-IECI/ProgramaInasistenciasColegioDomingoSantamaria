@@ -49,7 +49,7 @@ const tours = {
         element: '[data-tour="late-summary"]',
         popover: {
           title: 'Resumen del día',
-          description: 'Consulta rápidamente la matrícula y los atrasos registrados durante la jornada.',
+          description: 'Consulta ingresos registrados, llegadas a tiempo y atrasos sin inferir asistencia por falta de escaneo.',
           side: 'bottom',
         },
       },
@@ -57,7 +57,7 @@ const tours = {
         element: '[data-tour="late-list"]',
         popover: {
           title: 'Atrasos registrados',
-          description: 'Aquí aparecen las personas registradas, su curso, hora y estado de regularización.',
+          description: 'Busca registros y abre Gestionar para corregir, justificar, anular o revisar su historial.',
           side: 'top',
         },
       },
@@ -143,6 +143,17 @@ const tours = {
       },
     }, commonToolsStep],
   },
+  '/admin/configuracion': {
+    title: 'Recorrido de configuración',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="punctuality-settings"]',
+      popover: {
+        title: 'Reglas institucionales',
+        description: 'Define la hora de entrada, el inicio del atraso, la severidad y los umbrales preventivos. Cada cambio queda auditado.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
   '/scanner': {
     title: 'Recorrido del lector',
     steps: [{
@@ -174,4 +185,3 @@ export const getTourForPath = (pathname) => tours[pathname] || {
   title: 'Ayuda de esta página',
   steps: [commonHeaderStep, commonToolsStep],
 };
-

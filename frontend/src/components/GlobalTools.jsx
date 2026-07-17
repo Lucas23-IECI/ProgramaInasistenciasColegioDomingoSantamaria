@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { CircleHelp, LogOut, Moon, Sun, UserRound } from 'lucide-react';
+import { CircleHelp, KeyRound, LogOut, Moon, Sun, UserRound } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
@@ -91,6 +91,9 @@ const GlobalTools = () => {
                 <span>{roleLabel(user.rol)}</span>
               </div>
             </div>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate('/cambiar-clave'); }}>
+              <KeyRound size={17} /> Cambiar contraseña
+            </button>
             <button type="button" role="menuitem" onClick={handleLogout}>
               <LogOut size={17} /> Cerrar sesión
             </button>
@@ -102,4 +105,3 @@ const GlobalTools = () => {
 };
 
 export default GlobalTools;
-
