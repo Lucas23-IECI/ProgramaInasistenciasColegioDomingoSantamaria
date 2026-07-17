@@ -27,6 +27,7 @@ const {
   validateSystemRole
 } = require('./utils/security');
 const { calculateStatusAndSeverity } = require('./utils/punctuality');
+const { createPunctualityRouter } = require('./routes/punctuality');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -227,7 +228,7 @@ const STUDENT_PUBLIC_FIELDS = `
 
 
 const getInstitutionalClock = async (queryable = pool) => {
-  const result = await queryable.query("SELECT TO_CHAR(CURRENT_TIME, 'HH24:MI:SS') AS hora");
+  const result = await queryable.query("SELECT TO_CHAR(LOCALTIME, 'HH24:MI:SS') AS hora");
   return result.rows[0].hora;
 };
 
@@ -251,6 +252,14 @@ const registrarAudit = async (event) => {
 const getClientIp = (req) => {
   return req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
 };
+
+app.use('/api/puntualidad', createPunctualityRouter({
+  pool,
+  verifyToken,
+  verifyRole,
+  insertarAudit,
+  getClientIp
+}));
 
 const bootstrapBaseSchema = async () => {
   const tableExists = await pool.query("SELECT to_regclass('alumno') AS exists");
@@ -612,7 +621,7 @@ app.get('/api/students/scan/:barcode', verifyToken, async (req, res) => {
     // 3. Check if already registered today
     const checkQuery = `
       SELECT id_registro, hora, estado FROM attendance_registrations
-      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2
+      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2 AND anulado = false
     `;
     const checkRes = await pool.query(checkQuery, [alumno.id_alumno, tipo_registro || 'Entrada']);
     const alreadyRegistered = checkRes.rows.length > 0;
@@ -663,7 +672,7 @@ app.get('/api/students/:id/status', verifyToken, async (req, res) => {
     // Check if already registered today
     const checkQuery = `
       SELECT id_registro, hora, estado FROM attendance_registrations
-      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2
+      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2 AND anulado = false
     `;
     const checkRes = await pool.query(checkQuery, [alumno.id_alumno, tipo_registro || 'Entrada']);
     const alreadyRegistered = checkRes.rows.length > 0;
@@ -682,44 +691,53 @@ app.get('/api/students/:id/status', verifyToken, async (req, res) => {
 
 // ATTENDANCE REGISTRATIONS
 app.post('/api/asistencia', verifyToken, async (req, res) => {
-  const { id_alumno, tipo_registro } = req.body;
+  const { id_alumno } = req.body;
   if (!id_alumno) {
     return res.status(400).json({ message: 'ID del alumno es requerido.' });
   }
-
-  const type = tipo_registro || 'Entrada';
-
+  const client = await pool.connect();
   try {
-    // Check duplication
-    const duplicateCheck = await pool.query(
-      'SELECT id_registro FROM attendance_registrations WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2',
-      [id_alumno, type]
-    );
-
-    if (duplicateCheck.rows.length > 0) {
-      return res.status(409).json({ message: 'Registro ya realizado hoy.' });
+    await client.query('BEGIN');
+    const studentRes = await client.query('SELECT id_alumno, activo FROM alumno WHERE id_alumno = $1 FOR SHARE', [id_alumno]);
+    if (studentRes.rows.length === 0 || !studentRes.rows[0].activo) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Alumno activo no encontrado.' });
     }
-
-    // Determine status
-    const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
+    const configRes = await client.query('SELECT * FROM configuracion_asistencia LIMIT 1');
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
-
-    const currentTimeStr = await getInstitutionalClock();
-
-    const { status, severidad } = calculateStatusAndSeverity(type, currentTimeStr, config);
-
+    const currentTimeStr = await getInstitutionalClock(client);
+    const { status, severidad } = calculateStatusAndSeverity('Entrada', currentTimeStr, config);
+    const origen = req.user.rol === 'lector' ? 'lector' : 'manual';
     const insertQuery = `
-      INSERT INTO attendance_registrations (id_alumno, fecha, hora, estado, tipo_registro, severidad)
-      VALUES ($1, CURRENT_DATE, CURRENT_TIME, $2, $3, $4)
+      INSERT INTO attendance_registrations
+        (id_alumno, fecha, hora, estado, tipo_registro, severidad, origen, registrado_por, creado_en)
+      VALUES ($1, CURRENT_DATE, LOCALTIME, $2, 'Entrada', $3, $4, $5, CURRENT_TIMESTAMP)
+      ON CONFLICT (id_alumno, fecha, tipo_registro) WHERE anulado = false DO NOTHING
       RETURNING *
     `;
-    const result = await pool.query(insertQuery, [id_alumno, status, type, severidad]);
-
+    const result = await client.query(insertQuery, [id_alumno, status, severidad, origen, req.user.id]);
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Registro ya realizado hoy.' });
+    }
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'REGISTRAR_INGRESO',
+      entidad: 'registro_puntualidad',
+      entidad_id: result.rows[0].id_registro,
+      detalle: { id_alumno, estado: status, severidad, origen, endpoint_legacy: true },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error(err.message);
     if (err.code === '23505') return res.status(409).json({ message: 'Registro ya realizado hoy.' });
-    res.status(500).json({ message: 'Error al registrar asistencia.' });
+    res.status(500).json({ message: 'Error al registrar el ingreso.' });
+  } finally {
+    client.release();
   }
 });
 

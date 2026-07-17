@@ -19,6 +19,13 @@ const clockToSeconds = (value) => {
   return (hours * 3600) + (minutes * 60) + seconds;
 };
 
+const calculateDelayMinutes = (currentTime, thresholdTime) => {
+  const currentSeconds = clockToSeconds(currentTime);
+  const thresholdSeconds = clockToSeconds(thresholdTime);
+  if (currentSeconds === null || thresholdSeconds === null) return null;
+  return Math.max(0, Math.ceil((currentSeconds - thresholdSeconds) / 60));
+};
+
 const calculateStatusAndSeverity = (tipoRegistro, currentTime, config = {}) => {
   if (tipoRegistro !== 'Entrada') {
     return { status: 'Salida', severidad: 'Normal' };
@@ -34,13 +41,19 @@ const calculateStatusAndSeverity = (tipoRegistro, currentTime, config = {}) => {
     return { status: 'Presente', severidad: 'Normal' };
   }
 
+  const severeAfterMinutes = Number.isInteger(Number(config.minutos_atraso_grave))
+    ? Number(config.minutos_atraso_grave)
+    : 15;
+
   return {
     status: 'Atrasado',
-    severidad: currentSeconds <= thresholdSeconds + (15 * 60) ? 'Leve' : 'Grave'
+    severidad: currentSeconds <= thresholdSeconds + (severeAfterMinutes * 60) ? 'Leve' : 'Grave'
   };
 };
 
 module.exports = {
+  calculateDelayMinutes,
   calculateStatusAndSeverity,
+  clockToSeconds,
   normalizeClockTime
 };

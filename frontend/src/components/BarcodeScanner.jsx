@@ -61,7 +61,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
   // Fetch Config on mount
   useEffect(() => {
-    axios.get(`${API_URL}/attendance/config`)
+    axios.get(`${API_URL}/puntualidad/config`)
       .then(res => setAsistenciaConfig(res.data))
       .catch(() => {});
   }, []);
@@ -96,8 +96,12 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Fetch today's stats
   const fetchStats = async () => {
     try {
-      const res = await axios.get(`${API_URL}/asistencia/today-stats`);
-      setTodayStats(res.data);
+      const res = await axios.get(`${API_URL}/puntualidad/resumen-hoy`);
+      setTodayStats({
+        total: res.data.ingresos_registrados || 0,
+        presentes: res.data.a_tiempo || 0,
+        atrasados: res.data.atrasos || 0
+      });
     } catch {
       // El indicador conserva el último valor válido si el servicio no responde.
     }
@@ -428,19 +432,20 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
   const registerAttendance = async (studentData, status) => {
     try {
-      await axios.post(`${API_URL}/asistencia`, {
-        id_alumno: studentData.id_alumno,
-        tipo_registro: tipoRegistro
+      const response = await axios.post(`${API_URL}/puntualidad/registros`, {
+        id_alumno: studentData.id_alumno
       });
 
-      setSuccessMsg(`${studentData.nombres} ${studentData.paterno} — ${status}`);
-      setStatusRegistrado(status);
+      const persistedStatus = response.data.estado || status;
+
+      setSuccessMsg(`${studentData.nombres} ${studentData.paterno} — ${persistedStatus}`);
+      setStatusRegistrado(persistedStatus);
       setAlreadyRegistered(true);
 
       // Refresh statistics
       fetchStats();
 
-      if (status === 'Atrasado') {
+      if (persistedStatus === 'Atrasado') {
         triggerFlash('warning');
         playBeep('warning');
       } else {
