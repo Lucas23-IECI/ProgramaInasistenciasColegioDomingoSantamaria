@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
 const helmet = require('helmet');
+const { randomUUID } = require('crypto');
 const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
@@ -31,6 +32,34 @@ const { createPunctualityRouter } = require('./routes/punctuality');
 
 const app = express();
 app.set('trust proxy', 1);
+
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{8,100}$/;
+
+app.use((req, res, next) => {
+  const suppliedRequestId = String(req.get('x-request-id') || '');
+  const requestId = REQUEST_ID_PATTERN.test(suppliedRequestId) ? suppliedRequestId : randomUUID();
+  const startedAt = process.hrtime.bigint();
+
+  req.requestId = requestId;
+  res.setHeader('X-Request-ID', requestId);
+
+  res.on('finish', () => {
+    if (req.path === '/api/health' || req.path.startsWith('/api/health/')) return;
+
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    console.info(JSON.stringify({
+      event: 'http_request',
+      request_id: requestId,
+      method: req.method,
+      path: req.originalUrl.split('?')[0],
+      status: res.statusCode,
+      duration_ms: Number(durationMs.toFixed(2)),
+      user_id: req.user?.id || null
+    }));
+  });
+
+  next();
+});
 
 // CORS CONFIGURATION
 const rawOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
@@ -69,6 +98,7 @@ const apiLimiter = rateLimit({
   limit: 600,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
+  skip: (req) => req.path === '/health' || req.path.startsWith('/health/'),
   message: { message: 'Se alcanzó el límite temporal de solicitudes. Intente nuevamente en unos minutos.' }
 });
 
@@ -274,15 +304,43 @@ const bootstrapBaseSchema = async () => {
   return true;
 };
 
-// HEALTH CHECK
-app.get('/api/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'OK', database: 'connected', timestamp: new Date() });
-  } catch {
-    res.status(503).json({ status: 'ERROR', database: 'unavailable', timestamp: new Date() });
-  }
+// OPERATIONAL HEALTH
+app.get('/api/health/live', (req, res) => {
+  res.json({
+    status: 'OK',
+    service: 'ldsm-puntualidad',
+    uptime_seconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
 });
+
+const readinessHandler = async (req, res) => {
+  try {
+    const database = await pool.query(`
+      SELECT
+        current_database() AS name,
+        to_regclass('public.schema_migrations') IS NOT NULL AS migrations_ready
+    `);
+    const ready = Boolean(database.rows[0]?.migrations_ready);
+
+    res.status(ready ? 200 : 503).json({
+      status: ready ? 'OK' : 'ERROR',
+      service: 'ldsm-puntualidad',
+      database: ready ? 'ready' : 'migrations_unavailable',
+      timestamp: new Date().toISOString()
+    });
+  } catch {
+    res.status(503).json({
+      status: 'ERROR',
+      service: 'ldsm-puntualidad',
+      database: 'unavailable',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+app.get('/api/health/ready', readinessHandler);
+app.get('/api/health', readinessHandler);
 
 // AUTHENTICATION
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -2482,11 +2540,62 @@ const startServer = async () => {
   });
 };
 
+const registerShutdownHandlers = (server, options = {}) => {
+  const databasePool = options.databasePool || pool;
+  const logger = options.logger || console;
+  const processReference = options.processReference || process;
+  const timeoutMs = options.timeoutMs || 10000;
+  let shuttingDown = false;
+
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`[OPERACION] ${signal}: cerrando conexiones de forma segura.`);
+
+    const forcedExit = setTimeout(() => {
+      logger.error('[OPERACION] El cierre seguro excedio el tiempo maximo.');
+      processReference.exit(1);
+    }, timeoutMs);
+    forcedExit.unref?.();
+
+    server.close(async (serverError) => {
+      try {
+        await databasePool.end();
+      } catch (databaseError) {
+        logger.error(`[OPERACION] Error cerrando PostgreSQL: ${databaseError.message}`);
+        processReference.exitCode = 1;
+      } finally {
+        clearTimeout(forcedExit);
+      }
+
+      if (serverError) {
+        logger.error(`[OPERACION] Error cerrando HTTP: ${serverError.message}`);
+        processReference.exitCode = 1;
+      } else {
+        logger.info('[OPERACION] Servicio detenido correctamente.');
+      }
+    });
+  };
+
+  processReference.once('SIGTERM', () => shutdown('SIGTERM'));
+  processReference.once('SIGINT', () => shutdown('SIGINT'));
+  return shutdown;
+};
+
 if (require.main === module) {
-  startServer().catch((error) => {
-    console.error('No fue posible iniciar el servidor:', error.message);
-    process.exit(1);
-  });
+  startServer()
+    .then((server) => registerShutdownHandlers(server))
+    .catch((error) => {
+      console.error('No fue posible iniciar el servidor:', error.message);
+      process.exit(1);
+    });
 }
 
-module.exports = { app, bootstrapBaseSchema, ensureBaseData, startServer };
+module.exports = {
+  app,
+  bootstrapBaseSchema,
+  ensureBaseData,
+  readinessHandler,
+  registerShutdownHandlers,
+  startServer
+};

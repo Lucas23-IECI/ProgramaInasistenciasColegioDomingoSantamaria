@@ -1,8 +1,10 @@
 const { Pool } = require('pg');
 const path = require('path');
 const dotenv = require('dotenv');
+const { assertEnvironment } = require('./utils/environment');
 
 dotenv.config({ path: path.join(__dirname, '.env') });
+assertEnvironment(process.env);
 
 const appTimezone = process.env.APP_TIMEZONE || 'America/Santiago';
 
@@ -15,7 +17,7 @@ const pool = new Pool({
   max: parseInt(process.env.DB_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
-  application_name: 'ldsm_asistencia',
+  application_name: 'ldsm_puntualidad',
   options: `-c timezone=${appTimezone}`,
 });
 
