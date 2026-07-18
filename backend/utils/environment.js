@@ -32,6 +32,10 @@ const validateEnvironment = (environment = process.env) => {
     errors.push('DB_PORT debe ser un puerto valido entre 1 y 65535.');
   }
 
+  if (!['true', 'false'].includes(String(environment.COOKIE_SECURE || '').toLowerCase())) {
+    errors.push('COOKIE_SECURE debe declararse explicitamente como true o false.');
+  }
+
   if (String(environment.DB_PASSWORD || '').length < 16) {
     warnings.push('DB_PASSWORD tiene menos de 16 caracteres; debe rotarse antes del despliegue definitivo.');
   }
@@ -47,6 +51,11 @@ const validateEnvironment = (environment = process.env) => {
     }
     if (allowedOrigins.some((origin) => origin === '*' || !/^https?:\/\//.test(origin))) {
       errors.push('CORS_ORIGIN solo puede contener origenes HTTP o HTTPS explicitos.');
+    }
+
+    if (String(environment.COOKIE_SECURE).toLowerCase() === 'false'
+      && allowedOrigins.some((origin) => origin.startsWith('https://'))) {
+      warnings.push('COOKIE_SECURE debe ser true cuando el sistema se publica exclusivamente mediante HTTPS.');
     }
   }
 

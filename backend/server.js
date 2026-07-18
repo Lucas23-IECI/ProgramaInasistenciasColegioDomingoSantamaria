@@ -109,7 +109,7 @@ app.use('/api', apiLimiter);
 const PORT = process.env.PORT || 5000;
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true',
   sameSite: 'strict',
   path: '/'
 };
