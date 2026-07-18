@@ -1074,31 +1074,45 @@ body:has(.student-detail-overlay) .global-tools {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Calendario open source adaptado al sistema visual LDSM */
-.calendar-direct-date {
+/* Hora segmentada sin desplegables nativos del navegador */
+.time-field {
   display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  grid-template-columns: 28px minmax(68px, 1fr) auto minmax(68px, 1fr);
   gap: 4px;
-  margin-bottom: 8px;
-}
-
-.calendar-direct-date span {
+  align-items: center;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  background: var(--ds-surface);
   color: var(--ds-muted);
-  font-size: 0.65rem;
-  font-weight: 750;
-  text-transform: uppercase;
 }
 
-.calendar-direct-date input {
+.time-field:focus-within {
+  border-color: var(--ds-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-focus) 15%, transparent);
+}
+
+.app-select-trigger.time-field__select {
   width: 100%;
   min-width: 0;
   min-height: 42px;
-  padding: 7px 9px;
-  border: 1px solid var(--ds-border);
-  border-radius: 8px;
+  padding-inline: 10px 7px;
+  border: 0;
   background: var(--ds-surface-muted);
   color: var(--ds-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 760;
 }
 
+.app-select-trigger.time-field__select[data-state="open"],
+.app-select-trigger.time-field__select:focus-visible {
+  box-shadow: none;
+}
+
+/* Calendario open source adaptado al sistema visual LDSM */
 .date-range-popover .rdp-root {
   --rdp-accent-color: var(--ds-primary-strong);
   --rdp-accent-background-color: color-mix(in srgb, var(--ds-primary) 14%, transparent);

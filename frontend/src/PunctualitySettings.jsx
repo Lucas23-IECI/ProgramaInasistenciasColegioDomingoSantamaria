@@ -6,6 +6,7 @@ import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
+import TimeField from './components/TimeField';
 
 const emptyForm = {
   nombre_jornada: 'Jornada principal',
@@ -111,8 +112,8 @@ const PunctualitySettings = () => {
               <section className="settings-section">
                 <div className="settings-section__heading"><span>02</span><div><h2>Reglas horarias</h2><p>Estas horas clasifican cada ingreso en el momento exacto del registro.</p></div></div>
                 <div className="settings-grid">
-                  <label className="settings-field"><span>Hora oficial de entrada</span><input type="time" value={form.hora_entrada} onChange={(event) => update('hora_entrada', event.target.value)} /><small>Referencia comunicada a la comunidad.</small></label>
-                  <label className="settings-field"><span>Inicio del atraso</span><input type="time" value={form.hora_limite_atraso} onChange={(event) => update('hora_limite_atraso', event.target.value)} /><small>Desde esta hora el ingreso cuenta como atraso.</small></label>
+                  <div className="settings-field"><span>Hora oficial de entrada</span><TimeField ariaLabel="Hora oficial de entrada" value={form.hora_entrada} onChange={(value) => update('hora_entrada', value)} /><small>Referencia comunicada a la comunidad.</small></div>
+                  <div className="settings-field"><span>Inicio del atraso</span><TimeField ariaLabel="Inicio del atraso" value={form.hora_limite_atraso} onChange={(value) => update('hora_limite_atraso', value)} /><small>Desde esta hora el ingreso cuenta como atraso.</small></div>
                   <label className="settings-field"><span>Minutos hasta atraso grave</span><div className="number-field"><input type="number" min="1" max="180" value={form.minutos_atraso_grave} onChange={(event) => update('minutos_atraso_grave', event.target.value)} /><span>min</span></div><small>Después del límite de atraso.</small></label>
                 </div>
               </section>

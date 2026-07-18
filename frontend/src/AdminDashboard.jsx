@@ -33,6 +33,7 @@ import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
 import StudentPicker from './components/StudentPicker';
 import AppSelect from './components/AppSelect';
+import TimeField from './components/TimeField';
 import { useFeedback } from './context/FeedbackContext';
 import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
 
@@ -519,10 +520,10 @@ const AdminDashboard = () => {
                     <span>Fecha</span>
                     <input type="date" max={localIsoDate()} value={correctedDate} onChange={(event) => setCorrectedDate(event.target.value)} />
                   </label>
-                  <label>
+                  <div className="record-form__field">
                     <span>Hora</span>
-                    <input type="time" step="1" value={correctedTime} onChange={(event) => setCorrectedTime(event.target.value)} />
-                  </label>
+                    <TimeField ariaLabel="Hora corregida" value={correctedTime} onChange={setCorrectedTime} />
+                  </div>
                 </div>
               )}
 

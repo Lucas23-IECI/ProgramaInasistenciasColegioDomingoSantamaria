@@ -4,8 +4,6 @@ import { DayPicker } from 'react-day-picker';
 import { es } from 'react-day-picker/locale';
 import 'react-day-picker/style.css';
 
-const EARLIEST_DATE = '2000-01-01';
-
 const toLocalDate = (value) => {
   if (!value) return null;
   const [year, month, day] = String(value).split('-').map(Number);
@@ -52,7 +50,6 @@ const DateRangeField = ({
   maximumDate.setHours(23, 59, 59, 999);
   const fromDate = toLocalDate(from);
   const toDate = toLocalDate(to);
-  const currentValue = selecting === 'start' ? from : to;
   const currentLabel = selecting === 'start' ? 'Fecha inicial' : 'Fecha final';
 
   useEffect(() => {
@@ -90,14 +87,6 @@ const DateRangeField = ({
   const selectDate = (date) => {
     applySelectedDate(toIsoDate(date));
     setOpen(false);
-  };
-
-  const editCurrentDate = (value) => {
-    const date = toLocalDate(value);
-    if (!date || date > maximumDate || value < EARLIEST_DATE) return;
-    if ((selecting === 'start' && to && value > to) || (selecting === 'end' && from && value < from)) return;
-    setViewDate(date);
-    applySelectedDate(value);
   };
 
   const applyPreset = (kind) => {
@@ -150,16 +139,6 @@ const DateRangeField = ({
       {open && (
         <div className="date-range-popover" data-side={selecting} role="dialog" aria-label={`Editar ${currentLabel.toLowerCase()}`}>
           <div className="calendar-selection-hint"><strong>{currentLabel}</strong><span>Edita solo este límite del período.</span></div>
-          <label className="calendar-direct-date">
-            <span>Escribir fecha</span>
-            <input
-              type="date"
-              value={currentValue || ''}
-              min={selecting === 'end' ? from || EARLIEST_DATE : EARLIEST_DATE}
-              max={selecting === 'start' ? to || maxValue : maxValue}
-              onInput={(event) => editCurrentDate(event.currentTarget.value)}
-            />
-          </label>
           <DayPicker
             animate
             captionLayout="dropdown"
