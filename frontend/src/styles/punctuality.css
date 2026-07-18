@@ -460,6 +460,7 @@ body.light-mode .analytics-page-v2 {
 .record-actions { display: grid; padding: 1.25rem; }
 .record-actions > button { min-height: 72px; display: grid; grid-template-columns: 28px 1fr 20px; align-items: center; gap: 0.8rem; padding: 1rem; color: var(--op-blue); background: transparent; border: 0; border-bottom: 1px solid var(--op-line-soft); text-align: left; cursor: pointer; }
 .record-actions > button:hover { background: var(--op-surface-2); }
+.record-actions > button:disabled { opacity: 0.55; cursor: wait; }
 .record-actions > button.danger { color: var(--op-red); }
 .record-actions > button span { display: grid; gap: 0.18rem; }
 .record-actions > button strong { color: var(--op-text); font-size: 0.94rem; }
@@ -473,10 +474,20 @@ body.light-mode .analytics-page-v2 {
 .record-form__row label { display: grid; gap: 0.4rem; }
 .record-form label > span { color: var(--op-muted); font-size: 0.77rem; font-weight: 780; text-transform: uppercase; }
 .record-form input,
+.record-form select,
 .record-form textarea { width: 100%; min-height: 48px; padding: 0.75rem; color: var(--op-text); background: var(--op-surface-2); border: 1px solid var(--op-line); border-radius: 8px; font: inherit; resize: vertical; }
 .record-form input:focus,
+.record-form select:focus,
 .record-form textarea:focus { outline: 3px solid rgba(42, 112, 154, 0.16); border-color: var(--op-blue); }
 .record-form__row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1rem; }
+.justification-document-fields { display: grid; gap: 1rem; margin-bottom: 1rem; }
+.justification-document-fields > label:not(.document-upload) { display: grid; gap: 0.4rem; }
+.document-upload { min-height: 76px; display: flex !important; align-items: center; gap: 0.8rem !important; padding: 0.9rem; color: var(--op-blue-strong); background: var(--op-blue-soft); border: 1px dashed var(--op-blue); border-radius: 8px; cursor: pointer; }
+.document-upload:hover { background: var(--op-surface-2); }
+.document-upload input { position: absolute; width: 1px; height: 1px; padding: 0; opacity: 0; pointer-events: none; }
+.document-upload > span { min-width: 0; display: grid; gap: 0.2rem; text-transform: none !important; }
+.document-upload strong { overflow: hidden; color: var(--op-text); font-size: 0.86rem; text-overflow: ellipsis; white-space: nowrap; }
+.document-upload small { color: var(--op-muted); font-size: 0.74rem; font-weight: 600; line-height: 1.4; }
 .character-count { display: block; margin: 0.35rem 0 1rem; color: var(--op-muted); text-align: right; }
 .record-form__notice { display: flex; align-items: flex-start; gap: 0.55rem; margin-bottom: 1rem; padding: 0.75rem; color: var(--op-blue-strong); background: var(--op-blue-soft); border-radius: 7px; font-size: 0.8rem; line-height: 1.45; }
 .drawer-submit { width: 100%; min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; color: #ffffff; background: #1d608b; border: 1px solid #1d608b; border-radius: 8px; font: inherit; font-weight: 780; cursor: pointer; }

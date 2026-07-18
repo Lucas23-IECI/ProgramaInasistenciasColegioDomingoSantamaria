@@ -3,7 +3,7 @@ const fullName = (row) => [row.paterno, row.materno, row.nombres].filter(Boolean
 const justificationLabel = (row) => row.justificado ? 'Sí' : 'No';
 
 export const buildDetailedRows = (records) => [
-  ['N°', 'Fecha', 'Hora', 'Minutos de atraso', 'Severidad', 'Justificado', 'Apellidos y nombres', 'RUT', 'Curso', 'Observación'],
+  ['N°', 'Fecha', 'Hora', 'Minutos de atraso', 'Severidad', 'Justificado', 'Tipo de respaldo', 'Documento', 'Apellidos y nombres', 'RUT', 'Curso', 'Observación'],
   ...records.map((row, index) => [
     index + 1,
     row.fecha,
@@ -11,6 +11,8 @@ export const buildDetailedRows = (records) => [
     Number(row.minutos_atraso || 0),
     row.severidad,
     justificationLabel(row),
+    row.tipo_justificacion || '',
+    row.documento_nombre || '',
     fullName(row),
     `${row.rut}-${row.dv}`,
     row.curso || 'Sin curso',
@@ -31,6 +33,7 @@ export const buildSummaryRows = (records) => {
         leves: 0,
         graves: 0,
         justificados: 0,
+        documentos: 0,
         minutos: 0,
         ultimo: ''
       });
@@ -40,13 +43,14 @@ export const buildSummaryRows = (records) => {
     item.leves += row.severidad === 'Leve' ? 1 : 0;
     item.graves += row.severidad === 'Grave' ? 1 : 0;
     item.justificados += row.justificado ? 1 : 0;
+    item.documentos += row.documento_id ? 1 : 0;
     item.minutos += Number(row.minutos_atraso || 0);
     if (!item.ultimo || row.fecha > item.ultimo) item.ultimo = row.fecha;
   });
 
   const people = [...grouped.values()].sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, 'es'));
   return [
-    ['N°', 'Apellidos y nombres', 'RUT', 'Curso', 'Total atrasos', 'Leves', 'Graves', 'Justificados', 'Promedio minutos', 'Último atraso'],
+    ['N°', 'Apellidos y nombres', 'RUT', 'Curso', 'Total atrasos', 'Leves', 'Graves', 'Justificados', 'Con documento', 'Promedio minutos', 'Último atraso'],
     ...people.map((item, index) => [
       index + 1,
       item.nombre,
@@ -56,6 +60,7 @@ export const buildSummaryRows = (records) => {
       item.leves,
       item.graves,
       item.justificados,
+      item.documentos,
       Number((item.minutos / item.total).toFixed(1)),
       item.ultimo
     ])

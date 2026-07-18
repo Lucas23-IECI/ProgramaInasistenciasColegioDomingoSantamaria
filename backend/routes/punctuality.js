@@ -1,7 +1,15 @@
 const express = require('express');
+const fs = require('fs');
 
 const { calculateDelayMinutes, calculateStatusAndSeverity, normalizeClockTime } = require('../utils/punctuality');
 const { asBoundedInteger, isIsoDate, validateDateRange, validatePunctualityConfig, validateReason } = require('../utils/validation');
+const {
+  DocumentValidationError,
+  createDocument,
+  deleteDocumentIfUnreferenced,
+  removeStoredFile,
+  resolveDocumentPath
+} = require('../services/documentService');
 
 const ACTIVE_ENTRY_FILTER = "r.tipo_registro = 'Entrada' AND r.anulado = false AND r.estado IN ('Presente', 'Atrasado')";
 
@@ -13,7 +21,9 @@ const registrationSnapshot = (row) => ({
   estado: row.estado,
   severidad: row.severidad,
   justificado: Boolean(row.justificado),
+  tipo_justificacion: row.tipo_justificacion || null,
   comentario_justificacion: row.comentario_justificacion || null,
+  documento_id: row.documento_id || null,
   anulado: Boolean(row.anulado),
   version: row.version
 });
@@ -188,7 +198,9 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     try {
       const result = await pool.query(`
         SELECT r.id_registro, r.fecha, r.hora, r.estado, r.severidad, r.justificado,
-               r.comentario_justificacion, r.origen, r.registrado_por, r.creado_en,
+               r.tipo_justificacion, r.comentario_justificacion, r.documento_id,
+               d.nombre_original AS documento_nombre, d.mime_type AS documento_mime_type,
+               r.origen, r.registrado_por, r.creado_en,
                r.version, r.corregido_en, r.motivo_correccion,
                a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv,
                c.id_curso, c.nombre_curso AS curso,
@@ -198,6 +210,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
         LEFT JOIN curso c ON c.id_curso = m.id_curso
         LEFT JOIN usuarios u ON u.id = r.registrado_por
+        LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
         WHERE r.fecha = CURRENT_DATE AND ${ACTIVE_ENTRY_FILTER}
         ORDER BY r.hora DESC, r.id_registro DESC
       `);
@@ -380,34 +393,69 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
   router.post('/registros/:id/justificar', verifyRole(['admin', 'secretaria']), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.comentario, { min: 5, max: 500 });
+    const justificationType = String(req.body?.tipo || 'apoderado').trim().toLowerCase();
+    const fileName = req.body?.fileName;
+    const fileData = req.body?.fileData;
+
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
+    if (!['apoderado', 'medica', 'institucional'].includes(justificationType)) {
+      return res.status(400).json({ message: 'El tipo de justificación no es válido.' });
+    }
+    if (Boolean(fileName) !== Boolean(fileData)) {
+      return res.status(400).json({ message: 'El archivo adjunto está incompleto.' });
+    }
+    if (justificationType === 'medica' && (!fileName || !fileData)) {
+      return res.status(400).json({ message: 'Una justificación médica requiere un certificado adjunto.' });
+    }
 
     const client = await pool.connect();
+    let createdDocument = null;
+    let obsoleteStoredName = null;
     try {
       await client.query('BEGIN');
       const targetResult = await client.query(
-        "SELECT * FROM attendance_registrations WHERE id_registro = $1 AND anulado = false AND estado = 'Atrasado' FOR UPDATE",
+        "SELECT * FROM attendance_registrations WHERE id_registro = $1 AND anulado = false AND estado = 'Atrasado' AND justificado = false FOR UPDATE",
         [registrationId]
       );
       if (targetResult.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Atraso activo no encontrado.' });
+        return res.status(409).json({ message: 'El atraso no está disponible para una nueva justificación.' });
+      }
+
+      if (fileName && fileData) {
+        createdDocument = await createDocument(client, {
+          fileData,
+          fileName,
+          userId: req.user.id
+        });
       }
 
       const before = registrationSnapshot(targetResult.rows[0]);
       const updatedResult = await client.query(`
         UPDATE attendance_registrations
         SET justificado = true,
-            tipo_justificacion = 'apoderado',
-            comentario_justificacion = $1,
-            regularizado_por = $2,
+            tipo_justificacion = $1,
+            comentario_justificacion = $2,
+            documento_id = $3,
+            archivo_justificacion = NULL,
+            regularizado_por = $4,
             regularizado_en = CURRENT_TIMESTAMP,
             version = version + 1
-        WHERE id_registro = $3
+        WHERE id_registro = $5
         RETURNING *
-      `, [reasonValidation.value, req.user.id, registrationId]);
+      `, [
+        justificationType,
+        reasonValidation.value,
+        createdDocument?.id_documento || null,
+        req.user.id,
+        registrationId
+      ]);
       const after = registrationSnapshot(updatedResult.rows[0]);
+
+      if (targetResult.rows[0].documento_id && targetResult.rows[0].documento_id !== createdDocument?.id_documento) {
+        obsoleteStoredName = await deleteDocumentIfUnreferenced(client, targetResult.rows[0].documento_id);
+      }
 
       await client.query(`
         INSERT INTO puntualidad_correcciones (id_registro, accion, motivo, antes, despues, realizado_por)
@@ -419,15 +467,36 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         accion: 'JUSTIFICAR_ATRASO',
         entidad: 'registro_puntualidad',
         entidad_id: registrationId,
-        detalle: { comentario: reasonValidation.value, antes: before, despues: after },
+        detalle: {
+          tipo: justificationType,
+          comentario: reasonValidation.value,
+          documento_id: createdDocument?.id_documento || null,
+          antes: before,
+          despues: after
+        },
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
-      res.json({ message: 'Justificación de apoderado registrada.', registro: updatedResult.rows[0] });
+
+      if (obsoleteStoredName) await removeStoredFile(obsoleteStoredName).catch(() => {});
+      res.json({
+        message: 'Justificación registrada con trazabilidad.',
+        registro: {
+          ...updatedResult.rows[0],
+          documento_nombre: createdDocument?.nombre_original || null,
+          documento_mime_type: createdDocument?.mime_type || null
+        }
+      });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
+      if (createdDocument?.nombre_almacenado) {
+        await removeStoredFile(createdDocument.nombre_almacenado).catch(() => {});
+      }
       console.error('[puntualidad/registros:justificar]', error.message);
-      res.status(500).json({ message: 'No fue posible justificar el atraso.' });
+      const status = error instanceof DocumentValidationError ? error.statusCode : 500;
+      res.status(status).json({
+        message: status === 400 ? error.message : 'No fue posible justificar el atraso.'
+      });
     } finally {
       client.release();
     }
@@ -440,6 +509,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
 
     const client = await pool.connect();
+    let obsoleteStoredName = null;
     try {
       await client.query('BEGIN');
       const targetResult = await client.query(
@@ -457,6 +527,8 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         SET justificado = false,
             tipo_justificacion = NULL,
             comentario_justificacion = NULL,
+            documento_id = NULL,
+            archivo_justificacion = NULL,
             regularizado_por = NULL,
             regularizado_en = NULL,
             version = version + 1
@@ -464,6 +536,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         RETURNING *
       `, [registrationId]);
       const after = registrationSnapshot(updatedResult.rows[0]);
+
+      if (targetResult.rows[0].documento_id) {
+        obsoleteStoredName = await deleteDocumentIfUnreferenced(client, targetResult.rows[0].documento_id);
+      }
 
       await client.query(`
         INSERT INTO puntualidad_correcciones (id_registro, accion, motivo, antes, despues, realizado_por)
@@ -475,10 +551,17 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         accion: 'REVOCAR_JUSTIFICACION_ATRASO',
         entidad: 'registro_puntualidad',
         entidad_id: registrationId,
-        detalle: { motivo: reasonValidation.value, antes: before, despues: after },
+        detalle: {
+          motivo: reasonValidation.value,
+          documento_id_eliminado: targetResult.rows[0].documento_id || null,
+          antes: before,
+          despues: after
+        },
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
+
+      if (obsoleteStoredName) await removeStoredFile(obsoleteStoredName).catch(() => {});
       res.json({ message: 'Justificación revocada con trazabilidad.', registro: updatedResult.rows[0] });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -505,6 +588,39 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     } catch (error) {
       console.error('[puntualidad/registros:historial]', error.message);
       res.status(500).json({ message: 'No fue posible obtener el historial del registro.' });
+    }
+  });
+
+  router.get('/registros/:id/documento', verifyRole(['admin', 'secretaria']), async (req, res) => {
+    const registrationId = parseRegistrationId(req.params.id);
+    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+
+    try {
+      const result = await pool.query(`
+        SELECT d.nombre_original, d.nombre_almacenado, d.mime_type
+        FROM attendance_registrations r
+        JOIN justification_documents d ON d.id_documento = r.documento_id
+        WHERE r.id_registro = $1
+          AND r.anulado = false
+          AND r.estado = 'Atrasado'
+          AND r.justificado = true
+      `, [registrationId]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: 'Este atraso no tiene un documento vigente.' });
+      }
+
+      const document = result.rows[0];
+      const filePath = resolveDocumentPath(document.nombre_almacenado);
+      if (!filePath) return res.status(404).json({ message: 'El documento no es válido o ya no existe.' });
+
+      await fs.promises.access(filePath, fs.constants.R_OK);
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.type(document.mime_type);
+      return res.download(filePath, document.nombre_original);
+    } catch (error) {
+      if (error.code === 'ENOENT') return res.status(404).json({ message: 'El documento no fue encontrado en el servidor.' });
+      console.error('[puntualidad/registros:documento]', error.message);
+      return res.status(500).json({ message: 'No fue posible descargar el documento.' });
     }
   });
 
@@ -679,7 +795,8 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     try {
       const result = await pool.query(`
         SELECT r.id_registro, r.fecha::text AS fecha, TO_CHAR(r.hora, 'HH24:MI:SS') AS hora,
-               r.severidad, r.justificado, r.comentario_justificacion, r.origen,
+               r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
+               r.documento_id, d.nombre_original AS documento_nombre, r.origen,
                a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno,
                COALESCE(c.nombre_curso, 'Sin curso') AS curso,
                GREATEST(1, CEIL(EXTRACT(EPOCH FROM (r.hora - cfg.hora_limite_atraso)) / 60))::int AS minutos_atraso
@@ -687,6 +804,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
         JOIN alumno a ON a.id_alumno = r.id_alumno
         LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
         LEFT JOIN curso c ON c.id_curso = m.id_curso
+        LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
         CROSS JOIN LATERAL (SELECT hora_limite_atraso FROM configuracion_asistencia LIMIT 1) cfg
         WHERE ${conditions.join(' AND ')}
         ORDER BY r.fecha, r.hora, c.nombre_curso, a.paterno, a.nombres

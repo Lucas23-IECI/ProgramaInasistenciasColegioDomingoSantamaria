@@ -12,8 +12,10 @@ import {
   Clock3,
   Download,
   FileClock,
+  FileDown,
   FileSpreadsheet,
   History,
+  Paperclip,
   RotateCcw,
   Save,
   Search,
@@ -34,6 +36,7 @@ import { useFeedback } from './context/FeedbackContext';
 import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
 
 const PAGE_SIZE = 12;
+const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
 
 const localIsoDate = (date = new Date()) => [
   date.getFullYear(),
@@ -52,6 +55,13 @@ const initialPeriod = () => {
 const formatTime = (value) => String(value || '').slice(0, 5) || '—';
 const formatDateTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
 const studentName = (row) => [row.nombres, row.paterno, row.materno].filter(Boolean).join(' ');
+
+const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(new Error('No fue posible leer el archivo seleccionado.'));
+  reader.readAsDataURL(file);
+});
 
 const Metric = ({ icon: Icon, value, label, tone = 'blue', note }) => (
   <div className="punctuality-metric" data-tone={tone}>
@@ -83,6 +93,9 @@ const AdminDashboard = () => {
   const [selectedRow, setSelectedRow] = useState(null);
   const [actionMode, setActionMode] = useState(null);
   const [actionReason, setActionReason] = useState('');
+  const [justificationType, setJustificationType] = useState('apoderado');
+  const [attachmentFile, setAttachmentFile] = useState(null);
+  const [downloadingDocument, setDownloadingDocument] = useState(false);
   const [correctedDate, setCorrectedDate] = useState(localIsoDate());
   const [correctedTime, setCorrectedTime] = useState('');
   const [savingAction, setSavingAction] = useState(false);
@@ -174,6 +187,8 @@ const AdminDashboard = () => {
     setSelectedRow(null);
     setActionMode(null);
     setActionReason('');
+    setJustificationType('apoderado');
+    setAttachmentFile(null);
     setHistory([]);
   };
 
@@ -181,6 +196,8 @@ const AdminDashboard = () => {
     setSelectedRow(row);
     setActionMode(null);
     setActionReason('');
+    setJustificationType('apoderado');
+    setAttachmentFile(null);
     setCorrectedDate(String(row.fecha).slice(0, 10));
     setCorrectedTime(formatTime(row.hora));
     setHistory([]);
@@ -199,6 +216,40 @@ const AdminDashboard = () => {
     }
   };
 
+  const selectAttachment = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (file && file.size > MAX_DOCUMENT_BYTES) {
+      event.target.value = '';
+      setAttachmentFile(null);
+      notify('El documento supera el máximo permitido de 8 MB.', 'error');
+      return;
+    }
+    setAttachmentFile(file);
+  };
+
+  const downloadDocument = async () => {
+    if (!selectedRow?.documento_id) return;
+    setDownloadingDocument(true);
+    try {
+      const response = await axios.get(
+        `${API_URL}/puntualidad/registros/${selectedRow.id_registro}/documento`,
+        { responseType: 'blob' }
+      );
+      const downloadUrl = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = selectedRow.documento_nombre || `respaldo-atraso-${selectedRow.id_registro}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible descargar el documento.', 'error');
+    } finally {
+      setDownloadingDocument(false);
+    }
+  };
+
   const saveAction = async () => {
     if (!selectedRow) return;
     if (actionMode !== 'justificar' && actionReason.trim().length < 10) {
@@ -209,6 +260,10 @@ const AdminDashboard = () => {
       notify('Registra una observación de al menos 5 caracteres.', 'error');
       return;
     }
+    if (actionMode === 'justificar' && justificationType === 'medica' && !attachmentFile) {
+      notify('Una justificación médica requiere adjuntar el certificado.', 'error');
+      return;
+    }
     setSavingAction(true);
     try {
       const id = selectedRow.id_registro;
@@ -216,8 +271,13 @@ const AdminDashboard = () => {
         await axios.patch(`${API_URL}/puntualidad/registros/${id}/corregir`, { fecha: correctedDate, hora: correctedTime, motivo: actionReason });
         notify('Registro corregido y respaldado en el historial.', 'success');
       } else if (actionMode === 'justificar') {
-        await axios.post(`${API_URL}/puntualidad/registros/${id}/justificar`, { comentario: actionReason });
-        notify('Justificación de apoderado registrada.', 'success');
+        const payload = { tipo: justificationType, comentario: actionReason };
+        if (attachmentFile) {
+          payload.fileName = attachmentFile.name;
+          payload.fileData = await readFileAsDataUrl(attachmentFile);
+        }
+        await axios.post(`${API_URL}/puntualidad/registros/${id}/justificar`, payload);
+        notify('Justificación y respaldo registrados.', 'success');
       } else if (actionMode === 'revocar') {
         await axios.patch(`${API_URL}/puntualidad/registros/${id}/revocar-justificacion`, { motivo: actionReason });
         notify('Justificación revocada con trazabilidad.', 'success');
@@ -269,8 +329,8 @@ const AdminDashboard = () => {
         })
       };
       worksheet['!cols'] = reportFormat === 'detalle'
-        ? [{ wch: 5 }, { wch: 12 }, { wch: 8 }, { wch: 17 }, { wch: 12 }, { wch: 13 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 42 }]
-        : [{ wch: 5 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 9 }, { wch: 9 }, { wch: 14 }, { wch: 17 }, { wch: 13 }];
+        ? [{ wch: 5 }, { wch: 12 }, { wch: 8 }, { wch: 17 }, { wch: 12 }, { wch: 13 }, { wch: 19 }, { wch: 28 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 42 }]
+        : [{ wch: 5 }, { wch: 34 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 9 }, { wch: 9 }, { wch: 14 }, { wch: 15 }, { wch: 17 }, { wch: 13 }];
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, reportFormat === 'detalle' ? 'Detalle de atrasos' : 'Resumen por persona');
 
@@ -350,7 +410,7 @@ const AdminDashboard = () => {
                     <td data-label="Curso">{row.curso || 'Sin curso'}</td>
                     <td data-label="Hora" className="time-cell">{formatTime(row.hora)}{row.corregido_en && <small>Corregido</small>}</td>
                     <td data-label="Clasificación"><span className="status-pill" data-status={row.estado === 'Presente' ? 'ontime' : row.severidad?.toLowerCase()}>{row.estado === 'Presente' ? 'A tiempo' : `Atraso ${row.severidad?.toLowerCase()}`}</span></td>
-                    <td data-label="Respaldo">{row.estado === 'Atrasado' ? <span className="justification-state" data-active={row.justificado || undefined}>{row.justificado ? 'Justificado' : 'Pendiente'}</span> : <span className="muted-cell">No aplica</span>}</td>
+                    <td data-label="Respaldo">{row.estado === 'Atrasado' ? <span className="justification-state" data-active={row.justificado || undefined}>{row.documento_id ? 'Con documento' : row.justificado ? 'Justificado' : 'Pendiente'}</span> : <span className="muted-cell">No aplica</span>}</td>
                     <td><button type="button" className="manage-action" onClick={() => openRow(row)}>Gestionar <ChevronRight size={17} /></button></td>
                   </tr>
                 ))}
@@ -365,7 +425,7 @@ const AdminDashboard = () => {
         <section className="report-section-v2" data-tour="report-builder">
           <div className="report-intro">
             <div className="report-intro__icon"><FileSpreadsheet size={25} /></div>
-            <div><span className="section-kicker">Documentación institucional</span><h2>Reporte de atrasos</h2><p>Exporta solo atrasos registrados, con minutos, severidad y respaldo de apoderado.</p></div>
+            <div><span className="section-kicker">Documentación institucional</span><h2>Reporte de atrasos</h2><p>Exporta solo atrasos registrados, con minutos, severidad y respaldo documental.</p></div>
             <button type="button" className="report-toggle" onClick={() => setReportOpen((open) => !open)}>{reportOpen ? 'Cerrar configuración' : 'Configurar reporte'} <SlidersHorizontal size={18} /></button>
           </div>
 
@@ -387,9 +447,136 @@ const AdminDashboard = () => {
           <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {selectedRow.rut}-{selectedRow.dv}</p></div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
           <div className="record-summary"><div><small>Fecha</small><strong>{String(selectedRow.fecha).slice(0, 10)}</strong></div><div><small>Hora</small><strong>{formatTime(selectedRow.hora)}</strong></div><div><small>Resultado</small><strong>{selectedRow.estado === 'Presente' ? 'A tiempo' : `Atraso ${selectedRow.severidad}`}</strong></div></div>
 
-          {!actionMode && <div className="record-actions"><button type="button" onClick={() => setActionMode('corregir')}><Clock3 size={19} /><span><strong>Corregir fecha u hora</strong><small>Recalcula automáticamente la clasificación.</small></span><ChevronRight size={18} /></button>{selectedRow.estado === 'Atrasado' && !selectedRow.justificado && <button type="button" onClick={() => setActionMode('justificar')}><ShieldCheck size={19} /><span><strong>Registrar justificación</strong><small>Constancia entregada por apoderado.</small></span><ChevronRight size={18} /></button>}{selectedRow.estado === 'Atrasado' && selectedRow.justificado && <button type="button" onClick={() => setActionMode('revocar')}><RotateCcw size={19} /><span><strong>Revocar justificación</strong><small>Conserva el cambio en el historial.</small></span><ChevronRight size={18} /></button>}<button type="button" onClick={openHistory}><History size={19} /><span><strong>Ver historial</strong><small>Correcciones y respaldos anteriores.</small></span><ChevronRight size={18} /></button><button type="button" className="danger" onClick={() => setActionMode('anular')}><ShieldAlert size={19} /><span><strong>Anular registro</strong><small>Deja de contabilizarlo sin eliminarlo.</small></span><ChevronRight size={18} /></button></div>}
+          {!actionMode && (
+            <div className="record-actions">
+              <button type="button" onClick={() => setActionMode('corregir')}>
+                <Clock3 size={19} />
+                <span><strong>Corregir fecha u hora</strong><small>Recalcula automáticamente la clasificación.</small></span>
+                <ChevronRight size={18} />
+              </button>
+              {selectedRow.estado === 'Atrasado' && !selectedRow.justificado && (
+                <button type="button" onClick={() => setActionMode('justificar')}>
+                  <ShieldCheck size={19} />
+                  <span><strong>Registrar justificación</strong><small>Permite respaldar la constancia y adjuntar certificado.</small></span>
+                  <ChevronRight size={18} />
+                </button>
+              )}
+              {selectedRow.estado === 'Atrasado' && selectedRow.justificado && (
+                <button type="button" onClick={() => setActionMode('revocar')}>
+                  <RotateCcw size={19} />
+                  <span><strong>Revocar justificación</strong><small>Conserva el cambio en el historial.</small></span>
+                  <ChevronRight size={18} />
+                </button>
+              )}
+              {selectedRow.documento_id && (
+                <button type="button" onClick={downloadDocument} disabled={downloadingDocument}>
+                  <FileDown size={19} />
+                  <span><strong>Descargar documento</strong><small>{selectedRow.documento_nombre || 'Respaldo documental vigente'}</small></span>
+                  <Download size={18} />
+                </button>
+              )}
+              <button type="button" onClick={openHistory}>
+                <History size={19} />
+                <span><strong>Ver historial</strong><small>Correcciones y respaldos anteriores.</small></span>
+                <ChevronRight size={18} />
+              </button>
+              <button type="button" className="danger" onClick={() => setActionMode('anular')}>
+                <ShieldAlert size={19} />
+                <span><strong>Anular registro</strong><small>Deja de contabilizarlo sin eliminarlo.</small></span>
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
 
-          {actionMode && actionMode !== 'historial' && <div className="record-form"><button type="button" className="back-inline" onClick={() => { setActionMode(null); setActionReason(''); }}><ChevronLeft size={17} /> Volver a opciones</button><h3>{actionMode === 'corregir' ? 'Corregir registro' : actionMode === 'justificar' ? 'Justificar atraso' : actionMode === 'revocar' ? 'Revocar justificación' : 'Anular registro'}</h3>{actionMode === 'corregir' && <div className="record-form__row"><label><span>Fecha</span><input type="date" max={localIsoDate()} value={correctedDate} onChange={(event) => setCorrectedDate(event.target.value)} /></label><label><span>Hora</span><input type="time" step="1" value={correctedTime} onChange={(event) => setCorrectedTime(event.target.value)} /></label></div>}<label><span>{actionMode === 'justificar' ? 'Observación del apoderado' : 'Motivo obligatorio'}</span><textarea rows="5" maxLength="500" value={actionReason} onChange={(event) => setActionReason(event.target.value)} placeholder={actionMode === 'justificar' ? 'Indica quién informó y el motivo comunicado…' : 'Explica por qué se realiza este cambio…'} /></label><small className="character-count">{actionReason.length}/500 caracteres</small><div className="record-form__notice"><ShieldCheck size={17} /><span>La persona, fecha, valores anteriores y responsable quedarán registrados.</span></div><button type="button" className={actionMode === 'anular' ? 'drawer-submit danger' : 'drawer-submit'} onClick={saveAction} disabled={savingAction}><Save size={18} /> {savingAction ? 'Guardando…' : 'Confirmar y guardar'}</button></div>}
+          {actionMode && actionMode !== 'historial' && (
+            <div className="record-form">
+              <button
+                type="button"
+                className="back-inline"
+                onClick={() => {
+                  setActionMode(null);
+                  setActionReason('');
+                  setJustificationType('apoderado');
+                  setAttachmentFile(null);
+                }}
+              >
+                <ChevronLeft size={17} /> Volver a opciones
+              </button>
+              <h3>
+                {actionMode === 'corregir'
+                  ? 'Corregir registro'
+                  : actionMode === 'justificar'
+                    ? 'Justificar atraso'
+                    : actionMode === 'revocar'
+                      ? 'Revocar justificación'
+                      : 'Anular registro'}
+              </h3>
+
+              {actionMode === 'corregir' && (
+                <div className="record-form__row">
+                  <label>
+                    <span>Fecha</span>
+                    <input type="date" max={localIsoDate()} value={correctedDate} onChange={(event) => setCorrectedDate(event.target.value)} />
+                  </label>
+                  <label>
+                    <span>Hora</span>
+                    <input type="time" step="1" value={correctedTime} onChange={(event) => setCorrectedTime(event.target.value)} />
+                  </label>
+                </div>
+              )}
+
+              {actionMode === 'justificar' && (
+                <div className="justification-document-fields">
+                  <label>
+                    <span>Tipo de respaldo</span>
+                    <select value={justificationType} onChange={(event) => setJustificationType(event.target.value)}>
+                      <option value="apoderado">Información de apoderado</option>
+                      <option value="medica">Certificado médico</option>
+                      <option value="institucional">Constancia institucional</option>
+                    </select>
+                  </label>
+                  <label className="document-upload">
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                      onChange={selectAttachment}
+                    />
+                    <Paperclip size={20} />
+                    <span>
+                      <strong>{attachmentFile ? attachmentFile.name : 'Adjuntar documento'}</strong>
+                      <small>PDF, PNG o JPG · máximo 8 MB{justificationType === 'medica' ? ' · obligatorio' : ''}</small>
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              <label>
+                <span>{actionMode === 'justificar' ? 'Antecedente informado' : 'Motivo obligatorio'}</span>
+                <textarea
+                  rows="5"
+                  maxLength="500"
+                  value={actionReason}
+                  onChange={(event) => setActionReason(event.target.value)}
+                  placeholder={actionMode === 'justificar'
+                    ? 'Indica quién informó, el motivo comunicado y cualquier antecedente relevante…'
+                    : 'Explica por qué se realiza este cambio…'}
+                />
+              </label>
+              <small className="character-count">{actionReason.length}/500 caracteres</small>
+              <div className="record-form__notice">
+                <ShieldCheck size={17} />
+                <span>La persona, fecha, valores anteriores, responsable y documento quedarán trazados.</span>
+              </div>
+              <button
+                type="button"
+                className={actionMode === 'anular' ? 'drawer-submit danger' : 'drawer-submit'}
+                onClick={saveAction}
+                disabled={savingAction}
+              >
+                <Save size={18} /> {savingAction ? 'Guardando…' : 'Confirmar y guardar'}
+              </button>
+            </div>
+          )}
 
           {actionMode === 'historial' && <div className="record-history"><button type="button" className="back-inline" onClick={() => setActionMode(null)}><ChevronLeft size={17} /> Volver a opciones</button><h3>Historial del registro</h3>{historyLoading ? <div className="drawer-loading">Cargando historial…</div> : history.length ? <div className="history-timeline">{history.map((event) => <article key={event.id}><i /><div><span>{event.accion.replaceAll('_', ' ')}</span><strong>{event.motivo}</strong><small>{formatDateTime(event.realizado_en)} · {event.realizado_por_nombre || event.realizado_por_correo || 'Usuario histórico'}</small></div></article>)}</div> : <div className="drawer-empty"><History size={28} /><span>Este registro todavía no tiene modificaciones.</span></div>}</div>}
         </aside>
