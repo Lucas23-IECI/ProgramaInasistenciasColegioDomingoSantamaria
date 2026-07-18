@@ -901,6 +901,171 @@ textarea {
   cursor: pointer;
 }
 
+/* Selectores desplegables institucionales */
+.app-select-trigger {
+  display: inline-flex;
+  min-width: 170px;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-align: left;
+}
+
+.app-select-trigger:hover {
+  border-color: color-mix(in srgb, var(--ds-primary) 55%, var(--ds-border));
+  background: color-mix(in srgb, var(--ds-primary) 3%, var(--ds-surface));
+}
+
+.app-select-trigger[data-state="open"],
+.app-select-trigger:focus-visible {
+  border-color: var(--ds-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-focus) 15%, transparent);
+  outline: 0;
+}
+
+.app-select-trigger[data-placeholder] { color: var(--ds-muted); }
+.app-select-trigger__icon { display: grid; color: var(--ds-muted); }
+
+.app-select-content {
+  z-index: 15000;
+  min-width: var(--radix-select-trigger-width);
+  max-height: min(360px, var(--radix-select-content-available-height));
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+  border-radius: 11px;
+  background: var(--ds-surface);
+  box-shadow: var(--ds-shadow);
+  color: var(--ds-text);
+  transform-origin: var(--radix-select-content-transform-origin);
+  animation: app-select-enter 120ms ease-out;
+}
+
+.app-select-viewport { padding: 6px; }
+
+.app-select-item {
+  position: relative;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 8px 12px 8px 38px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  outline: 0;
+  user-select: none;
+}
+
+.app-select-item[data-highlighted] {
+  background: var(--ds-surface-muted);
+  color: var(--ds-primary-strong);
+}
+
+.app-select-item[data-state="checked"] { font-weight: 730; }
+.app-select-item[data-disabled] { cursor: not-allowed; opacity: 0.45; }
+
+.app-select-item__indicator {
+  position: absolute;
+  left: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--ds-primary);
+}
+
+.app-select-scroll {
+  display: grid;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  background: var(--ds-surface);
+  color: var(--ds-muted);
+}
+
+@keyframes app-select-enter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Calendario open source adaptado al sistema visual LDSM */
+.calendar-direct-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.calendar-direct-inputs label { display: grid; gap: 4px; }
+.calendar-direct-inputs span {
+  color: var(--ds-muted);
+  font-size: 0.65rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.calendar-direct-inputs input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 9px;
+  border: 1px solid var(--ds-border);
+  border-radius: 8px;
+  background: var(--ds-surface-muted);
+  color: var(--ds-text);
+}
+
+.date-range-popover .rdp-root {
+  --rdp-accent-color: var(--ds-primary-strong);
+  --rdp-accent-background-color: color-mix(in srgb, var(--ds-primary) 14%, transparent);
+  --rdp-day-height: 40px;
+  --rdp-day-width: 40px;
+  --rdp-day_button-height: 38px;
+  --rdp-day_button-width: 38px;
+  margin: 0;
+}
+
+.date-range-popover .rdp-months,
+.date-range-popover .rdp-month { width: 100%; max-width: none; }
+.date-range-popover .rdp-month_grid { width: 100%; border-collapse: separate; border-spacing: 2px; }
+.date-range-popover .rdp-month_caption { min-height: 44px; }
+.date-range-popover .rdp-dropdowns { gap: 6px; }
+.date-range-popover .rdp-dropdown_root {
+  border: 1px solid var(--ds-border);
+  border-radius: 8px;
+  background: var(--ds-surface-muted);
+}
+.date-range-popover .rdp-caption_label { padding: 7px 28px 7px 10px; font-size: 0.84rem; font-weight: 730; }
+.date-range-popover .rdp-dropdown { cursor: pointer; }
+.date-range-popover .rdp-chevron { fill: var(--ds-primary); }
+.date-range-popover .rdp-button_previous,
+.date-range-popover .rdp-button_next {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--ds-border);
+  border-radius: 8px;
+}
+.date-range-popover .rdp-weekday { color: var(--ds-muted); font-size: 0.68rem; font-weight: 760; text-transform: uppercase; }
+.date-range-popover .rdp-day_button { border-radius: 8px; color: var(--ds-text); font-size: 0.78rem; }
+.date-range-popover .rdp-day_button:hover { background: var(--ds-surface-muted); }
+.date-range-popover .rdp-range_middle .rdp-day_button { border-radius: 0; background: var(--rdp-accent-background-color); }
+.date-range-popover .rdp-range_start .rdp-day_button,
+.date-range-popover .rdp-range_end .rdp-day_button { background: var(--ds-primary-strong); color: #fff; }
+.date-range-popover .rdp-outside { opacity: 0.38; }
+.date-range-popover .rdp-disabled { opacity: 0.22; }
+
+@media (max-width: 520px) {
+  .calendar-direct-inputs { grid-template-columns: 1fr; }
+  .date-range-popover { left: 50%; transform: translateX(-50%); }
+  .app-select-trigger { width: 100%; min-width: 0; }
+}
+
 @media (max-width: 640px) {
   .date-range-control {
     grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) 40px;

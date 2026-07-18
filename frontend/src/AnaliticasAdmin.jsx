@@ -6,6 +6,7 @@ import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
+import AppSelect from './components/AppSelect';
 import { useFeedback } from './context/FeedbackContext';
 
 const localIsoDate = (date = new Date()) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
@@ -123,9 +124,9 @@ const AnaliticasAdmin = () => {
         <section className="analytics-control-band" data-tour="analytics-filters">
           <div className="analytics-control-band__period"><DateRangeField label="Período de análisis" from={period.from} to={period.to} maxValue={localIsoDate()} onChange={setPeriod} /></div>
           <div className="analytics-filter-fields">
-            <label><span>Curso</span><select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">Toda la institución</option>{courses.map((course) => <option key={course.id_curso} value={course.id_curso}>{course.nombre_curso}</option>)}</select></label>
-            <label><span>Justificación</span><select value={justified} onChange={(event) => setJustified(event.target.value)}><option value="">Todas</option><option value="false">Sin justificar</option><option value="true">Justificados</option></select></label>
-            <label><span>Severidad</span><select value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="">Todas</option><option value="Leve">Leve</option><option value="Grave">Grave</option></select></label>
+            <label><span>Curso</span><AppSelect ariaLabel="Filtrar por curso" value={courseId} onChange={setCourseId} options={[{ value: '', label: 'Toda la institución' }, ...courses.map((course) => ({ value: course.id_curso, label: course.nombre_curso }))]} /></label>
+            <label><span>Justificación</span><AppSelect ariaLabel="Filtrar por justificación" value={justified} onChange={setJustified} options={[{ value: '', label: 'Todas' }, { value: 'false', label: 'Sin justificar' }, { value: 'true', label: 'Justificados' }]} /></label>
+            <label><span>Severidad</span><AppSelect ariaLabel="Filtrar por severidad" value={severity} onChange={setSeverity} options={[{ value: '', label: 'Todas' }, { value: 'Leve', label: 'Leve' }, { value: 'Grave', label: 'Grave' }]} /></label>
             <button type="button" className="analytics-reset" onClick={resetFilters}><RefreshCw size={17} /> Restablecer</button>
           </div>
         </section>

@@ -32,6 +32,7 @@ import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
 import StudentPicker from './components/StudentPicker';
+import AppSelect from './components/AppSelect';
 import { useFeedback } from './context/FeedbackContext';
 import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
 
@@ -396,8 +397,8 @@ const AdminDashboard = () => {
 
           <div className="operation-filters">
             <label className="operation-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, RUT o curso" /></label>
-            <label><span>Estado</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Todos</option><option value="Presente">A tiempo</option><option value="Atrasado">Atrasados</option><option value="justificado">Justificados</option></select></label>
-            <label><span>Severidad</span><select value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="">Todas</option><option value="Leve">Leve</option><option value="Grave">Grave</option></select></label>
+            <label><span>Estado</span><AppSelect ariaLabel="Filtrar por estado" value={status} onChange={setStatus} options={[{ value: '', label: 'Todos' }, { value: 'Presente', label: 'A tiempo' }, { value: 'Atrasado', label: 'Atrasados' }, { value: 'justificado', label: 'Justificados' }]} /></label>
+            <label><span>Severidad</span><AppSelect ariaLabel="Filtrar por severidad" value={severity} onChange={setSeverity} options={[{ value: '', label: 'Todas' }, { value: 'Leve', label: 'Leve' }, { value: 'Grave', label: 'Grave' }]} /></label>
           </div>
 
           <div className="operation-table-wrap">
@@ -433,7 +434,7 @@ const AdminDashboard = () => {
             <div className="report-builder-v2__period"><DateRangeField label="Período del reporte" from={period.from} to={period.to} maxValue={localIsoDate()} onChange={setPeriod} /></div>
             <div className="report-builder-v2__block"><span className="field-label">Alcance</span><div className="report-scope-grid"><ScopeButton icon={ShieldCheck} active={scope === 'institucional'} onClick={() => setScope('institucional')}>Toda la institución</ScopeButton><ScopeButton icon={Users} active={scope === 'curso'} onClick={() => setScope('curso')}>Un curso</ScopeButton><ScopeButton icon={UserRound} active={scope === 'individual'} onClick={() => setScope('individual')}>Una persona</ScopeButton><ScopeButton icon={SlidersHorizontal} active={scope === 'personalizado'} onClick={() => setScope('personalizado')}>Selección múltiple</ScopeButton></div></div>
 
-            {scope === 'curso' && <label className="report-control"><span className="field-label">Curso</span><select value={courseId} onChange={(event) => setCourseId(event.target.value)}><option value="">Seleccionar curso</option>{courses.map((course) => <option value={course.id_curso} key={course.id_curso}>{course.nombre_curso}</option>)}</select></label>}
+            {scope === 'curso' && <label className="report-control"><span className="field-label">Curso</span><AppSelect ariaLabel="Seleccionar curso" value={courseId} onChange={setCourseId} options={[{ value: '', label: 'Seleccionar curso' }, ...courses.map((course) => ({ value: course.id_curso, label: course.nombre_curso }))]} /></label>}
             {scope === 'individual' && <StudentPicker label="Persona" query={studentQuery} onQueryChange={setStudentQuery} results={studentResults} loading={searchingStudents} selected={selectedStudent ? [selectedStudent] : []} onSelect={setSelectedStudent} onRemove={() => setSelectedStudent(null)} />}
             {scope === 'personalizado' && <StudentPicker label="Personas" multiple query={studentQuery} onQueryChange={setStudentQuery} results={studentResults} loading={searchingStudents} selected={selectedStudents} onSelect={(student) => setSelectedStudents((current) => [...current, student])} onRemove={(student) => setSelectedStudents((current) => current.filter((item) => item.id_alumno !== student.id_alumno))} onClear={() => setSelectedStudents([])} />}
 
@@ -529,11 +530,7 @@ const AdminDashboard = () => {
                 <div className="justification-document-fields">
                   <label>
                     <span>Tipo de respaldo</span>
-                    <select value={justificationType} onChange={(event) => setJustificationType(event.target.value)}>
-                      <option value="apoderado">Información de apoderado</option>
-                      <option value="medica">Certificado médico</option>
-                      <option value="institucional">Constancia institucional</option>
-                    </select>
+                    <AppSelect ariaLabel="Tipo de respaldo" value={justificationType} onChange={setJustificationType} options={[{ value: 'apoderado', label: 'Información de apoderado' }, { value: 'medica', label: 'Certificado médico' }, { value: 'institucional', label: 'Constancia institucional' }]} />
                   </label>
                   <label className="document-upload">
                     <input

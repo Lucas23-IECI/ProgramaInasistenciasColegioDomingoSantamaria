@@ -5,6 +5,7 @@ import { RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
+import AppSelect from './components/AppSelect';
 const PAGE_SIZE = 20;
 
 // ─── Catálogo de acciones auditables ──────────────────────────────────────────
@@ -233,10 +234,7 @@ const AuditoriaAdmin = () => {
         <form onSubmit={handleBuscar} data-tour="audit-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Tipo de acción</label>
-            <select value={filtroAccion} onChange={e => setFiltroAccion(e.target.value)} style={inputStyle}>
-              <option value="">Todas</option>
-              {ACCIONES.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <AppSelect ariaLabel="Filtrar por tipo de acción" value={filtroAccion} onChange={setFiltroAccion} options={[{ value: '', label: 'Todas' }, ...ACCIONES.map((action) => ({ value: action, label: action }))]} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Usuario</label>

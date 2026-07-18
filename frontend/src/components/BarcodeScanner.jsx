@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Search, CheckCircle, AlertCircle, LogIn, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X } from 'lucide-react';
 import { playBeep } from '../utils/audioNotifier';
 import { API_URL } from '../config';
+import AppSelect from './AppSelect';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
   const [inputValue, setInputValue] = useState('');
@@ -615,26 +616,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         <div className="kiosk-filters fade-in" style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '12px', padding: '12px', marginTop: '10px', border: '1px solid rgba(59,130,246,0.15)' }}>
           <div className="kiosk-filter-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <GraduationCap size={15} style={{ color: '#3b82f6' }} />
-            <select
-              value={filterCurso}
-              onChange={(e) => setFilterCurso(e.target.value)}
-              className="kiosk-filter-select"
-              style={{
-                flex: '1',
-                padding: '6px',
-                background: 'rgba(15,23,42,0.6)',
-                border: '1px solid rgba(59,130,246,0.2)',
-                borderRadius: '8px',
-                color: 'white',
-                fontFamily: 'inherit',
-                outline: 'none'
-              }}
-            >
-              <option value="">Filtrar por Curso...</option>
-              {courses.map(c => (
-                <option key={c.id_curso} value={c.nombre_curso}>{c.nombre_curso}</option>
-              ))}
-            </select>
+            <AppSelect ariaLabel="Filtrar por curso" className="kiosk-filter-select" value={filterCurso} onChange={setFilterCurso} options={[{ value: '', label: 'Todos los cursos' }, ...courses.map((course) => ({ value: course.nombre_curso, label: course.nombre_curso }))]} />
             {filterCurso && (
               <button type="button" className="kiosk-filter-clear" onClick={() => setFilterCurso('')} aria-label="Quitar filtro de curso" style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
                 <X size={14} />
@@ -650,13 +632,14 @@ const BarcodeScanner = ({ tipoRegistro }) => {
           {filteredSearchResults.map((s, idx) => (
             <button
               type="button"
+              role="option"
               key={s.id_alumno}
               ref={el => searchResultRefs.current[idx] = el}
               className={`kiosk-search-item${idx === selectedIndex ? ' selected' : ''}`}
               onClick={() => handleSelectStudent(s)}
               aria-selected={idx === selectedIndex}
             >
-              <User size={16} />
+              <span className="kiosk-search-avatar" aria-hidden="true">{s.nombres?.[0]}{s.paterno?.[0]}</span>
               <div className="kiosk-search-item-info">
                 <span className="kiosk-search-name">{s.nombres} {s.paterno} {s.materno}</span>
                 <span className="kiosk-search-detail" style={{ fontFamily: 'Space Mono, monospace' }}>{s.rut}-{s.dv} • {s.nombre_curso || 'Sin curso'} • {s.rol}</span>

@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CalendarDays } from 'lucide-react';
+import { DayPicker } from 'react-day-picker';
+import { es } from 'react-day-picker/locale';
+import 'react-day-picker/style.css';
 
 const toLocalDate = (value) => {
   if (!value) return null;
@@ -25,22 +28,10 @@ const formatDate = (value) => {
   }).format(date).replace(/\./g, '');
 };
 
-const monthLabel = (date) => new Intl.DateTimeFormat('es-CL', {
-  month: 'long',
-  year: 'numeric',
-}).format(date);
-
 const addDays = (date, amount) => {
   const next = new Date(date);
   next.setDate(next.getDate() + amount);
   return next;
-};
-
-const buildCalendarDays = (viewDate) => {
-  const first = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1, 12);
-  const mondayOffset = (first.getDay() + 6) % 7;
-  const start = addDays(first, -mondayOffset);
-  return Array.from({ length: 42 }, (_, index) => addDays(start, index));
 };
 
 const DateRangeField = ({
@@ -57,7 +48,6 @@ const DateRangeField = ({
   const rootRef = useRef(null);
   const maximumDate = toLocalDate(maxValue) || new Date();
   maximumDate.setHours(23, 59, 59, 999);
-  const days = useMemo(() => buildCalendarDays(viewDate), [viewDate]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -84,18 +74,26 @@ const DateRangeField = ({
   const selectDate = (date) => {
     const selected = toIsoDate(date);
     if (selecting === 'start') {
-      const nextTo = !to || selected > to ? selected : to;
-      onChange({ from: selected, to: nextTo });
+      onChange({ from: selected, to: !to || selected > to ? selected : to });
       setSelecting('end');
       return;
     }
 
-    if (from && selected < from) {
-      onChange({ from: selected, to: from });
-    } else {
-      onChange({ from: from || selected, to: selected });
-    }
+    onChange(from && selected < from
+      ? { from: selected, to: from }
+      : { from: from || selected, to: selected });
     setOpen(false);
+  };
+
+  const editDate = (part, value) => {
+    const date = toLocalDate(value);
+    if (!date || date > maximumDate) return;
+    setViewDate(date);
+    if (part === 'start') {
+      onChange({ from: value, to: !to || value > to ? value : to });
+    } else {
+      onChange({ from: !from || value < from ? value : from, to: value });
+    }
   };
 
   const applyPreset = (kind) => {
@@ -119,17 +117,15 @@ const DateRangeField = ({
 
   return (
     <div className="date-range-field" ref={rootRef}>
-      <span className="field-label" id="report-period-label">{label}</span>
-      <div className="date-range-control" aria-labelledby="report-period-label">
+      <span className="field-label">{label}</span>
+      <div className="date-range-control" aria-label={label}>
         <CalendarDays size={19} aria-hidden="true" />
         <button type="button" className="date-range-value" onClick={() => openFor('start')} aria-label={`Fecha inicial: ${formatDate(from)}`}>
-          <small>Desde</small>
-          <strong>{formatDate(from)}</strong>
+          <small>Desde</small><strong>{formatDate(from)}</strong>
         </button>
         <span className="date-range-separator" aria-hidden="true">a</span>
         <button type="button" className="date-range-value" onClick={() => openFor('end')} aria-label={`Fecha final: ${formatDate(to)}`}>
-          <small>Hasta</small>
-          <strong>{formatDate(to)}</strong>
+          <small>Hasta</small><strong>{formatDate(to)}</strong>
         </button>
         <button type="button" className="date-range-trigger" onClick={() => openFor('start')} aria-label="Abrir calendario">
           <CalendarDays size={18} />
@@ -137,43 +133,28 @@ const DateRangeField = ({
       </div>
 
       {open && (
-        <div className="date-range-popover" role="dialog" aria-modal="false" aria-label="Seleccionar rango de fechas">
-          <div className="calendar-selection-hint">
-            Seleccionando fecha {selecting === 'start' ? 'inicial' : 'final'}
+        <div className="date-range-popover" role="dialog" aria-label="Seleccionar rango de fechas">
+          <div className="calendar-selection-hint">Seleccionando fecha {selecting === 'start' ? 'inicial' : 'final'}</div>
+          <div className="calendar-direct-inputs">
+            <label><span>Desde</span><input type="date" value={from || ''} max={maxValue} onInput={(event) => editDate('start', event.currentTarget.value)} /></label>
+            <label><span>Hasta</span><input type="date" value={to || ''} max={maxValue} onInput={(event) => editDate('end', event.currentTarget.value)} /></label>
           </div>
-          <div className="calendar-heading">
-            <button type="button" aria-label="Mes anterior" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1, 12))}><ChevronLeft size={19} /></button>
-            <h2>{monthLabel(viewDate)}</h2>
-            <button type="button" aria-label="Mes siguiente" onClick={() => setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1, 12))}><ChevronRight size={19} /></button>
-          </div>
-          <div className="calendar-weekdays" aria-hidden="true">
-            {['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'].map((day) => <span key={day}>{day}</span>)}
-          </div>
-          <div className="calendar-grid" role="grid">
-            {days.map((date) => {
-              const iso = toIsoDate(date);
-              const outside = date.getMonth() !== viewDate.getMonth();
-              const selected = iso === from || iso === to;
-              const inRange = fromDate && toDate && date >= fromDate && date <= toDate;
-              const disabled = date > maximumDate;
-              return (
-                <button
-                  type="button"
-                  key={iso}
-                  role="gridcell"
-                  className="calendar-day"
-                  data-outside={outside || undefined}
-                  data-selected={selected || undefined}
-                  data-in-range={inRange || undefined}
-                  disabled={disabled}
-                  aria-label={new Intl.DateTimeFormat('es-CL', { dateStyle: 'full' }).format(date)}
-                  onClick={() => selectDate(date)}
-                >
-                  {date.getDate()}
-                </button>
-              );
-            })}
-          </div>
+          <DayPicker
+            animate
+            captionLayout="dropdown"
+            disabled={{ after: maximumDate }}
+            endMonth={new Date(maximumDate.getFullYear(), maximumDate.getMonth())}
+            fixedWeeks
+            locale={es}
+            mode="range"
+            month={viewDate}
+            onDayClick={selectDate}
+            onMonthChange={setViewDate}
+            selected={{ from: fromDate || undefined, to: toDate || undefined }}
+            showOutsideDays
+            startMonth={new Date(2000, 0)}
+            weekStartsOn={1}
+          />
         </div>
       )}
 
@@ -190,4 +171,3 @@ const DateRangeField = ({
 };
 
 export default DateRangeField;
-

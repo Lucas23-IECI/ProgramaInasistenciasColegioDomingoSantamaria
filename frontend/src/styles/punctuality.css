@@ -275,6 +275,9 @@ body.light-mode .analytics-page-v2 {
 .operation-filters select,
 .analytics-filter-fields select,
 .report-control select,
+.operation-filters .app-select-trigger,
+.analytics-filter-fields .app-select-trigger,
+.report-control .app-select-trigger,
 .settings-field input,
 .number-field {
   min-height: 50px;

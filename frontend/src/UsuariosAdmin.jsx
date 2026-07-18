@@ -6,6 +6,7 @@ import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
+import AppSelect from './components/AppSelect';
 
 const ROLES = [
   { value: 'admin', label: 'Administrador' },
@@ -45,10 +46,7 @@ const UserFormPanel = ({ form, setForm, formMode, saving, handleSave, closeForm,
       </div>
       <div>
         <label style={labelStyle}>Rol</label>
-        <select value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))} style={{ ...inputStyle, background: '#fff' }}
-          onFocus={e => e.target.style.borderColor = '#28618C'} onBlur={e => e.target.style.borderColor = 'rgba(0,0,0,0.12)'}>
-          {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
+        <AppSelect ariaLabel="Rol del usuario" value={form.rol} onChange={(rol) => setForm((current) => ({ ...current, rol }))} options={ROLES} />
       </div>
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'flex-end', paddingBottom: '1px' }}>
         <button onClick={closeForm} disabled={saving} style={{ background: 'rgba(0,0,0,0.07)', color: '#374151', border: 'none', borderRadius: '8px', padding: '9px 14px', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>

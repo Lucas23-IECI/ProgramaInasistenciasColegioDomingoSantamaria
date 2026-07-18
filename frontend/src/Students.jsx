@@ -7,6 +7,7 @@ import './index.css';
 import { API_URL } from './config';
 import { AuthContext } from './context/AuthContext';
 import ModuleHeader from './components/ModuleHeader';
+import AppSelect from './components/AppSelect';
 
 const normalizeHeaderKey = (value) => {
   return String(value || '')
@@ -485,28 +486,8 @@ function Students() {
                    onChange={(e) => setSearchTerm(e.target.value)}
                  />
                </div>
-               <select
-                 className="pagination-size"
-                 value={filterEstado}
-                 onChange={(e) => setFilterEstado(e.target.value)}
-                 style={{padding: '10px 14px'}}
-               >
-                 <option value="">Estado: Todos</option>
-                 <option value="activo">Vigentes</option>
-                 <option value="inactivo">Retirados</option>
-               </select>
-               <select
-                 className="pagination-size"
-                 value={filterRol}
-                 onChange={(e) => setFilterRol(e.target.value)}
-                 style={{padding: '10px 14px'}}
-               >
-                 <option value="">Rol: Todos</option>
-                 <option value="Estudiante">Estudiante</option>
-                 <option value="Admin">Admin</option>
-                 <option value="Profesor(a)">Profesor(a)</option>
-                 <option value="Asistente de educación">Asistente de educación</option>
-               </select>
+               <AppSelect ariaLabel="Filtrar por estado" value={filterEstado} onChange={setFilterEstado} options={[{ value: '', label: 'Estado: todos' }, { value: 'activo', label: 'Vigentes' }, { value: 'inactivo', label: 'Retirados' }]} />
+               <AppSelect ariaLabel="Filtrar por rol" value={filterRol} onChange={setFilterRol} options={[{ value: '', label: 'Rol: todos' }, { value: 'Estudiante', label: 'Estudiante' }, { value: 'Admin', label: 'Admin' }, { value: 'Profesor(a)', label: 'Profesor(a)' }, { value: 'Asistente de educación', label: 'Asistente de educación' }]} />
              </div>
 
              <div className="students-table-wrap" data-tour="student-list">
@@ -574,13 +555,7 @@ function Students() {
                    <button className="pagination-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>← Anterior</button>
                    <span className="pagination-info">Página {page} de {stuTotalPages} · {filtered.length} registros</span>
                    <button className="pagination-btn" disabled={page === stuTotalPages} onClick={() => setPage(p => p + 1)}>Siguiente →</button>
-                   <select
-                     className="pagination-size"
-                     value={pageSize}
-                     onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-                   >
-                     {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n} por página</option>)}
-                   </select>
+                   <AppSelect ariaLabel="Registros por página" value={String(pageSize)} onChange={(value) => { setPageSize(Number(value)); setPage(1); }} options={[10, 20, 50, 100].map((number) => ({ value: String(number), label: `${number} por página` }))} />
                  </div>
                )}
              </div>

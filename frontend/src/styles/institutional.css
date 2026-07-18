@@ -1248,6 +1248,13 @@ body:has(.kiosk-mode) {
   box-shadow: 0 0 0 3px rgb(142 179 212 / 16%);
 }
 
+.kiosk-mode .app-select-trigger.kiosk-filter-select {
+  flex: 1;
+  border-color: #3a4d60;
+  background: #0f1925;
+  color: #ffffff;
+}
+
 .kiosk-filters,
 .kiosk-search-results,
 .kiosk-feedback,
@@ -1260,8 +1267,15 @@ body:has(.kiosk-mode) {
 }
 
 .kiosk-search-item {
+  width: 100%;
+  min-width: 0;
   border-bottom: 1px solid #314457;
   background: #0f1925;
+}
+
+.kiosk-search-avatar {
+  background: #1c3448;
+  color: #a9d3ee;
 }
 
 .kiosk-search-item:hover,
@@ -2345,6 +2359,12 @@ body.light-mode .kiosk-mode .kiosk-input:focus {
   box-shadow: 0 0 0 3px rgb(40 97 140 / 13%) !important;
 }
 
+body.light-mode .kiosk-mode .app-select-trigger.kiosk-filter-select {
+  border-color: #b9c6d0;
+  background: #ffffff;
+  color: #14283b;
+}
+
 body.light-mode .kiosk-mode .kiosk-filters,
 body.light-mode .kiosk-mode .kiosk-search-results,
 body.light-mode .kiosk-mode .kiosk-feedback,
@@ -2358,6 +2378,11 @@ body.light-mode .kiosk-mode .kiosk-offline-card {
 body.light-mode .kiosk-mode .kiosk-search-item {
   border-bottom-color: #e1e6ea;
   background: #ffffff;
+}
+
+body.light-mode .kiosk-mode .kiosk-search-avatar {
+  background: #e7f1f7;
+  color: #1d5f88;
 }
 
 body.light-mode .kiosk-mode .kiosk-search-item:hover,
