@@ -4,6 +4,8 @@ import { DayPicker } from 'react-day-picker';
 import { es } from 'react-day-picker/locale';
 import 'react-day-picker/style.css';
 
+const EARLIEST_DATE = '2000-01-01';
+
 const toLocalDate = (value) => {
   if (!value) return null;
   const [year, month, day] = String(value).split('-').map(Number);
@@ -20,7 +22,7 @@ const toIsoDate = (date) => [
 
 const formatDate = (value) => {
   const date = toLocalDate(value);
-  if (!date) return 'Seleccionar';
+  if (!date) return 'Seleccionar fecha';
   return new Intl.DateTimeFormat('es-CL', {
     day: '2-digit',
     month: 'short',
@@ -48,6 +50,10 @@ const DateRangeField = ({
   const rootRef = useRef(null);
   const maximumDate = toLocalDate(maxValue) || new Date();
   maximumDate.setHours(23, 59, 59, 999);
+  const fromDate = toLocalDate(from);
+  const toDate = toLocalDate(to);
+  const currentValue = selecting === 'start' ? from : to;
+  const currentLabel = selecting === 'start' ? 'Fecha inicial' : 'Fecha final';
 
   useEffect(() => {
     if (!open) return undefined;
@@ -71,29 +77,27 @@ const DateRangeField = ({
     setOpen(true);
   };
 
-  const selectDate = (date) => {
-    const selected = toIsoDate(date);
+  const applySelectedDate = (value) => {
     if (selecting === 'start') {
-      onChange({ from: selected, to: !to || selected > to ? selected : to });
-      setSelecting('end');
-      return;
+      if (to && value > to) return;
+      onChange({ from: value, to });
+    } else {
+      if (from && value < from) return;
+      onChange({ from, to: value });
     }
+  };
 
-    onChange(from && selected < from
-      ? { from: selected, to: from }
-      : { from: from || selected, to: selected });
+  const selectDate = (date) => {
+    applySelectedDate(toIsoDate(date));
     setOpen(false);
   };
 
-  const editDate = (part, value) => {
+  const editCurrentDate = (value) => {
     const date = toLocalDate(value);
-    if (!date || date > maximumDate) return;
+    if (!date || date > maximumDate || value < EARLIEST_DATE) return;
+    if ((selecting === 'start' && to && value > to) || (selecting === 'end' && from && value < from)) return;
     setViewDate(date);
-    if (part === 'start') {
-      onChange({ from: value, to: !to || value > to ? value : to });
-    } else {
-      onChange({ from: !from || value < from ? value : from, to: value });
-    }
+    applySelectedDate(value);
   };
 
   const applyPreset = (kind) => {
@@ -112,37 +116,54 @@ const DateRangeField = ({
     setOpen(false);
   };
 
-  const fromDate = toLocalDate(from);
-  const toDate = toLocalDate(to);
+  const disabledDates = [{ after: maximumDate }];
+  if (selecting === 'start' && toDate) disabledDates.push({ after: toDate });
+  if (selecting === 'end' && fromDate) disabledDates.push({ before: fromDate });
 
   return (
     <div className="date-range-field" ref={rootRef}>
       <span className="field-label">{label}</span>
-      <div className="date-range-control" aria-label={label}>
-        <CalendarDays size={19} aria-hidden="true" />
-        <button type="button" className="date-range-value" onClick={() => openFor('start')} aria-label={`Fecha inicial: ${formatDate(from)}`}>
-          <small>Desde</small><strong>{formatDate(from)}</strong>
+      <div className="date-range-pair" aria-label={label}>
+        <button
+          type="button"
+          className="date-range-segment"
+          data-active={open && selecting === 'start' || undefined}
+          aria-expanded={open && selecting === 'start'}
+          onClick={() => openFor('start')}
+        >
+          <CalendarDays size={18} aria-hidden="true" />
+          <span><small>Desde</small><strong>{formatDate(from)}</strong></span>
         </button>
-        <span className="date-range-separator" aria-hidden="true">a</span>
-        <button type="button" className="date-range-value" onClick={() => openFor('end')} aria-label={`Fecha final: ${formatDate(to)}`}>
-          <small>Hasta</small><strong>{formatDate(to)}</strong>
-        </button>
-        <button type="button" className="date-range-trigger" onClick={() => openFor('start')} aria-label="Abrir calendario">
-          <CalendarDays size={18} />
+        <span className="date-range-connector" aria-hidden="true">a</span>
+        <button
+          type="button"
+          className="date-range-segment"
+          data-active={open && selecting === 'end' || undefined}
+          aria-expanded={open && selecting === 'end'}
+          onClick={() => openFor('end')}
+        >
+          <CalendarDays size={18} aria-hidden="true" />
+          <span><small>Hasta</small><strong>{formatDate(to)}</strong></span>
         </button>
       </div>
 
       {open && (
-        <div className="date-range-popover" role="dialog" aria-label="Seleccionar rango de fechas">
-          <div className="calendar-selection-hint">Seleccionando fecha {selecting === 'start' ? 'inicial' : 'final'}</div>
-          <div className="calendar-direct-inputs">
-            <label><span>Desde</span><input type="date" value={from || ''} max={maxValue} onInput={(event) => editDate('start', event.currentTarget.value)} /></label>
-            <label><span>Hasta</span><input type="date" value={to || ''} max={maxValue} onInput={(event) => editDate('end', event.currentTarget.value)} /></label>
-          </div>
+        <div className="date-range-popover" data-side={selecting} role="dialog" aria-label={`Editar ${currentLabel.toLowerCase()}`}>
+          <div className="calendar-selection-hint"><strong>{currentLabel}</strong><span>Edita solo este límite del período.</span></div>
+          <label className="calendar-direct-date">
+            <span>Escribir fecha</span>
+            <input
+              type="date"
+              value={currentValue || ''}
+              min={selecting === 'end' ? from || EARLIEST_DATE : EARLIEST_DATE}
+              max={selecting === 'start' ? to || maxValue : maxValue}
+              onInput={(event) => editCurrentDate(event.currentTarget.value)}
+            />
+          </label>
           <DayPicker
             animate
             captionLayout="dropdown"
-            disabled={{ after: maximumDate }}
+            disabled={disabledDates}
             endMonth={new Date(maximumDate.getFullYear(), maximumDate.getMonth())}
             fixedWeeks
             locale={es}

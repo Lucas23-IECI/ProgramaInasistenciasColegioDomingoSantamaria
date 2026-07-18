@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { CircleHelp, KeyRound, LogOut, Moon, Sun, UserRound } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
 import { useHelpTour } from '../context/HelpTourContext';
@@ -26,6 +26,12 @@ const GlobalTools = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const context = location.pathname === '/admin'
+    ? 'hub'
+    : location.pathname === '/' || location.pathname === '/scanner'
+      ? 'kiosk'
+      : 'module';
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -52,7 +58,7 @@ const GlobalTools = () => {
   };
 
   return (
-    <nav className="global-tools" aria-label="Herramientas globales" data-tour="global-tools">
+    <nav className="global-tools" data-context={context} aria-label="Herramientas globales" data-tour="global-tools">
       <button
         type="button"
         className="global-tool-button"

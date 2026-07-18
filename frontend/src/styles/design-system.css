@@ -275,6 +275,22 @@ textarea {
   background: color-mix(in srgb, var(--ds-surface) 94%, transparent);
   box-shadow: 0 6px 22px rgba(19, 36, 49, 0.12);
   backdrop-filter: blur(12px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+@media (min-width: 1051px) {
+  .global-tools[data-context="hub"] { top: 16px; right: 20px; }
+  .global-tools[data-context="module"] { top: 14px; right: 18px; }
+  body:has(.hub-page) .hub-header { padding-right: 190px !important; }
+  body:has(.global-tools[data-context="module"]) .module-header { padding-right: 190px !important; }
+}
+
+body:has(.record-drawer-backdrop) .global-tools,
+body:has(.student-detail-overlay) .global-tools {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 .global-tool-button {
@@ -457,6 +473,10 @@ textarea {
     padding-right: 0 !important;
   }
 
+  body:has(.hub-page) .hub-header {
+    padding-top: 68px !important;
+  }
+
   .ldsm-tour-popover.driver-popover {
     position: fixed !important;
     top: auto !important;
@@ -469,6 +489,13 @@ textarea {
 
   .ldsm-tour-popover .driver-popover-arrow {
     display: none;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1050px) {
+  body:has(.hub-page) .hub-header,
+  body:has(.global-tools[data-context="module"]) .module-header {
+    padding-top: 76px !important;
   }
 }
 
@@ -603,12 +630,65 @@ textarea {
   position: relative;
 }
 
+.date-range-pair {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.date-range-segment {
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 5px 12px 5px 8px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius);
+  background: var(--ds-surface);
+  color: var(--ds-primary-strong);
+  cursor: pointer;
+  text-align: left;
+}
+
+.date-range-segment > svg {
+  justify-self: center;
+  color: var(--ds-primary);
+}
+
+.date-range-segment > span { display: grid; min-width: 0; gap: 2px; }
+.date-range-segment small {
+  color: var(--ds-muted);
+  font-size: 0.64rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.date-range-segment strong {
+  overflow: hidden;
+  color: var(--ds-text);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.date-range-segment:hover { border-color: color-mix(in srgb, var(--ds-primary) 55%, var(--ds-border)); background: var(--ds-surface-muted); }
+.date-range-segment[data-active] { border-color: var(--ds-focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ds-focus) 15%, transparent); }
+.date-range-connector { color: var(--ds-muted); font-size: 0.76rem; font-weight: 760; }
+
 .calendar-selection-hint {
-  margin-bottom: 8px;
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
   color: var(--ds-muted);
   font-size: 0.72rem;
   font-weight: 680;
 }
+
+.calendar-selection-hint strong { color: var(--ds-text); font-size: 0.82rem; }
+.calendar-selection-hint span { font-weight: 560; }
 
 .calendar-heading {
   display: grid;
@@ -995,22 +1075,20 @@ textarea {
 }
 
 /* Calendario open source adaptado al sistema visual LDSM */
-.calendar-direct-inputs {
+.calendar-direct-date {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 8px;
 }
 
-.calendar-direct-inputs label { display: grid; gap: 4px; }
-.calendar-direct-inputs span {
+.calendar-direct-date span {
   color: var(--ds-muted);
   font-size: 0.65rem;
   font-weight: 750;
   text-transform: uppercase;
 }
 
-.calendar-direct-inputs input {
+.calendar-direct-date input {
   width: 100%;
   min-width: 0;
   min-height: 42px;
@@ -1061,12 +1139,13 @@ textarea {
 .date-range-popover .rdp-disabled { opacity: 0.22; }
 
 @media (max-width: 520px) {
-  .calendar-direct-inputs { grid-template-columns: 1fr; }
   .date-range-popover { left: 50%; transform: translateX(-50%); }
   .app-select-trigger { width: 100%; min-width: 0; }
 }
 
 @media (max-width: 640px) {
+  .date-range-pair { grid-template-columns: 1fr; }
+  .date-range-connector { display: none; }
   .date-range-control {
     grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) 40px;
     gap: 7px;
@@ -1107,6 +1186,11 @@ textarea {
   .student-picker-chip {
     justify-content: space-between;
   }
+}
+
+@media (min-width: 641px) {
+  .date-range-popover { top: calc(100% - 42px); left: 0; }
+  .date-range-popover[data-side="end"] { right: 0; left: auto; }
 }
 
 /* Control de atrasos y generador de reportes */
@@ -1351,7 +1435,8 @@ textarea {
   min-width: min(430px, 100%);
 }
 
-.audit-date-range .date-range-control {
+.audit-date-range .date-range-control,
+.audit-date-range .date-range-segment {
   min-height: 42px;
 }
 

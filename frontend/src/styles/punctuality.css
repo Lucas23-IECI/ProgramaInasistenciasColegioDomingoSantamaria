@@ -551,7 +551,10 @@ body.light-mode .analytics-page-v2 {
 
 /* Analítica de puntualidad */
 .analytics-control-band { max-width: 1540px; display: grid; grid-template-columns: minmax(480px, 0.9fr) minmax(560px, 1.1fr); gap: 1.5rem; align-items: end; margin: 2.6rem auto 0; padding: 1.2rem; background: var(--op-surface-2); border: 1px solid var(--op-line); border-radius: 10px; }
-.analytics-filter-fields { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.65rem; align-items: end; }
+.analytics-control-band > * { min-width: 0; }
+.analytics-filter-fields { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 0.65rem; align-items: end; }
+.analytics-filter-fields label { min-width: 0; }
+.analytics-filter-fields .app-select-trigger { width: 100%; min-width: 0; }
 .analytics-reset { min-height: 50px; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.8rem; color: var(--op-blue-strong); background: var(--op-blue-soft); border: 1px solid var(--op-line); border-radius: 8px; font: inherit; font-weight: 750; cursor: pointer; }
 .analytics-kpi-grid { max-width: 1540px; display: grid; grid-template-columns: repeat(4, 1fr); margin: 2rem auto 0; border-top: 1px solid var(--op-line); border-bottom: 1px solid var(--op-line); }
 .analytics-kpi { min-height: 150px; display: flex; align-items: center; gap: 1rem; padding: 1.5rem; border-right: 1px solid var(--op-line-soft); }
