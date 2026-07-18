@@ -1,0 +1,101 @@
+name: Calidad continua
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calidad-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend y reglas de puntualidad
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Instalar dependencias reproducibles
+        run: npm ci
+      - name: Revisar sintaxis
+        run: npm run check
+      - name: Ejecutar pruebas
+        run: npm test
+      - name: Auditar dependencias de produccion
+        run: npm audit --omit=dev --audit-level=moderate
+
+  frontend:
+    name: Frontend, accesibilidad estatica y compilacion
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Instalar dependencias reproducibles
+        run: npm ci
+      - name: Ejecutar lint
+        run: npm run lint
+      - name: Compilar version de produccion
+        run: npm run build
+      - name: Auditar dependencias
+        run: npm audit --audit-level=moderate
+
+  cuestionarios:
+    name: Portal de cuestionarios
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: questionnaires
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: questionnaires/package-lock.json
+      - name: Instalar dependencias reproducibles
+        run: npm ci
+      - name: Ejecutar pruebas
+        run: npm test
+      - name: Auditar dependencias
+        run: npm audit --audit-level=moderate
+
+  contenedores:
+    name: Docker, scripts y configuracion
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Preparar entorno de ejemplo
+        run: cp .env.example .env
+      - name: Validar Docker Compose
+        run: docker compose config --quiet
+      - name: Validar scripts POSIX
+        run: docker run --rm -v "$PWD/backend:/scripts:ro" postgres:16-alpine sh -c "sh -n /scripts/backup.sh && sh -n /scripts/restore.sh"
+      - name: Construir backend y frontend
+        run: docker compose build backend frontend
