@@ -116,6 +116,12 @@ const Login = () => {
           <div className="login-card__footer">
             <span><ShieldCheck size={14} /> Conexión protegida</span>
             <span>RBD 4565-9</span>
+            <span style={{ marginLeft: 'auto' }}>
+              Desarrollado por{' '}
+              <a href="https://purocode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                PuroCode
+              </a>
+            </span>
           </div>
         </section>
       </main>

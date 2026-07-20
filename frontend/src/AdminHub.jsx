@@ -152,6 +152,12 @@ const AdminHub = () => {
         <footer className="hub-footer">
           <span className="hub-footer__status"><i /> Servicios operativos</span>
           <span>Liceo Domingo Santa María · RBD 4565-9 · Concepción</span>
+          <span className="hub-footer__branding">
+            © 2026 Todos los derechos reservados. Desarrollado por{' '}
+            <a href="https://purocode.com" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>
+              PuroCode
+            </a>
+          </span>
         </footer>
       </main>
     </div>
