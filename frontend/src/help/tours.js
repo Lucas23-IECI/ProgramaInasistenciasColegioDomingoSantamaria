@@ -179,6 +179,31 @@ const tours = {
       },
     }, commonToolsStep],
   },
+  '/': {
+    title: 'Recorrido del lector',
+    steps: [{
+      element: '[data-tour="scanner-status"]',
+      popover: {
+        title: 'Estado del lector',
+        description: 'Confirma el horario vigente y si el lector está disponible para registrar ingresos.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="scanner-input"]',
+      popover: {
+        title: 'Registrar una persona',
+        description: 'Escanea el código del carnet o utiliza la búsqueda manual por nombre o RUT.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="scanner-summary"]',
+      popover: {
+        title: 'Resumen de la jornada',
+        description: 'Consulta la cantidad de ingresos procesados y los atrasos detectados.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
 };
 
 export const getTourForPath = (pathname) => tours[pathname] || {

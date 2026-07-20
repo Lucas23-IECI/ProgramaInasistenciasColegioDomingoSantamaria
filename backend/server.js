@@ -595,9 +595,11 @@ app.get('/api/students/search', verifyToken, async (req, res) => {
       WHERE a.activo = true
         AND (
           LOWER(a.nombres || ' ' || a.paterno || ' ' || COALESCE(a.materno, '')) LIKE $1
-          OR LOWER(a.rut || '-' || a.dv) LIKE $1
+          OR LOWER(a.rut || '-' || COALESCE(a.dv, '')) LIKE $1
+          OR LOWER(a.rut || COALESCE(a.dv, '')) LIKE $1
+          OR LOWER(COALESCE(a.codigo_barra, '')) LIKE $1
           OR LOWER(a.rut) LIKE $1
-          OR LOWER(a.nombre_usuario) LIKE $1
+          OR LOWER(COALESCE(a.nombre_usuario, '')) LIKE $1
         )
       LIMIT 15
     `;
