@@ -433,6 +433,37 @@ textarea {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
+.login-input-wrapper:has(.login-password-toggle) .login-input {
+  padding-right: 48px;
+}
+
+.login-password-toggle {
+  position: absolute;
+  right: 7px;
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.login-password-toggle:hover {
+  background: var(--surface-subtle);
+  color: var(--ink);
+}
+
+.login-password-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(40 97 140 / 18%);
+  color: var(--focus);
+}
+
 .login-input::placeholder {
   color: #8a949e;
 }
