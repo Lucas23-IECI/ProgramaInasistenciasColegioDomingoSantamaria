@@ -18,6 +18,39 @@ const commonToolsStep = {
   },
 };
 
+const profileDetailTour = {
+  title: 'Recorrido del perfil de usuario',
+  steps: [commonHeaderStep, {
+    element: '[data-tour="profile-summary"]',
+    popover: {
+      title: 'Resumen del perfil',
+      description: 'Aquí puedes revisar la finalidad del perfil, sus cuentas activas y las funciones recomendadas para nuevas cuentas.',
+      side: 'bottom',
+    },
+  }, {
+    element: '[data-tour="profile-actions"]',
+    popover: {
+      title: 'Administrar el perfil',
+      description: 'Edita la recomendación general o crea una cuenta personal asociada a este perfil.',
+      side: 'left',
+    },
+  }, {
+    element: '[data-tour="profile-accounts"]',
+    popover: {
+      title: 'Cuentas del perfil',
+      description: 'Busca personas, ajusta sus accesos, consulta su actividad, desactiva o elimina cuentas sin borrar la trazabilidad.',
+      side: 'top',
+    },
+  }, {
+    element: '[data-tour="account-history"]',
+    popover: {
+      title: 'Actividad individual',
+      description: 'Abre la auditoría filtrada para ver lo que hizo esta cuenta y los cambios administrativos aplicados sobre ella.',
+      side: 'left',
+    },
+  }, commonToolsStep],
+};
+
 const tours = {
   '/admin': {
     title: 'Recorrido del panel principal',
@@ -117,10 +150,17 @@ const tours = {
   '/admin/usuarios': {
     title: 'Recorrido de usuarios y permisos',
     steps: [commonHeaderStep, {
-      element: '[data-tour="users-list"]',
+      element: '[data-tour="profiles-catalog"]',
       popover: {
-        title: 'Cuentas del sistema',
-        description: 'Crea cuentas individuales, asigna roles y administra accesos autorizados.',
+        title: 'Catálogo de perfiles',
+        description: 'Los perfiles son tipos reutilizables de acceso, como Administrador, Inspectoría o Portería. No corresponden a alumnos ni cursos.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="profiles-grid"]',
+      popover: {
+        title: 'Abrir un perfil',
+        description: 'Pulsa cualquier parte de una tarjeta para revisar sus cuentas, permisos recomendados y opciones de administración.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -128,10 +168,17 @@ const tours = {
   '/admin/auditoria': {
     title: 'Recorrido de auditoría',
     steps: [commonHeaderStep, {
+      element: '[data-tour="audit-subject"]',
+      popover: {
+        title: 'Cuenta seleccionada',
+        description: 'Cuando llegas desde Usuarios, esta franja confirma qué cuenta estás revisando y si sigue activa, desactivada o eliminada.',
+        side: 'bottom',
+      },
+    }, {
       element: '[data-tour="audit-filters"]',
       popover: {
         title: 'Búsqueda de actividad',
-        description: 'Filtra los eventos por persona, acción y período.',
+        description: 'La consulta parte con los últimos 30 días. Puedes cambiar el período y, al revisar una cuenta, separar lo que hizo de los cambios administrativos aplicados sobre ella.',
         side: 'bottom',
       },
     }, {
@@ -206,7 +253,10 @@ const tours = {
   },
 };
 
-export const getTourForPath = (pathname) => tours[pathname] || {
-  title: 'Ayuda de esta página',
-  steps: [commonHeaderStep, commonToolsStep],
+export const getTourForPath = (pathname) => {
+  if (/^\/admin\/usuarios\/[^/]+$/.test(pathname)) return profileDetailTour;
+  return tours[pathname] || {
+    title: 'Ayuda de esta página',
+    steps: [commonHeaderStep, commonToolsStep],
+  };
 };

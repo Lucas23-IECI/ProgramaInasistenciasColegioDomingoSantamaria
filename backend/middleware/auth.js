@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
+const { getEffectivePermissionProfile } = require('../utils/permissions');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -19,8 +20,11 @@ const verifyToken = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     const userRes = await pool.query(
-      `SELECT id, correo, rol, nombre, token_version, activo, debe_cambiar_password
-       FROM usuarios WHERE id = $1`,
+      `SELECT u.id, u.correo, u.rol, u.nombre, u.cargo, u.token_version, u.activo,
+              u.debe_cambiar_password, p.nombre AS profile_name
+       FROM usuarios u
+       LEFT JOIN perfiles_acceso p ON p.codigo = u.rol
+       WHERE u.id = $1 AND u.eliminado_en IS NULL`,
       [decoded.id]
     );
     if (userRes.rows.length === 0) {
@@ -37,18 +41,42 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Sesión invalidada por cambio de contraseña. Por favor, inicie sesión de nuevo.' });
     }
 
+    const permissionProfile = await getEffectivePermissionProfile(pool, currentUser.id, currentUser.rol);
     req.user = {
       id: currentUser.id,
       correo: currentUser.correo,
       rol: currentUser.rol,
       nombre: currentUser.nombre,
+      cargo: currentUser.cargo,
+      profile_name: currentUser.profile_name || currentUser.rol,
       token_version: currentUser.token_version,
-      debe_cambiar_password: currentUser.debe_cambiar_password
+      debe_cambiar_password: currentUser.debe_cambiar_password,
+      permissions: permissionProfile.permissions,
+      recommended_permissions: permissionProfile.recommended_permissions
     };
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Token de Cookie inválido o expirado' });
   }
+};
+
+const verifyPermission = (permission) => {
+  return (req, res, next) => {
+    if (!req.user || !Array.isArray(req.user.permissions) || !req.user.permissions.includes(permission)) {
+      return res.status(403).json({ message: 'No tienes habilitada esta función.' });
+    }
+    next();
+  };
+};
+
+const verifyAnyPermission = (permissions) => {
+  return (req, res, next) => {
+    const available = new Set(req.user?.permissions || []);
+    if (!permissions.some((permission) => available.has(permission))) {
+      return res.status(403).json({ message: 'No tienes habilitada ninguna de las funciones requeridas.' });
+    }
+    next();
+  };
 };
 
 const verifyRole = (rolesAllowed) => {
@@ -60,4 +88,4 @@ const verifyRole = (rolesAllowed) => {
   };
 };
 
-module.exports = { verifyToken, verifyRole, JWT_SECRET };
+module.exports = { verifyToken, verifyRole, verifyPermission, verifyAnyPermission, JWT_SECRET };

@@ -11,17 +11,29 @@ const { randomUUID } = require('crypto');
 const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
-const { verifyToken, verifyRole, JWT_SECRET } = require('./middleware/auth');
+const { verifyToken, verifyPermission, verifyAnyPermission, JWT_SECRET } = require('./middleware/auth');
 const { runMigrations } = require('./migrations');
 const {
   normalizeEmail,
   sanitizeSnapshotRow,
   validateEmail,
-  validatePassword,
-  validateSystemRole
+  validatePassword
 } = require('./utils/security');
 const { calculateStatusAndSeverity } = require('./utils/punctuality');
+const { isIsoDate, validateDateRange } = require('./utils/validation');
 const { createPunctualityRouter } = require('./routes/punctuality');
+const {
+  attachPermissionProfile,
+  countActivePermissionHolders,
+  getAccessProfile,
+  getAccessProfiles,
+  getPermissionCatalog,
+  getRecommendedPermissions,
+  normalizeProfileCode,
+  replaceProfilePermissions,
+  replaceUserPermissionOverrides,
+  validatePermissionSelection
+} = require('./utils/permissions');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -118,8 +130,12 @@ const toPublicUser = (user) => ({
   id: user.id,
   correo: user.correo,
   rol: user.rol,
+  profile_name: user.profile_name || user.rol,
   nombre: user.nombre,
-  debe_cambiar_password: Boolean(user.debe_cambiar_password)
+  cargo: user.cargo || null,
+  debe_cambiar_password: Boolean(user.debe_cambiar_password),
+  permissions: Array.isArray(user.permissions) ? user.permissions : [],
+  recommended_permissions: Array.isArray(user.recommended_permissions) ? user.recommended_permissions : []
 });
 
 const setSessionCookie = (res, user) => {
@@ -279,7 +295,8 @@ const getClientIp = (req) => {
 app.use('/api/puntualidad', createPunctualityRouter({
   pool,
   verifyToken,
-  verifyRole,
+  verifyPermission,
+  verifyAnyPermission,
   insertarAudit,
   getClientIp
 }));
@@ -345,7 +362,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(correo);
     const userRes = await pool.query(
-      'SELECT * FROM usuarios WHERE LOWER(correo) = $1 LIMIT 1',
+      'SELECT * FROM usuarios WHERE LOWER(correo) = $1 AND eliminado_en IS NULL LIMIT 1',
       [normalizedEmail]
     );
 
@@ -404,10 +421,10 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
       `UPDATE usuarios
        SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_acceso = CURRENT_TIMESTAMP
        WHERE id = $1
-       RETURNING id, correo, rol, nombre, token_version, debe_cambiar_password`,
+       RETURNING id, correo, rol, nombre, cargo, token_version, debe_cambiar_password`,
       [user.id]
     );
-    const sessionUser = updatedUser.rows[0];
+    const sessionUser = await attachPermissionProfile(pool, updatedUser.rows[0]);
     setSessionCookie(res, sessionUser);
 
     await registrarAudit({
@@ -426,14 +443,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
 app.get('/api/auth/me', verifyToken, async (req, res) => {
   try {
-    const userRes = await pool.query(
-      'SELECT id, correo, rol, nombre, debe_cambiar_password FROM usuarios WHERE id = $1 AND activo = true',
-      [req.user.id]
-    );
-    if (userRes.rows.length === 0) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-    res.json({ user: toPublicUser(userRes.rows[0]) });
+    res.json({ user: toPublicUser(req.user) });
   } catch (err) {
     res.status(500).json({ message: 'Error en el servidor.' });
   }
@@ -491,7 +501,7 @@ app.post('/api/auth/change-password', verifyToken, async (req, res) => {
     });
     await client.query('COMMIT');
 
-    const sessionUser = updated.rows[0];
+    const sessionUser = await attachPermissionProfile(client, updated.rows[0]);
     setSessionCookie(res, sessionUser);
     res.json({ message: 'Contraseña actualizada.', user: toPublicUser(sessionUser) });
   } catch (err) {
@@ -566,7 +576,7 @@ app.put('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
 app.delete('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
 
 // STUDENTS CRUD
-app.get('/api/students', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.get('/api/students', verifyToken, verifyAnyPermission(['students.view', 'students.manage', 'students.import']), async (req, res) => {
   try {
     const query = `
       SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
@@ -582,7 +592,7 @@ app.get('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =>
   }
 });
 
-app.get('/api/students/search', verifyToken, async (req, res) => {
+app.get('/api/students/search', verifyToken, verifyAnyPermission(['punctuality.register', 'reports.generate', 'students.view', 'students.manage']), async (req, res) => {
   const { q } = req.query;
   const searchTerm = `%${(q || '').toString().trim().toLowerCase()}%`;
 
@@ -611,7 +621,7 @@ app.get('/api/students/search', verifyToken, async (req, res) => {
   }
 });
 
-app.get('/api/students/scan/:barcode', verifyToken, async (req, res) => {
+app.get('/api/students/scan/:barcode', verifyToken, verifyPermission('punctuality.register'), async (req, res) => {
   const { barcode } = req.params;
   const { tipo_registro } = req.query; // Entrada / Salida
   const cleanBarcode = sanitizeText(barcode).toUpperCase().replace(/\./g, '');
@@ -681,7 +691,7 @@ app.get('/api/students/scan/:barcode', verifyToken, async (req, res) => {
   }
 });
 
-app.get('/api/students/:id/status', verifyToken, async (req, res) => {
+app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
   const { id } = req.params;
   const { tipo_registro } = req.query; // Entrada / Salida
 
@@ -731,7 +741,7 @@ app.get('/api/students/:id/status', verifyToken, async (req, res) => {
 // ATTENDANCE REGISTRATIONS
 // Alias transitorio de ingreso: conserva lectores instalados mientras se migra
 // su destino a POST /api/puntualidad/registros. Aplica las mismas reglas.
-app.post('/api/asistencia', verifyToken, async (req, res) => {
+app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'), async (req, res) => {
   const { id_alumno } = req.body;
   if (!id_alumno) {
     return res.status(400).json({ message: 'ID del alumno es requerido.' });
@@ -748,7 +758,7 @@ app.post('/api/asistencia', verifyToken, async (req, res) => {
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
     const currentTimeStr = await getInstitutionalClock(client);
     const { status, severidad } = calculateStatusAndSeverity('Entrada', currentTimeStr, config);
-    const origen = req.user.rol === 'lector' ? 'lector' : 'manual';
+    const origen = 'lector';
     const insertQuery = `
       INSERT INTO attendance_registrations
         (id_alumno, fecha, hora, estado, tipo_registro, severidad, origen, registrado_por, creado_en)
@@ -784,7 +794,7 @@ app.post('/api/asistencia', verifyToken, async (req, res) => {
 
 
 // BULK SYNC EXCEL IMPORT
-app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.import'), async (req, res) => {
   const rows = Array.isArray(req.body?.students) ? req.body.students : [];
   if (!rows.length) {
     return res.status(400).json({ message: 'No se recibieron filas para procesar.' });
@@ -981,7 +991,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyRole(['admin']), async (r
 });
 
 // GET SINGLE STUDENT DETAILS
-app.get('/api/students/:id/details', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students.view', 'students.manage']), async (req, res) => {
   const { id } = req.params;
   try {
     const query = `
@@ -1003,7 +1013,7 @@ app.get('/api/students/:id/details', verifyToken, verifyRole(['admin']), async (
 });
 
 // CREATE STUDENT
-app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.post('/api/students', verifyToken, verifyPermission('students.manage'), async (req, res) => {
   const { rut, dv, nombres, paterno, materno, email, telefono, rol, grade } = req.body;
   if (!rut || !nombres || !paterno) {
     return res.status(400).json({ message: 'RUT, nombres y apellido paterno son requeridos.' });
@@ -1067,7 +1077,7 @@ app.post('/api/students', verifyToken, verifyRole(['admin']), async (req, res) =
 });
 
 // UPDATE STUDENT
-app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.put('/api/students/:id', verifyToken, verifyPermission('students.manage'), async (req, res) => {
   const { id } = req.params;
   const { nombres, paterno, materno, email, telefono, rol, grade } = req.body;
   const client = await pool.connect();
@@ -1123,7 +1133,7 @@ app.put('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res
 });
 
 // DELETE STUDENT
-app.delete('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.delete('/api/students/:id', verifyToken, verifyPermission('students.manage'), async (req, res) => {
   const { id } = req.params;
   try {
     await pool.query('UPDATE alumno SET activo = false WHERE id_alumno = $1', [id]);
@@ -1143,72 +1153,229 @@ app.delete('/api/students/:id', verifyToken, verifyRole(['admin']), async (req, 
   }
 });
 
-// SYSTEM USERS CRUD
-app.get('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
+// ACCESS PROFILES AND STAFF ACCOUNTS
+app.get('/api/permissions/catalog', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  try {
+    const [permissions, templates] = await Promise.all([
+      getPermissionCatalog(pool),
+      getAccessProfiles(pool)
+    ]);
+    res.json({ permissions, templates });
+  } catch (err) {
+    console.error('[permissions/catalog]', err.message);
+    res.status(500).json({ message: 'No fue posible obtener el catálogo de permisos.' });
+  }
+});
+
+app.post('/api/access-profiles', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const name = sanitizeText(req.body?.name).slice(0, 100);
+  const description = sanitizeText(req.body?.description).slice(0, 280);
+  if (name.length < 2) return res.status(400).json({ message: 'El nombre del perfil debe tener al menos 2 caracteres.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const permissionValidation = await validatePermissionSelection(client, req.body?.permissions || []);
+    if (permissionValidation.error) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: permissionValidation.error });
+    }
+
+    const baseCode = normalizeProfileCode(name) || 'perfil';
+    let code = baseCode;
+    let suffix = 2;
+    while ((await client.query('SELECT 1 FROM perfiles_acceso WHERE codigo = $1', [code])).rows.length) {
+      code = `${baseCode.slice(0, 42)}_${suffix}`;
+      suffix += 1;
+    }
+
+    await client.query(`
+      INSERT INTO perfiles_acceso (codigo, nombre, descripcion, sistema, activo, orden)
+      VALUES ($1, $2, $3, false, true, 70)
+    `, [code, name, description]);
+    await replaceProfilePermissions(client, code, permissionValidation.permissions);
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'CREAR_PERFIL_ACCESO',
+      entidad: 'perfil_acceso',
+      detalle: { codigo: code, nombre: name, permisos: permissionValidation.permissions },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+    res.status(201).json({ message: 'Perfil de usuario creado.', profile: { value: code, label: name } });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe un perfil con ese nombre.' });
+    console.error('[access-profiles:create]', err.message);
+    res.status(500).json({ message: 'No fue posible crear el perfil.' });
+  } finally {
+    client.release();
+  }
+});
+
+app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const name = sanitizeText(req.body?.name).slice(0, 100);
+  const description = sanitizeText(req.body?.description).slice(0, 280);
+  if (name.length < 2) return res.status(400).json({ message: 'El nombre del perfil debe tener al menos 2 caracteres.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await getAccessProfile(client, code, { includeInactive: true });
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Perfil de usuario no encontrado.' });
+    }
+    const permissionValidation = await validatePermissionSelection(client, req.body?.permissions || []);
+    if (permissionValidation.error) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: permissionValidation.error });
+    }
+
+    await client.query(`
+      UPDATE perfiles_acceso
+      SET nombre = $1, descripcion = $2, actualizado_en = CURRENT_TIMESTAMP
+      WHERE codigo = $3
+    `, [name, description, code]);
+    await replaceProfilePermissions(client, code, permissionValidation.permissions);
+
+    if (await countActivePermissionHolders(client, 'users.manage') === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
+    }
+
+    await client.query('UPDATE usuarios SET token_version = token_version + 1 WHERE rol = $1', [code]);
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'EDITAR_PERFIL_ACCESO',
+      entidad: 'perfil_acceso',
+      detalle: {
+        codigo: code,
+        antes: { nombre: current.nombre, descripcion: current.descripcion },
+        despues: { nombre: name, descripcion, permisos: permissionValidation.permissions }
+      },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+
+    if (req.user.rol === code) {
+      const refreshed = await pool.query('SELECT * FROM usuarios WHERE id = $1', [req.user.id]);
+      const sessionUser = await attachPermissionProfile(pool, refreshed.rows[0]);
+      setSessionCookie(res, sessionUser);
+    }
+    res.json({ message: 'Perfil y permisos recomendados actualizados.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe un perfil con ese nombre.' });
+    console.error('[access-profiles:update]', err.message);
+    res.status(500).json({ message: 'No fue posible actualizar el perfil.' });
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   try {
     const resU = await pool.query(`
-      SELECT id, correo, rol, nombre, fecha_creacion, activo, debe_cambiar_password,
-             ultimo_acceso, password_actualizado_en
-      FROM usuarios
-      ORDER BY activo DESC, COALESCE(nombre, correo) ASC
+      SELECT u.id, u.correo, u.rol, u.nombre, u.cargo,
+             u.fecha_creacion, u.activo, u.debe_cambiar_password,
+             u.ultimo_acceso, u.password_actualizado_en
+      FROM usuarios u
+      WHERE u.eliminado_en IS NULL
+      ORDER BY u.activo DESC, COALESCE(u.nombre, u.correo) ASC
     `);
-    res.json(resU.rows);
+    const users = await Promise.all(resU.rows.map((user) => attachPermissionProfile(pool, user)));
+    res.json(users);
   } catch (err) {
+    console.error('[users:list]', err.message);
     res.status(500).json({ message: 'Error al obtener usuarios.' });
   }
 });
 
-app.post('/api/users', verifyToken, verifyRole(['admin']), async (req, res) => {
-  const { correo, password, rol, nombre } = req.body;
-  if (!correo || !password || !rol) {
+app.post('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const { correo, password, rol, nombre, cargo } = req.body;
+  if (!correo || !password || !rol || !nombre || !cargo) {
     return res.status(400).json({ message: 'Faltan campos requeridos.' });
   }
   const normalizedEmail = normalizeEmail(correo);
   const emailError = validateEmail(normalizedEmail);
   if (emailError) return res.status(400).json({ message: emailError });
-  if (!validateSystemRole(rol)) {
-    return res.status(400).json({ message: 'El rol seleccionado no es válido.' });
-  }
   const passwordError = validatePassword(password);
   if (passwordError) return res.status(400).json({ message: passwordError });
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    if (!await getAccessProfile(client, rol)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'El perfil de usuario seleccionado no existe o está inactivo.' });
+    }
+    const selectedPermissions = req.body.permissions === undefined
+      ? await getRecommendedPermissions(client, rol)
+      : req.body.permissions;
+    const permissionValidation = await validatePermissionSelection(client, selectedPermissions);
+    if (permissionValidation.error) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: permissionValidation.error });
+    }
     const hash = await bcrypt.hash(password, 12);
+    const safeName = sanitizeText(nombre).slice(0, 100);
+    const safeCargo = sanitizeText(cargo).slice(0, 100);
+    if (safeName.length < 2 || safeCargo.length < 2) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'El nombre y el cargo del personal son obligatorios.' });
+    }
     const created = await client.query(
-      `INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password)
-       VALUES ($1, $2, $3, $4, true)
-       RETURNING id, correo, rol, nombre, fecha_creacion, activo, debe_cambiar_password`,
-      [normalizedEmail, hash, rol, sanitizeText(nombre).slice(0, 100) || null]
+      `INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING id, correo, rol, nombre, cargo, fecha_creacion, activo, debe_cambiar_password`,
+      [normalizedEmail, hash, rol, safeName, safeCargo]
     );
+    await replaceUserPermissionOverrides(client, {
+      userId: created.rows[0].id,
+      role: rol,
+      permissions: permissionValidation.permissions,
+      updatedBy: req.user.id
+    });
+    const createdUser = await attachPermissionProfile(client, created.rows[0]);
     await insertarAudit(client, {
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,
       accion: 'CREAR_USUARIO',
       entidad: 'usuario',
       entidad_id: created.rows[0].id,
-      detalle: { correo: normalizedEmail, rol, nombre: sanitizeText(nombre).slice(0, 100) || null },
+      detalle: {
+        correo: normalizedEmail,
+        rol,
+        nombre: safeName,
+        cargo: safeCargo,
+        permisos: createdUser.permissions
+      },
       ip: getClientIp(req)
     });
     await client.query('COMMIT');
-    res.status(201).json({ message: 'Usuario creado con contraseña temporal.', user: created.rows[0] });
+    res.status(201).json({ message: 'Cuenta creada con contraseña temporal.', user: createdUser });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
-    res.status(500).json({ message: 'Error al crear usuario.' });
+    if (err.code === '23505') {
+      return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
+    }
+    console.error('[users:create]', err.message);
+    res.status(500).json({ message: 'Error al crear la cuenta.' });
   } finally {
     client.release();
   }
 });
 
-app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) => {
+app.put('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   const { id } = req.params;
-  const { correo, password, rol, nombre } = req.body;
+  const { correo, password, rol, nombre, cargo } = req.body;
   const normalizedEmail = normalizeEmail(correo);
   const emailError = validateEmail(normalizedEmail);
   if (emailError) return res.status(400).json({ message: emailError });
-  if (!validateSystemRole(rol)) return res.status(400).json({ message: 'El rol seleccionado no es válido.' });
   if (password) {
     const passwordError = validatePassword(password);
     if (passwordError) return res.status(400).json({ message: passwordError });
@@ -1217,23 +1384,44 @@ app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) =
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const targetRes = await client.query('SELECT * FROM usuarios WHERE id = $1 FOR UPDATE', [id]);
+    const targetRes = await client.query('SELECT * FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
     if (targetRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
     const target = targetRes.rows[0];
-
-    if (target.activo && target.rol === 'admin' && rol !== 'admin') {
-      const adminCount = await client.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin' AND activo = true");
-      if (adminCount.rows[0].total <= 1) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'No se puede quitar el rol al último administrador.' });
-      }
+    if (!await getAccessProfile(client, rol, { includeInactive: target.rol === rol })) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'El perfil de usuario seleccionado no existe o está inactivo.' });
     }
 
-    const safeName = sanitizeText(nombre).slice(0, 100) || null;
-    const securityChanged = target.correo !== normalizedEmail || target.rol !== rol || Boolean(password);
+    const currentProfile = await attachPermissionProfile(client, target);
+    const selectedPermissions = req.body.permissions === undefined
+      ? currentProfile.permissions
+      : req.body.permissions;
+    const permissionValidation = await validatePermissionSelection(client, selectedPermissions);
+    if (permissionValidation.error) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: permissionValidation.error });
+    }
+
+    if (target.activo
+      && currentProfile.permissions.includes('users.manage')
+      && !permissionValidation.permissions.includes('users.manage')
+      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
+    }
+
+    const safeName = sanitizeText(nombre).slice(0, 100);
+    const safeCargo = sanitizeText(cargo).slice(0, 100);
+    if (safeName.length < 2 || safeCargo.length < 2) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'El nombre y el cargo del personal son obligatorios.' });
+    }
+    const permissionsChanged = JSON.stringify([...currentProfile.permissions].sort())
+      !== JSON.stringify([...permissionValidation.permissions].sort());
+    const securityChanged = target.correo !== normalizedEmail || target.rol !== rol || Boolean(password) || permissionsChanged;
     let hash = null;
     if (password) {
       hash = await bcrypt.hash(password, 12);
@@ -1245,17 +1433,26 @@ app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) =
           password_hash = COALESCE($2, password_hash),
           rol = $3,
           nombre = $4,
+          cargo = $5,
           debe_cambiar_password = CASE
-            WHEN $2::text IS NOT NULL AND id <> $5 THEN true
+            WHEN $2::text IS NOT NULL AND id <> $6 THEN true
             WHEN $2::text IS NOT NULL THEN false
             ELSE debe_cambiar_password
           END,
           password_actualizado_en = CASE WHEN $2::text IS NOT NULL THEN CURRENT_TIMESTAMP ELSE password_actualizado_en END,
-          token_version = token_version + CASE WHEN $6 THEN 1 ELSE 0 END
-      WHERE id = $7
-      RETURNING id, correo, rol, nombre, token_version, fecha_creacion, activo,
+          token_version = token_version + CASE WHEN $7 THEN 1 ELSE 0 END
+      WHERE id = $8
+      RETURNING id, correo, rol, nombre, cargo, token_version, fecha_creacion, activo,
                 debe_cambiar_password, ultimo_acceso, password_actualizado_en
-    `, [normalizedEmail, hash, rol, safeName, req.user.id, securityChanged, id]);
+    `, [normalizedEmail, hash, rol, safeName, safeCargo, req.user.id, securityChanged, id]);
+
+    await replaceUserPermissionOverrides(client, {
+      userId: target.id,
+      role: rol,
+      permissions: permissionValidation.permissions,
+      updatedBy: req.user.id
+    });
+    const updatedUser = await attachPermissionProfile(client, updated.rows[0]);
 
     await insertarAudit(client, {
       usuario_id: req.user.id,
@@ -1264,20 +1461,22 @@ app.put('/api/users/:id', verifyToken, verifyRole(['admin']), async (req, res) =
       entidad: 'usuario',
       entidad_id: parseInt(id, 10),
       detalle: {
-        antes: { correo: target.correo, rol: target.rol, nombre: target.nombre },
-        despues: { correo: normalizedEmail, rol, nombre: safeName },
+        antes: { correo: target.correo, rol: target.rol, nombre: target.nombre, cargo: target.cargo, permisos: currentProfile.permissions },
+        despues: { correo: normalizedEmail, rol, nombre: safeName, cargo: safeCargo, permisos: updatedUser.permissions },
         cambio_password: Boolean(password)
       },
       ip: getClientIp(req)
     });
     await client.query('COMMIT');
 
-    const user = updated.rows[0];
-    if (parseInt(id, 10) === req.user.id && securityChanged) setSessionCookie(res, user);
-    res.json({ message: 'Usuario actualizado.', user });
+    if (parseInt(id, 10) === req.user.id && securityChanged) setSessionCookie(res, updatedUser);
+    res.json({ message: 'Usuario actualizado.', user: updatedUser });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
+    if (err.code === '23505') {
+      return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
+    }
+    console.error('[users:update]', err.message);
     res.status(500).json({ message: 'Error al actualizar usuario.' });
   } finally {
     client.release();
@@ -1297,18 +1496,19 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const targetRes = await client.query('SELECT id, correo, rol, nombre, activo FROM usuarios WHERE id = $1 FOR UPDATE', [id]);
+    const targetRes = await client.query('SELECT id, correo, rol, nombre, cargo, activo FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
     if (targetRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
     const target = targetRes.rows[0];
-    if (!requestedStatus && target.activo && target.rol === 'admin') {
-      const adminCount = await client.query("SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = 'admin' AND activo = true");
-      if (adminCount.rows[0].total <= 1) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'No se puede desactivar el último administrador.' });
-      }
+    const targetProfile = await attachPermissionProfile(client, target);
+    if (!requestedStatus
+      && target.activo
+      && targetProfile.permissions.includes('users.manage')
+      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
     }
 
     const updated = await client.query(`
@@ -1318,7 +1518,7 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
           intentos_fallidos = CASE WHEN $1 THEN 0 ELSE intentos_fallidos END,
           bloqueado_hasta = CASE WHEN $1 THEN NULL ELSE bloqueado_hasta END
       WHERE id = $2
-      RETURNING id, correo, rol, nombre, activo, debe_cambiar_password, fecha_creacion,
+      RETURNING id, correo, rol, nombre, cargo, activo, debe_cambiar_password, fecha_creacion,
                 ultimo_acceso, password_actualizado_en
     `, [requestedStatus, id]);
 
@@ -1345,12 +1545,87 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
   }
 };
 
-app.patch('/api/users/:id/status', verifyToken, verifyRole(['admin']), (req, res) => setUserActiveStatus(req, res));
-app.delete('/api/users/:id', verifyToken, verifyRole(['admin']), (req, res) => setUserActiveStatus(req, res, false));
+app.patch('/api/users/:id/status', verifyToken, verifyPermission('users.manage'), (req, res) => setUserActiveStatus(req, res));
+
+app.delete('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  const reason = sanitizeText(req.body?.motivo).slice(0, 280);
+  if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'La cuenta seleccionada no es válida.' });
+  if (userId === req.user.id) return res.status(409).json({ message: 'No puedes eliminar la cuenta con la que tienes la sesión iniciada.' });
+  if (reason.length < 8) return res.status(400).json({ message: 'Indica un motivo de eliminación de al menos 8 caracteres.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const targetRes = await client.query(
+      'SELECT id, correo, rol, nombre, cargo, activo FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE',
+      [userId]
+    );
+    if (!targetRes.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'La cuenta no existe o ya fue eliminada.' });
+    }
+
+    const target = targetRes.rows[0];
+    const targetProfile = await attachPermissionProfile(client, target);
+    if (target.activo
+      && targetProfile.permissions.includes('users.manage')
+      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
+    }
+
+    await client.query(`
+      UPDATE usuarios
+      SET activo = false,
+          eliminado_en = CURRENT_TIMESTAMP,
+          eliminado_por = $1,
+          motivo_eliminacion = $2,
+          token_version = token_version + 1,
+          bloqueado_hasta = NULL
+      WHERE id = $3
+    `, [req.user.id, reason, userId]);
+
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'ELIMINAR_USUARIO',
+      entidad: 'usuario',
+      entidad_id: userId,
+      detalle: {
+        cuenta_eliminada: { correo: target.correo, nombre: target.nombre, cargo: target.cargo, rol: target.rol },
+        motivo: reason
+      },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+    res.json({ message: 'Cuenta eliminada. Su historial institucional se conserva en auditoría.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[users:delete]', err.message);
+    res.status(500).json({ message: 'No fue posible eliminar la cuenta.' });
+  } finally {
+    client.release();
+  }
+});
 
 // SYSTEM AUDIT
-app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
-  const { accion, usuario_correo, desde, hasta, page = '1', limit = '20' } = req.query;
+app.get('/api/audit', verifyToken, verifyPermission('audit.view'), async (req, res) => {
+  const { accion, usuario_correo, cuenta_id, relacion = 'todas', desde, hasta, page = '1', limit = '20' } = req.query;
+
+  if ((desde && !isIsoDate(desde)) || (hasta && !isIsoDate(hasta))) {
+    return res.status(400).json({ message: 'Las fechas de auditoría no son válidas.' });
+  }
+  if (desde && hasta) {
+    const dateRange = validateDateRange(desde, hasta, { maxDays: 3650 });
+    if (dateRange.error) return res.status(400).json({ message: dateRange.error });
+  }
+  if (!['todas', 'realizada', 'sobre_cuenta'].includes(relacion)) {
+    return res.status(400).json({ message: 'El tipo de actividad solicitado no es válido.' });
+  }
+  if (!cuenta_id && relacion !== 'todas') {
+    return res.status(400).json({ message: 'El filtro de relación requiere una cuenta seleccionada.' });
+  }
 
   const pageNum = Math.max(1, parseInt(page, 10) || 1);
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
@@ -1359,6 +1634,32 @@ app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
   const conditions = [];
   const params = [];
   let idx = 1;
+  let subject = null;
+  let accountParamIndex = null;
+
+  if (cuenta_id) {
+    const accountId = parseInt(cuenta_id, 10);
+    if (!Number.isInteger(accountId) || accountId <= 0) return res.status(400).json({ message: 'La cuenta indicada no es válida.' });
+    const subjectRes = await pool.query(`
+      SELECT u.id, u.correo, u.nombre, u.cargo, u.rol, u.activo, u.eliminado_en,
+             p.nombre AS profile_name
+      FROM usuarios u
+      LEFT JOIN perfiles_acceso p ON p.codigo = u.rol
+      WHERE u.id = $1
+    `, [accountId]);
+    if (!subjectRes.rows.length) return res.status(404).json({ message: 'La cuenta indicada no existe.' });
+    subject = subjectRes.rows[0];
+    accountParamIndex = idx;
+    if (relacion === 'realizada') {
+      conditions.push(`a.usuario_id = $${idx}`);
+    } else if (relacion === 'sobre_cuenta') {
+      conditions.push(`(a.entidad = 'usuario' AND a.entidad_id = $${idx} AND a.usuario_id IS DISTINCT FROM $${idx})`);
+    } else {
+      conditions.push(`(a.usuario_id = $${idx} OR (a.entidad = 'usuario' AND a.entidad_id = $${idx}))`);
+    }
+    params.push(accountId);
+    idx += 1;
+  }
 
   if (accion)          { conditions.push(`a.accion = $${idx++}`);                          params.push(accion.trim()); }
   if (usuario_correo)  { conditions.push(`a.usuario_correo ILIKE $${idx++}`);              params.push(`%${usuario_correo.trim()}%`); }
@@ -1374,9 +1675,13 @@ app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
     );
     const total = parseInt(countRes.rows[0].count, 10);
 
+    const relationshipSelection = accountParamIndex
+      ? `CASE WHEN a.usuario_id = $${accountParamIndex} THEN 'realizada' ELSE 'sobre_cuenta' END`
+      : 'NULL::text';
     const dataRes = await pool.query(
       `SELECT a.id, a.usuario_id, a.usuario_correo, u.nombre AS usuario_nombre,
-              a.accion, a.entidad, a.entidad_id, a.detalle, a.ip, a.fecha
+              a.accion, a.entidad, a.entidad_id, a.detalle, a.ip, a.fecha,
+              ${relationshipSelection} AS relacion_cuenta
        FROM audit_log a
        LEFT JOIN usuarios u ON u.id = a.usuario_id
        ${whereClause}
@@ -1385,7 +1690,7 @@ app.get('/api/audit', verifyToken, verifyRole(['admin']), async (req, res) => {
       [...params, limitNum, offset]
     );
 
-    res.json({ total, page: pageNum, pages: Math.ceil(total / limitNum) || 1, rows: dataRes.rows });
+    res.json({ total, page: pageNum, pages: Math.ceil(total / limitNum) || 1, rows: dataRes.rows, subject });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Error al obtener auditoría.' });

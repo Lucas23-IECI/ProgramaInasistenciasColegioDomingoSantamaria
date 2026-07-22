@@ -1,6 +1,6 @@
 import React, { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowRight, CheckCircle2, KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
 
@@ -17,11 +17,16 @@ const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
+  const [visibleFields, setVisibleFields] = useState({ current: false, next: false, confirmation: false });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const rulesPass = PASSWORD_RULES.every((rule) => rule.test(newPassword));
   const matches = newPassword && newPassword === confirmation;
+
+  const toggleVisibility = (field) => {
+    setVisibleFields((current) => ({ ...current, [field]: !current[field] }));
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -73,18 +78,36 @@ const ChangePassword = () => {
           {error && <div className="password-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div>}
 
           <form className="password-form" onSubmit={handleSubmit}>
-            <label>
-              <span>Contraseña temporal o actual</span>
-              <div className="password-input-wrap"><LockKeyhole size={18} /><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></div>
-            </label>
-            <label>
-              <span>Nueva contraseña</span>
-              <div className="password-input-wrap"><KeyRound size={18} /><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required /></div>
-            </label>
-            <label>
-              <span>Confirmar nueva contraseña</span>
-              <div className="password-input-wrap"><CheckCircle2 size={18} /><input type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required /></div>
-            </label>
+            <div className="password-field">
+              <label htmlFor="current-password">Contraseña temporal o actual</label>
+              <div className="password-input-wrap">
+                <LockKeyhole size={18} aria-hidden="true" />
+                <input id="current-password" type={visibleFields.current ? 'text' : 'password'} value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
+                <button type="button" className="password-visibility-toggle" onClick={() => toggleVisibility('current')} aria-label={visibleFields.current ? 'Ocultar contraseña temporal o actual' : 'Mostrar contraseña temporal o actual'} aria-pressed={visibleFields.current}>
+                  {visibleFields.current ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+            <div className="password-field">
+              <label htmlFor="new-password">Nueva contraseña</label>
+              <div className="password-input-wrap">
+                <KeyRound size={18} aria-hidden="true" />
+                <input id="new-password" type={visibleFields.next ? 'text' : 'password'} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" required />
+                <button type="button" className="password-visibility-toggle" onClick={() => toggleVisibility('next')} aria-label={visibleFields.next ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'} aria-pressed={visibleFields.next}>
+                  {visibleFields.next ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+            <div className="password-field">
+              <label htmlFor="password-confirmation">Confirmar nueva contraseña</label>
+              <div className="password-input-wrap">
+                <CheckCircle2 size={18} aria-hidden="true" />
+                <input id="password-confirmation" type={visibleFields.confirmation ? 'text' : 'password'} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required />
+                <button type="button" className="password-visibility-toggle" onClick={() => toggleVisibility('confirmation')} aria-label={visibleFields.confirmation ? 'Ocultar confirmación de contraseña' : 'Mostrar confirmación de contraseña'} aria-pressed={visibleFields.confirmation}>
+                  {visibleFields.confirmation ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
 
             <div className="password-rules" aria-label="Requisitos de contraseña">
               {PASSWORD_RULES.map((rule) => {

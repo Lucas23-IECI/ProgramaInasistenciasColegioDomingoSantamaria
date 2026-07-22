@@ -48,7 +48,7 @@ const getInstitutionalNow = async (queryable) => {
 
 const parseRegistrationId = (value) => asBoundedInteger(value, 1, 2147483647);
 
-const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit, getClientIp }) => {
+const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPermission, insertarAudit, getClientIp }) => {
   const router = express.Router();
 
   router.use(verifyToken);
@@ -64,7 +64,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.put('/config', verifyRole(['admin']), async (req, res) => {
+  router.put('/config', verifyPermission('settings.manage'), async (req, res) => {
     const validation = validatePunctualityConfig(req.body);
     if (validation.error) return res.status(400).json({ message: validation.error });
 
@@ -122,7 +122,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.post('/registros', async (req, res) => {
+  router.post('/registros', verifyPermission('punctuality.register'), async (req, res) => {
     const studentId = asBoundedInteger(req.body?.id_alumno, 1, 2147483647);
     if (!studentId) return res.status(400).json({ message: 'El identificador del alumno no es válido.' });
 
@@ -146,7 +146,8 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
       const config = await getConfig(client);
       const now = await getInstitutionalNow(client);
       const { status, severidad } = calculateStatusAndSeverity('Entrada', now.hora, config || {});
-      const origen = req.user.rol === 'lector' ? 'lector' : 'manual';
+      const requestedOrigin = String(req.body?.origen || 'manual').trim().toLowerCase();
+      const origen = requestedOrigin === 'lector' ? 'lector' : 'manual';
 
       const inserted = await client.query(`
         INSERT INTO attendance_registrations
@@ -194,7 +195,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/hoy', async (req, res) => {
+  router.get('/hoy', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
     try {
       const result = await pool.query(`
         SELECT r.id_registro, r.fecha, r.hora, r.estado, r.severidad, r.justificado,
@@ -221,7 +222,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/resumen-hoy', async (req, res) => {
+  router.get('/resumen-hoy', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
     try {
       const result = await pool.query(`
         SELECT
@@ -248,7 +249,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.patch('/registros/:id/corregir', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.patch('/registros/:id/corregir', verifyPermission('punctuality.correct'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
@@ -330,7 +331,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.patch('/registros/:id/anular', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.patch('/registros/:id/anular', verifyPermission('punctuality.cancel'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
@@ -390,7 +391,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.post('/registros/:id/justificar', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.post('/registros/:id/justificar', verifyPermission('punctuality.justify'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.comentario, { min: 5, max: 500 });
     const justificationType = String(req.body?.tipo || 'apoderado').trim().toLowerCase();
@@ -502,7 +503,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.patch('/registros/:id/revocar-justificacion', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.patch('/registros/:id/revocar-justificacion', verifyPermission('punctuality.justify'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
@@ -572,7 +573,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/registros/:id/historial', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.get('/registros/:id/historial', verifyAnyPermission(['punctuality.view', 'punctuality.correct', 'punctuality.cancel', 'punctuality.justify']), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
     try {
@@ -591,7 +592,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/registros/:id/documento', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.get('/registros/:id/documento', verifyAnyPermission(['punctuality.view', 'punctuality.justify']), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
 
@@ -624,7 +625,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/analitica', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.get('/analitica', verifyPermission('analytics.view'), async (req, res) => {
     const { desde, hasta, id_curso: courseIdRaw, justificado, severidad } = req.query;
     const range = validateDateRange(desde, hasta);
     if (range.error) return res.status(400).json({ message: range.error });
@@ -759,7 +760,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/reporte', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.get('/reporte', verifyPermission('reports.generate'), async (req, res) => {
     const { desde, hasta, curso_id: courseIdRaw, alumno_id: studentIdRaw, alumnos_ids: studentIdsRaw } = req.query;
     const range = validateDateRange(desde, hasta);
     if (range.error) return res.status(400).json({ message: range.error });
@@ -816,7 +817,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyRole, insertarAudit,
     }
   });
 
-  router.get('/alertas', verifyRole(['admin', 'secretaria']), async (req, res) => {
+  router.get('/alertas', verifyPermission('analytics.view'), async (req, res) => {
     const days = asBoundedInteger(req.query?.dias || 30, 7, 180);
     if (!days) return res.status(400).json({ message: 'El período de alertas debe estar entre 7 y 180 días.' });
 

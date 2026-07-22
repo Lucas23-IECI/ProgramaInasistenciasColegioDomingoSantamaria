@@ -70,10 +70,14 @@ CREATE TABLE usuarios (
   password_hash VARCHAR(255) NOT NULL,
   rol VARCHAR(20) NOT NULL CONSTRAINT ck_usuarios_rol CHECK (rol IN ('admin', 'secretaria', 'lector')),
   nombre VARCHAR(100),
+  cargo VARCHAR(100),
   fecha_creacion TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   intentos_fallidos INT DEFAULT 0,
   bloqueado_hasta TIMESTAMPTZ,
-  token_version INT DEFAULT 1
+  token_version INT DEFAULT 1,
+  eliminado_en TIMESTAMPTZ,
+  eliminado_por INT REFERENCES usuarios(id) ON DELETE SET NULL,
+  motivo_eliminacion TEXT
 );
 
 -- Metadata de certificados y documentos de justificación.

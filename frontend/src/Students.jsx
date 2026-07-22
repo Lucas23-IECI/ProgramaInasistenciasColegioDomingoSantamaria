@@ -8,6 +8,7 @@ import { API_URL } from './config';
 import { AuthContext } from './context/AuthContext';
 import ModuleHeader from './components/ModuleHeader';
 import AppSelect from './components/AppSelect';
+import { PERMISSIONS, hasPermission } from './permissions';
 
 const normalizeHeaderKey = (value) => {
   return String(value || '')
@@ -29,7 +30,9 @@ const getCell = (row, aliases) => {
 };
 
 function Students() {
-  const { logout } = useContext(AuthContext);
+  const { logout, user } = useContext(AuthContext);
+  const canImport = hasPermission(user, PERMISSIONS.STUDENTS_IMPORT);
+  const canViewAnalytics = hasPermission(user, PERMISSIONS.ANALYTICS_VIEW);
   const [activeSection, setActiveSection] = useState('listado');
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -73,8 +76,8 @@ function Students() {
 
   useEffect(() => {
     fetchStudents();
-    fetchAlertasTempranas();
-  }, []);
+    if (canViewAnalytics) fetchAlertasTempranas();
+  }, [canViewAnalytics]);
 
   useEffect(() => {
     setPage(1);
@@ -309,7 +312,7 @@ function Students() {
           >
             <Users size={16} /> Padrón de personas
           </button>
-          <button
+          {canImport && <button
             className={`students-tab ${activeSection === 'carga' ? 'active' : ''}`}
             onClick={() => {
               setActiveSection('carga');
@@ -317,7 +320,7 @@ function Students() {
             }}
           >
             <Database size={16} /> Importar Excel ERP
-          </button>
+          </button>}
         </div>
 
         {activeSection === 'listado' && loading ? (

@@ -1,12 +1,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
+import { RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList, UserRound, X } from 'lucide-react';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
 import AppSelect from './components/AppSelect';
 const PAGE_SIZE = 20;
+
+const toLocalIsoDate = (date) => [
+  date.getFullYear(),
+  String(date.getMonth() + 1).padStart(2, '0'),
+  String(date.getDate()).padStart(2, '0'),
+].join('-');
+
+const today = new Date();
+const thirtyDaysAgo = new Date(today);
+thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+const DEFAULT_AUDIT_PERIOD = {
+  from: toLocalIsoDate(thirtyDaysAgo),
+  to: toLocalIsoDate(today),
+};
+
+const formatPeriodDate = (value) => new Intl.DateTimeFormat('es-CL', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+}).format(new Date(`${value}T12:00:00`)).replace(/\./g, '');
 
 // ─── Catálogo de acciones auditables ──────────────────────────────────────────
 const ACCIONES = [
@@ -21,6 +41,7 @@ const ACCIONES = [
   'REVOCAR_JUSTIFICACION_ATRASO',
   'CREAR_USUARIO',
   'EDITAR_USUARIO',
+  'ELIMINAR_USUARIO',
   'ACTIVAR_USUARIO',
   'DESACTIVAR_USUARIO',
   'CAMBIAR_PASSWORD_PROPIA',
@@ -28,6 +49,8 @@ const ACCIONES = [
   'CREAR_ALUMNO',
   'EDITAR_ALUMNO',
   'DESACTIVAR_ALUMNO',
+  'CREAR_PERFIL_ACCESO',
+  'EDITAR_PERFIL_ACCESO',
 ];
 
 const BADGE_STYLE = {
@@ -42,6 +65,7 @@ const BADGE_STYLE = {
   REVOCAR_JUSTIFICACION_ATRASO: { background: '#f1f5f9', color: '#475569' },
   CREAR_USUARIO:            { background: '#ede9fe', color: '#6d28d9' },
   EDITAR_USUARIO:           { background: '#fef9c3', color: '#854d0e' },
+  ELIMINAR_USUARIO:         { background: '#fee2e2', color: '#991b1b' },
   ACTIVAR_USUARIO:          { background: '#dcfce7', color: '#166534' },
   DESACTIVAR_USUARIO:       { background: '#fee2e2', color: '#b91c1c' },
   CAMBIAR_PASSWORD_PROPIA:  { background: '#f3e8ff', color: '#6b21a8' },
@@ -49,6 +73,8 @@ const BADGE_STYLE = {
   CREAR_ALUMNO:             { background: '#ede9fe', color: '#6d28d9' },
   EDITAR_ALUMNO:            { background: '#fef9c3', color: '#854d0e' },
   DESACTIVAR_ALUMNO:        { background: '#fee2e2', color: '#b91c1c' },
+  CREAR_PERFIL_ACCESO:      { background: '#dbeafe', color: '#1d4ed8' },
+  EDITAR_PERFIL_ACCESO:     { background: '#e0e7ff', color: '#4338ca' },
 };
 
 const badgeStyle = (accion) => ({
@@ -71,7 +97,7 @@ const formatFecha = (iso) => {
 };
 
 // ─── Fila de la tabla ─────────────────────────────────────────────────────────
-const AuditRow = ({ row }) => {
+const AuditRow = ({ row, individual }) => {
   const [expandido, setExpandido] = useState(false);
   const tieneDetalle = row.detalle && Object.keys(row.detalle).length > 0;
 
@@ -89,6 +115,11 @@ const AuditRow = ({ row }) => {
         <td style={{ padding: '10px 12px' }}>
           <span style={badgeStyle(row.accion)}>{row.accion}</span>
         </td>
+        {individual && <td style={{ padding: '10px 12px' }}>
+          <span className="audit-relationship" data-kind={row.relacion_cuenta}>
+            {row.relacion_cuenta === 'realizada' ? 'Realizada por la cuenta' : 'Cambio sobre la cuenta'}
+          </span>
+        </td>}
         <td style={{ padding: '10px 12px', fontSize: '0.78rem', color: '#64748b' }}>
           {row.entidad && row.entidad_id ? `${row.entidad} #${row.entidad_id}` : row.entidad || '—'}
         </td>
@@ -109,7 +140,7 @@ const AuditRow = ({ row }) => {
       </tr>
       {expandido && tieneDetalle && (
         <tr style={{ background: '#f8fafc' }}>
-          <td colSpan={6} style={{ padding: '0 12px 12px 12px' }}>
+          <td colSpan={individual ? 7 : 6} style={{ padding: '0 12px 12px 12px' }}>
             <pre style={{
               margin: 0,
               fontSize: '0.75rem',
@@ -132,6 +163,9 @@ const AuditRow = ({ row }) => {
 // ─── Componente principal ──────────────────────────────────────────────────────
 const AuditoriaAdmin = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const accountId = searchParams.get('cuenta_id') || '';
+  const sourceProfile = searchParams.get('perfil') || '';
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -139,42 +173,73 @@ const AuditoriaAdmin = () => {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [subject, setSubject] = useState(null);
 
   // Filtros
   const [filtroAccion, setFiltroAccion] = useState('');
   const [filtroCorreo, setFiltroCorreo] = useState('');
-  const [filtroDesde, setFiltroDesde] = useState('');
-  const [filtroHasta, setFiltroHasta] = useState('');
+  const [filtroRelacion, setFiltroRelacion] = useState('todas');
+  const [filtroDesde, setFiltroDesde] = useState(DEFAULT_AUDIT_PERIOD.from);
+  const [filtroHasta, setFiltroHasta] = useState(DEFAULT_AUDIT_PERIOD.to);
+  const periodLabel = filtroDesde === DEFAULT_AUDIT_PERIOD.from && filtroHasta === DEFAULT_AUDIT_PERIOD.to
+    ? 'últimos 30 días'
+    : 'período personalizado';
 
-  const fetchData = useCallback(async (pg = 1) => {
+  const fetchData = useCallback(async (pg = 1, overrideFilters = null) => {
     setLoading(true);
     setError('');
     try {
+      const filters = overrideFilters || {
+        action: filtroAccion,
+        email: filtroCorreo,
+        relationship: filtroRelacion,
+        from: filtroDesde,
+        to: filtroHasta,
+      };
       const params = new URLSearchParams({ page: pg, limit: PAGE_SIZE });
-      if (filtroAccion) params.set('accion', filtroAccion);
-      if (filtroCorreo) params.set('usuario_correo', filtroCorreo);
-      if (filtroDesde)  params.set('desde', filtroDesde);
-      if (filtroHasta)  params.set('hasta', filtroHasta);
+      if (filters.action) params.set('accion', filters.action);
+      if (filters.email) params.set('usuario_correo', filters.email);
+      if (accountId) params.set('cuenta_id', accountId);
+      if (accountId && filters.relationship !== 'todas') params.set('relacion', filters.relationship);
+      if (filters.from) params.set('desde', filters.from);
+      if (filters.to) params.set('hasta', filters.to);
 
       const res = await axios.get(`${API_URL}/audit?${params}`, { withCredentials: true });
       setRows(res.data.rows);
       setTotal(res.data.total);
       setPages(res.data.pages);
       setPage(pg);
+      setSubject(res.data.subject || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Error al cargar auditoría.');
     } finally {
       setLoading(false);
     }
-  }, [filtroAccion, filtroCorreo, filtroDesde, filtroHasta]);
+  }, [filtroAccion, filtroCorreo, filtroRelacion, filtroDesde, filtroHasta, accountId]);
 
   useEffect(() => {
     fetchData(1);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBuscar = (e) => {
     e.preventDefault();
     fetchData(1);
+  };
+
+  const handleClear = () => {
+    const cleanFilters = {
+      action: '',
+      email: '',
+      relationship: 'todas',
+      from: DEFAULT_AUDIT_PERIOD.from,
+      to: DEFAULT_AUDIT_PERIOD.to,
+    };
+    setFiltroAccion(cleanFilters.action);
+    setFiltroCorreo(cleanFilters.email);
+    setFiltroRelacion(cleanFilters.relationship);
+    setFiltroDesde(cleanFilters.from);
+    setFiltroHasta(cleanFilters.to);
+    fetchData(1, cleanFilters);
   };
 
   const handleExportExcel = async () => {
@@ -192,7 +257,8 @@ const AuditoriaAdmin = () => {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Auditoría');
-    XLSX.writeFile(wb, `auditoria_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const subjectName = subject ? `_${subject.nombre || subject.correo}`.replace(/[^a-zA-Z0-9_-]+/g, '_') : '';
+    XLSX.writeFile(wb, `auditoria${subjectName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // ─── Estilos ───────────────────────────────────────────────────────────────
@@ -218,9 +284,10 @@ const AuditoriaAdmin = () => {
       <div className="glass-panel audit-shell">
         <ModuleHeader
           icon={ClipboardList}
-          title="Auditoría del sistema"
-          description={`Trazabilidad institucional · ${total} evento${total !== 1 ? 's' : ''}`}
-          onBack={() => navigate('/admin')}
+          title={subject ? `Actividad de ${subject.nombre || subject.correo}` : 'Auditoría del sistema'}
+          description={`${subject ? 'Historial individual' : 'Trazabilidad institucional'} · ${total} evento${total !== 1 ? 's' : ''} · ${periodLabel}`}
+          onBack={() => navigate(subject && sourceProfile ? `/admin/usuarios/${encodeURIComponent(sourceProfile)}` : '/admin')}
+          backLabel={subject && sourceProfile ? 'Volver al perfil' : 'Panel principal'}
         >
           <button type="button" className="module-header__button" onClick={() => fetchData(page)} title="Actualizar">
             <RefreshCw size={14} /> Actualizar
@@ -230,32 +297,59 @@ const AuditoriaAdmin = () => {
           </button>
         </ModuleHeader>
 
+        {subject && (
+          <section className="audit-subject" data-tour="audit-subject">
+            <span className="audit-subject__avatar"><UserRound size={22} /></span>
+            <div><span className="section-kicker">Cuenta seleccionada</span><strong>{subject.nombre || subject.correo}</strong><p>{subject.correo}{subject.cargo ? ` · ${subject.cargo}` : ''}{subject.profile_name ? ` · ${subject.profile_name}` : ''}</p></div>
+            <span className="audit-subject__status" data-deleted={subject.eliminado_en || undefined}>{subject.eliminado_en ? 'Cuenta eliminada' : subject.activo ? 'Cuenta activa' : 'Cuenta desactivada'}</span>
+            <button type="button" className="secondary-action" onClick={() => navigate('/admin/auditoria')}><X size={16} /> Ver auditoría completa</button>
+          </section>
+        )}
+
         {/* Filtros */}
         <form onSubmit={handleBuscar} data-tour="audit-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Tipo de acción</label>
             <AppSelect ariaLabel="Filtrar por tipo de acción" value={filtroAccion} onChange={setFiltroAccion} options={[{ value: '', label: 'Todas' }, ...ACCIONES.map((action) => ({ value: action, label: action }))]} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {!subject && <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Usuario</label>
             <input value={filtroCorreo} onChange={e => setFiltroCorreo(e.target.value)} placeholder="Buscar por correo" style={{ ...inputStyle, width: 190 }} />
-          </div>
+          </div>}
+          {subject && <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 600 }}>Actividad de la cuenta</label>
+            <AppSelect
+              ariaLabel="Filtrar relación con la cuenta"
+              value={filtroRelacion}
+              onChange={setFiltroRelacion}
+              options={[
+                { value: 'todas', label: 'Toda la actividad' },
+                { value: 'realizada', label: 'Realizada por la cuenta' },
+                { value: 'sobre_cuenta', label: 'Cambios sobre la cuenta' },
+              ]}
+            />
+          </div>}
           <div className="audit-date-range">
             <DateRangeField
               label="Período"
               from={filtroDesde}
               to={filtroHasta}
               onChange={({ from, to }) => { setFiltroDesde(from); setFiltroHasta(to); }}
-              maxValue={new Date().toISOString().slice(0, 10)}
-              presets={false}
+              maxValue={DEFAULT_AUDIT_PERIOD.to}
             />
           </div>
-          <button type="submit" style={btnPrimary}>Buscar</button>
+          <button type="submit" style={btnPrimary} disabled={loading}>{loading ? 'Buscando…' : 'Buscar'}</button>
           <button type="button" style={{ ...btnPrimary, background: '#e2e8f0', color: '#475569' }}
-            onClick={() => { setFiltroAccion(''); setFiltroCorreo(''); setFiltroDesde(''); setFiltroHasta(''); setTimeout(() => fetchData(1), 0); }}>
-            Limpiar
+            onClick={handleClear}>
+            Restablecer
           </button>
         </form>
+
+        <div className="audit-results-context" role="status" aria-live="polite">
+          <strong>{total} evento{total !== 1 ? 's' : ''}</strong>
+          <span>entre {formatPeriodDate(filtroDesde)} y {formatPeriodDate(filtroHasta)}</span>
+          {subject && <span>Incluye acciones realizadas por la cuenta y cambios administrativos aplicados sobre ella.</span>}
+        </div>
 
         {/* Tabla */}
         <div style={{ overflowX: 'auto' }} data-tour="audit-list">
@@ -273,15 +367,16 @@ const AuditoriaAdmin = () => {
               <thead>
                 <tr>
                   <th style={thStyle}>Fecha / Hora</th>
-                  <th style={thStyle}>Usuario</th>
+                  <th style={thStyle}>{subject ? 'Ejecutado por' : 'Usuario'}</th>
                   <th style={thStyle}>Acción</th>
+                  {subject && <th style={thStyle}>Relación con la cuenta</th>}
                   <th style={thStyle}>Entidad</th>
                   <th style={thStyle}>IP</th>
                   <th style={{ ...thStyle, textAlign: 'center' }}>Detalle</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(row => <AuditRow key={row.id} row={row} />)}
+                {rows.map(row => <AuditRow key={row.id} row={row} individual={Boolean(subject)} />)}
               </tbody>
             </table>
           )}

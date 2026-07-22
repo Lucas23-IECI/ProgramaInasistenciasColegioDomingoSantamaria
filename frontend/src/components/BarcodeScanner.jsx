@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, LogIn, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard } from 'lucide-react';
 import { playBeep } from '../utils/audioNotifier';
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
@@ -434,7 +434,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const registerAttendance = async (studentData, status) => {
     try {
       const response = await axios.post(`${API_URL}/puntualidad/registros`, {
-        id_alumno: studentData.id_alumno
+        id_alumno: studentData.id_alumno,
+        origen: scannerActive ? 'lector' : 'manual'
       });
 
       const persistedStatus = response.data.estado || status;
@@ -474,10 +475,13 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     setTimeout(() => setFlashColor(null), 800);
   };
 
-  const handleToggleScanner = () => {
+  const selectInputMode = (useScanner) => {
     clearTimeout(overrideTimer.current);
     setManualOverride(true);
-    setScannerActive(prev => !prev);
+    setScannerActive(useScanner);
+    setInputValue('');
+    setSearchResults([]);
+    requestAnimationFrame(() => inputRef.current?.focus());
     overrideTimer.current = setTimeout(() => setManualOverride(false), 30000);
   };
 
@@ -568,18 +572,18 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Input/search section
   const inputSection = (
     <>
-      <button
-        type="button"
-        className={`scanner-status ${scannerActive ? 'active' : 'inactive'}`}
-        data-tour="scanner-status"
-        onClick={isOffline ? undefined : handleToggleScanner}
-        disabled={isOffline}
-        title={isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner detectado — click para cambiar' : 'Sin escáner — click para cambiar'}
-        style={isOffline ? { cursor: 'not-allowed', opacity: 0.6 } : {}}
-      >
-        <LogIn size={16} />
-        <span>{isOffline ? 'Sistema fuera de línea' : scannerActive ? 'Escáner de Carnet Activo' : 'Ingreso Manual'}</span>
-      </button>
+      <div className="scanner-mode-selector" data-tour="scanner-status" aria-label="Método de registro">
+        <span className="scanner-mode-selector__label">Método de registro</span>
+        <div className="scanner-mode-selector__options">
+          <button type="button" className="scanner-mode-option" data-active={scannerActive || undefined} onClick={() => selectInputMode(true)} disabled={isOffline}>
+            <ScanLine size={18} /><span><strong>Escanear carnet</strong><small>Pistola de códigos</small></span>
+          </button>
+          <button type="button" className="scanner-mode-option" data-active={!scannerActive || undefined} onClick={() => selectInputMode(false)} disabled={isOffline}>
+            <Keyboard size={18} /><span><strong>Búsqueda manual</strong><small>Nombre o RUT</small></span>
+          </button>
+        </div>
+        {isOffline && <span className="scanner-mode-selector__offline">Sistema temporalmente fuera de línea</span>}
+      </div>
 
       <form onSubmit={handleSubmit} className="kiosk-input-form" data-tour="scanner-input">
         <div className="kiosk-input-wrapper">

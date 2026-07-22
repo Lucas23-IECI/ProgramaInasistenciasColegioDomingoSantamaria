@@ -2739,12 +2739,12 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
   gap: 1rem;
 }
 
-.password-form > label {
+.password-field {
   display: grid;
   gap: 0.45rem;
 }
 
-.password-form > label > span {
+.password-field > label {
   color: #263e51;
   font-size: 0.82rem;
   font-weight: 750;
@@ -2779,6 +2779,34 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
   border: 0;
   outline: 0;
   font: inherit;
+}
+
+.password-visibility-toggle {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin-right: -0.35rem;
+  padding: 0;
+  color: #657986;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.password-visibility-toggle:hover {
+  color: #173f5b;
+  background: #eaf1f5;
+}
+
+.password-visibility-toggle:focus-visible {
+  outline: none;
+  color: #124e75;
+  background: #eaf1f5;
+  box-shadow: 0 0 0 3px rgba(40, 97, 140, 0.18);
 }
 
 .password-rules {
@@ -2860,4 +2888,158 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
 
 @media (max-width: 480px) {
   .password-rules { grid-template-columns: 1fr; }
+}
+
+/* Selector operacional explícito: pistola o registro manual. */
+.scanner-mode-selector {
+  display: grid;
+  gap: 0.55rem;
+  width: min(680px, 100%);
+  margin-bottom: 1rem;
+}
+
+.scanner-mode-selector__label {
+  color: #a9bbcc;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.scanner-mode-selector__options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.3rem;
+  border: 1px solid #3f596f;
+  border-radius: 0.85rem;
+  background: #162738;
+  box-shadow: 0 10px 24px rgba(2, 12, 22, 0.16);
+}
+
+.scanner-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 58px;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  background: transparent;
+  color: #b5c5d3;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.scanner-mode-option span { display: grid; gap: 0.12rem; }
+.scanner-mode-option strong { color: inherit; font-size: 0.88rem; }
+.scanner-mode-option small { color: inherit; font-size: 0.72rem; opacity: 0.76; }
+
+.scanner-mode-option[data-active] {
+  border-color: #628bab;
+  background: #223b50;
+  color: #f2f8fc;
+  box-shadow: 0 5px 16px rgba(2, 12, 22, 0.18);
+}
+
+.scanner-mode-option:not([data-active]):not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: #e3edf4;
+}
+
+.scanner-mode-option:focus-visible {
+  outline: 3px solid rgba(142, 179, 212, 0.32);
+  outline-offset: 2px;
+}
+
+.scanner-mode-option:disabled { cursor: not-allowed; opacity: 0.52; }
+.scanner-mode-selector__offline { color: #f59aa1; font-size: 0.78rem; font-weight: 700; }
+
+body.light-mode .kiosk-mode .scanner-mode-selector__label {
+  color: #587084;
+}
+
+body.light-mode .kiosk-mode .scanner-mode-selector__options {
+  border-color: #cbd7df;
+  background: #e9eff3;
+  box-shadow: 0 5px 16px rgba(28, 55, 75, 0.07);
+}
+
+body.light-mode .kiosk-mode .scanner-mode-option {
+  color: #536878;
+}
+
+body.light-mode .kiosk-mode .scanner-mode-option[data-active] {
+  border-color: #9db6c8;
+  background: #ffffff;
+  color: #164d72;
+  box-shadow: 0 3px 10px rgba(29, 74, 105, 0.1);
+}
+
+body.light-mode .kiosk-mode .scanner-mode-option:not([data-active]):not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.58);
+  color: #244e6a;
+}
+
+@media (max-width: 640px) {
+  .scanner-mode-selector__options { grid-template-columns: 1fr; }
+}
+/* Contexto de auditoría individual de una cuenta del personal. */
+.audit-subject {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.9rem;
+  margin: 1.25rem clamp(1rem, 3vw, 2.5rem) 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--navy);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--navy) 4%, var(--surface));
+}
+.audit-subject__avatar { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 0.65rem; background: color-mix(in srgb, var(--navy) 11%, var(--surface)); color: var(--navy); }
+.audit-subject > div { display: grid; gap: 0.12rem; min-width: 0; }
+.audit-subject strong { overflow: hidden; color: var(--text-dark); text-overflow: ellipsis; white-space: nowrap; }
+.audit-subject p { margin: 0; color: var(--text-light); font-size: 0.75rem; }
+.audit-subject__status { padding: 0.35rem 0.55rem; border-radius: 999px; background: rgba(21, 113, 84, 0.1); color: #157154; font-size: 0.7rem; font-weight: 800; white-space: nowrap; }
+.audit-subject__status[data-deleted] { background: rgba(169, 47, 58, 0.1); color: #a92f3a; }
+.audit-subject .secondary-action { display: inline-flex; align-items: center; gap: 0.35rem; }
+.audit-results-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.8rem;
+  padding: 0.75rem clamp(1rem, 3vw, 1.25rem);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--navy) 4%, var(--surface-raised));
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.audit-results-context strong { color: var(--ink-strong); font-size: 0.82rem; }
+.audit-results-context span + span { padding-left: 0.8rem; border-left: 1px solid var(--border); }
+.audit-relationship {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--navy) 24%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--navy) 8%, var(--surface-raised));
+  color: var(--navy-strong);
+  font-size: 0.7rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.audit-relationship[data-kind="sobre_cuenta"] {
+  border-color: color-mix(in srgb, var(--amber) 30%, var(--border));
+  background: color-mix(in srgb, var(--amber) 9%, var(--surface-raised));
+  color: var(--amber);
+}
+
+@media (max-width: 760px) {
+  .audit-subject { grid-template-columns: auto 1fr; }
+  .audit-subject__status { justify-self: start; grid-column: 2; }
+  .audit-subject .secondary-action { grid-column: 1 / -1; justify-content: center; }
+  .audit-results-context { align-items: flex-start; flex-direction: column; }
+  .audit-results-context span + span { padding-left: 0; border-left: 0; }
 }
