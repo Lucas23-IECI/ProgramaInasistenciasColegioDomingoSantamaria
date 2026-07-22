@@ -95,8 +95,12 @@ services:
       sh -c "
       echo 'Servicio de respaldo diario iniciado.';
       while true; do
-        sh /backup.sh;
-        sleep 86400;
+        if sh /backup.sh; then
+          sleep 86400;
+        else
+          echo 'El respaldo falló; se reintentará en 5 minutos.';
+          sleep 300;
+        fi;
       done
       "
     healthcheck:
