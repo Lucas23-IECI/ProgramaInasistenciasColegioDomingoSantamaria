@@ -1,9 +1,11 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { CircleHelp, KeyRound, LogOut, Moon, Sun, UserRound } from 'lucide-react';
+import { CircleHelp, KeyRound, LogOut, Moon, Newspaper, Sun, UserRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
 import { useHelpTour } from '../context/HelpTourContext';
+import { roleLabel } from '../permissions';
+import { useReleaseNotes } from '../context/ReleaseNotesContext';
 
 const initialsFrom = (value) => String(value || 'Usuario')
   .split(/\s+/)
@@ -13,16 +15,11 @@ const initialsFrom = (value) => String(value || 'Usuario')
   .join('')
   .toUpperCase();
 
-const roleLabel = (role) => ({
-  admin: 'Administrador',
-  secretaria: 'Secretaría / Inspectoría',
-  lector: 'Lector',
-}[role] || role || 'Usuario');
-
 const GlobalTools = () => {
   const { user, logout } = useContext(AuthContext);
   const { theme, toggleTheme } = useContext(ThemeContext);
   const { available, startTour, title } = useHelpTour();
+  const { openReleaseNotes } = useReleaseNotes();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const navigate = useNavigate();
@@ -94,11 +91,14 @@ const GlobalTools = () => {
               <UserRound size={18} />
               <div>
                 <strong>{user.nombre || user.correo}</strong>
-                <span>{roleLabel(user.rol)}</span>
+                <span>{user.profile_name || roleLabel(user.rol)}</span>
               </div>
             </div>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate('/cambiar-clave'); }}>
               <KeyRound size={17} /> Cambiar contraseña
+            </button>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); openReleaseNotes(); }}>
+              <Newspaper size={17} /> Novedades de la versión
             </button>
             <button type="button" role="menuitem" onClick={handleLogout}>
               <LogOut size={17} /> Cerrar sesión

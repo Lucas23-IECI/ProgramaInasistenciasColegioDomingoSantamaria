@@ -1,4 +1,3 @@
-const SYSTEM_ROLES = new Set(['admin', 'secretaria', 'lector']);
 const SENSITIVE_HEADER_KEYS = new Set([
   'contrasena',
   'password',
@@ -15,8 +14,6 @@ const normalizeKey = (value) => String(value || '')
 const sanitizeSnapshotRow = (row) => Object.fromEntries(
   Object.entries(row || {}).filter(([key]) => !SENSITIVE_HEADER_KEYS.has(normalizeKey(key)))
 );
-
-const validateSystemRole = (role) => SYSTEM_ROLES.has(role);
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
@@ -42,10 +39,8 @@ const validatePassword = (password) => {
 };
 
 module.exports = {
-  SYSTEM_ROLES,
   normalizeEmail,
   sanitizeSnapshotRow,
   validateEmail,
-  validatePassword,
-  validateSystemRole
+  validatePassword
 };

@@ -36,6 +36,7 @@ import AppSelect from './components/AppSelect';
 import TimeField from './components/TimeField';
 import { useFeedback } from './context/FeedbackContext';
 import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
+import { PERMISSIONS, hasPermission } from './permissions';
 
 const PAGE_SIZE = 12;
 const MAX_DOCUMENT_BYTES = 8 * 1024 * 1024;
@@ -82,6 +83,12 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useContext(AuthContext);
   const { notify, confirm } = useFeedback();
+  const canRegister = hasPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER);
+  const canCorrect = hasPermission(user, PERMISSIONS.PUNCTUALITY_CORRECT);
+  const canCancel = hasPermission(user, PERMISSIONS.PUNCTUALITY_CANCEL);
+  const canJustify = hasPermission(user, PERMISSIONS.PUNCTUALITY_JUSTIFY);
+  const canReport = hasPermission(user, PERMISSIONS.REPORTS_GENERATE);
+  const canConfigure = hasPermission(user, PERMISSIONS.SETTINGS_MANAGE);
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [config, setConfig] = useState(null);
@@ -373,8 +380,8 @@ const AdminDashboard = () => {
             </p>
           </div>
           <div className="punctuality-hero__actions">
-            {user?.rol === 'admin' && <button type="button" className="quiet-action" onClick={() => navigate('/admin/configuracion')}><Settings size={18} /> Configurar jornada</button>}
-            <button type="button" className="primary-action" onClick={() => navigate('/scanner')}><FileClock size={18} /> Abrir lector <ArrowRight size={17} /></button>
+            {canConfigure && <button type="button" className="quiet-action" onClick={() => navigate('/admin/configuracion')}><Settings size={18} /> Configurar jornada</button>}
+            {canRegister && <button type="button" className="primary-action" onClick={() => navigate('/scanner')}><FileClock size={18} /> Abrir terminal de registro <ArrowRight size={17} /></button>}
           </div>
         </section>
 
@@ -413,7 +420,7 @@ const AdminDashboard = () => {
                     <td data-label="Hora" className="time-cell">{formatTime(row.hora)}{row.corregido_en && <small>Corregido</small>}</td>
                     <td data-label="Clasificación"><span className="status-pill" data-status={row.estado === 'Presente' ? 'ontime' : row.severidad?.toLowerCase()}>{row.estado === 'Presente' ? 'A tiempo' : `Atraso ${row.severidad?.toLowerCase()}`}</span></td>
                     <td data-label="Respaldo">{row.estado === 'Atrasado' ? <span className="justification-state" data-active={row.justificado || undefined}>{row.documento_id ? 'Con documento' : row.justificado ? 'Justificado' : 'Pendiente'}</span> : <span className="muted-cell">No aplica</span>}</td>
-                    <td><button type="button" className="manage-action" onClick={() => openRow(row)}>Gestionar <ChevronRight size={17} /></button></td>
+                    <td><button type="button" className="manage-action" onClick={() => openRow(row)}>{canCorrect || canCancel || canJustify ? 'Gestionar' : 'Revisar'} <ChevronRight size={17} /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -424,7 +431,7 @@ const AdminDashboard = () => {
           {totalPages > 1 && <div className="operation-pagination"><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {page} de {totalPages}</span><button type="button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
         </section>
 
-        <section className="report-section-v2" data-tour="report-builder">
+        {canReport && <section className="report-section-v2" data-tour="report-builder">
           <div className="report-intro">
             <div className="report-intro__icon"><FileSpreadsheet size={25} /></div>
             <div><span className="section-kicker">Documentación institucional</span><h2>Reporte de atrasos</h2><p>Exporta solo atrasos registrados, con minutos, severidad y respaldo documental.</p></div>
@@ -441,7 +448,7 @@ const AdminDashboard = () => {
 
             <div className="report-builder-v2__footer"><div><span className="field-label">Formato</span><div className="report-format-switch"><button type="button" data-active={reportFormat === 'detalle' || undefined} onClick={() => setReportFormat('detalle')}>Detalle de cada atraso</button><button type="button" data-active={reportFormat === 'resumen' || undefined} onClick={() => setReportFormat('resumen')}>Resumen por persona</button></div></div><button type="button" className="download-report-action" onClick={generateReport} disabled={generatingReport}><Download size={19} /> {generatingReport ? 'Generando…' : 'Descargar Excel'}</button></div>
           </div>}
-        </section>
+        </section>}
       </div>
 
       {selectedRow && <div className="record-drawer-backdrop" onMouseDown={closeDrawer}>
@@ -451,19 +458,19 @@ const AdminDashboard = () => {
 
           {!actionMode && (
             <div className="record-actions">
-              <button type="button" onClick={() => setActionMode('corregir')}>
+              {canCorrect && <button type="button" onClick={() => setActionMode('corregir')}>
                 <Clock3 size={19} />
                 <span><strong>Corregir fecha u hora</strong><small>Recalcula automáticamente la clasificación.</small></span>
                 <ChevronRight size={18} />
-              </button>
-              {selectedRow.estado === 'Atrasado' && !selectedRow.justificado && (
+              </button>}
+              {canJustify && selectedRow.estado === 'Atrasado' && !selectedRow.justificado && (
                 <button type="button" onClick={() => setActionMode('justificar')}>
                   <ShieldCheck size={19} />
                   <span><strong>Registrar justificación</strong><small>Permite respaldar la constancia y adjuntar certificado.</small></span>
                   <ChevronRight size={18} />
                 </button>
               )}
-              {selectedRow.estado === 'Atrasado' && selectedRow.justificado && (
+              {canJustify && selectedRow.estado === 'Atrasado' && selectedRow.justificado && (
                 <button type="button" onClick={() => setActionMode('revocar')}>
                   <RotateCcw size={19} />
                   <span><strong>Revocar justificación</strong><small>Conserva el cambio en el historial.</small></span>
@@ -482,11 +489,11 @@ const AdminDashboard = () => {
                 <span><strong>Ver historial</strong><small>Correcciones y respaldos anteriores.</small></span>
                 <ChevronRight size={18} />
               </button>
-              <button type="button" className="danger" onClick={() => setActionMode('anular')}>
+              {canCancel && <button type="button" className="danger" onClick={() => setActionMode('anular')}>
                 <ShieldAlert size={19} />
                 <span><strong>Anular registro</strong><small>Deja de contabilizarlo sin eliminarlo.</small></span>
                 <ChevronRight size={18} />
-              </button>
+              </button>}
             </div>
           )}
 

@@ -1,7 +1,7 @@
 import { ArrowLeft, LogOut } from 'lucide-react';
 import { createElement } from 'react';
 
-const ModuleHeader = ({ icon, title, description, onBack, onLogout, children }) => (
+const ModuleHeader = ({ icon, title, description, onBack, backLabel = 'Panel principal', onLogout, children }) => (
   <header className="module-header" data-tour="page-header">
     <div className="module-header__identity">
       <span className="module-header__icon" aria-hidden="true">{createElement(icon, { size: 23 })}</span>
@@ -15,7 +15,7 @@ const ModuleHeader = ({ icon, title, description, onBack, onLogout, children }) 
       {children}
       {onBack && (
         <button type="button" className="module-header__button" onClick={onBack}>
-          <ArrowLeft size={15} /> Panel principal
+          <ArrowLeft size={15} /> {backLabel}
         </button>
       )}
       {onLogout && (

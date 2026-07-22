@@ -7,11 +7,13 @@ import {
   Clock3,
   LogOut,
   Settings2,
+  ScanLine,
   UserCog,
   Users,
 } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
+import { PERMISSIONS, hasAnyPermission, roleLabel } from './permissions';
 
 const ALL_MODULES = [
   {
@@ -22,7 +24,7 @@ const ALL_MODULES = [
     description: 'Registro diario, seguimiento de puntualidad y reportes por período.',
     path: '/admin/atrasos',
     tone: 'blue',
-    roles: ['admin', 'secretaria'],
+    permissions: [PERMISSIONS.PUNCTUALITY_VIEW],
   },
   {
     key: 'analiticas',
@@ -32,7 +34,7 @@ const ALL_MODULES = [
     description: 'Indicadores de atrasos y puntualidad desglosados por curso.',
     path: '/admin/analiticas',
     tone: 'green',
-    roles: ['admin', 'secretaria'],
+    permissions: [PERMISSIONS.ANALYTICS_VIEW],
   },
   {
     key: 'estudiantes',
@@ -42,7 +44,7 @@ const ALL_MODULES = [
     description: 'Padrón institucional, importaciones y asignación de matrículas.',
     path: '/admin/estudiantes',
     tone: 'navy',
-    roles: ['admin'],
+    permissions: [PERMISSIONS.STUDENTS_VIEW, PERMISSIONS.STUDENTS_MANAGE, PERMISSIONS.STUDENTS_IMPORT],
   },
   {
     key: 'usuarios',
@@ -52,7 +54,7 @@ const ALL_MODULES = [
     description: 'Cuentas de acceso, perfiles y permisos administrativos.',
     path: '/admin/usuarios',
     tone: 'ochre',
-    roles: ['admin'],
+    permissions: [PERMISSIONS.USERS_MANAGE],
   },
   {
     key: 'configuracion',
@@ -62,7 +64,7 @@ const ALL_MODULES = [
     description: 'Horarios, severidad y umbrales preventivos de atrasos.',
     path: '/admin/configuracion',
     tone: 'slate',
-    roles: ['admin'],
+    permissions: [PERMISSIONS.SETTINGS_MANAGE],
   },
   {
     key: 'auditoria',
@@ -72,7 +74,17 @@ const ALL_MODULES = [
     description: 'Trazabilidad de accesos, cambios, registros e importaciones.',
     path: '/admin/auditoria',
     tone: 'slate',
-    roles: ['admin'],
+    permissions: [PERMISSIONS.AUDIT_VIEW],
+  },
+  {
+    key: 'terminal',
+    icon: ScanLine,
+    category: 'Operación',
+    title: 'Terminal de registro',
+    description: 'Registro de ingresos con pistola de códigos o búsqueda manual.',
+    path: '/scanner',
+    tone: 'green',
+    permissions: [PERMISSIONS.PUNCTUALITY_REGISTER],
   },
 ];
 
@@ -86,7 +98,7 @@ const formatCurrentDate = () => new Intl.DateTimeFormat('es-CL', {
 const AdminHub = () => {
   const navigate = useNavigate();
   const { logout, user } = useContext(AuthContext);
-  const modules = ALL_MODULES.filter((module) => module.roles.includes(user?.rol));
+  const modules = ALL_MODULES.filter((module) => hasAnyPermission(user, module.permissions));
 
   const handleLogout = () => {
     logout();
@@ -104,7 +116,7 @@ const AdminHub = () => {
           </div>
           <div className="hub-user">
             <div className="hub-user__identity">
-              <span>{user?.rol === 'admin' ? 'Administrador' : 'Secretaría'}</span>
+              <span>{user?.profile_name || roleLabel(user?.rol)}</span>
               <strong>{user?.nombre || user?.correo}</strong>
             </div>
             <button className="hub-logout" onClick={handleLogout} title="Cerrar sesión">

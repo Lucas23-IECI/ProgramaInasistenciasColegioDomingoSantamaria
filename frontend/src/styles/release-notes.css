@@ -1,0 +1,191 @@
+.release-notes-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: clamp(1rem, 4vw, 3rem);
+  background: color-mix(in srgb, #071521 76%, transparent);
+  backdrop-filter: blur(5px);
+}
+
+.release-notes {
+  width: min(720px, 100%);
+  max-height: min(780px, calc(100dvh - 2rem));
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 26px 90px rgb(3 17 29 / 34%);
+}
+
+.release-notes__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem 1.65rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.release-notes__mark,
+.release-notes__item-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--navy);
+  background: var(--surface-soft);
+  border: 1px solid color-mix(in srgb, var(--navy) 28%, transparent);
+}
+
+.release-notes__mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+}
+
+.release-notes__heading span {
+  display: block;
+  margin-bottom: .25rem;
+  color: var(--navy);
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.release-notes__heading h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 3vw, 1.85rem);
+  line-height: 1.14;
+}
+
+.release-notes__close {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
+.release-notes__close:hover,
+.release-notes__close:focus-visible {
+  color: var(--navy);
+  border-color: var(--navy);
+  outline: none;
+}
+
+.release-notes__intro {
+  padding: 1.35rem 1.65rem .6rem;
+}
+
+.release-notes__release {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .45rem;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.release-notes__intro > p {
+  max-width: 58ch;
+  margin: .8rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.release-notes__list {
+  display: grid;
+  gap: 0;
+  padding: .4rem 1.65rem 1rem;
+}
+
+.release-notes__item {
+  display: flex;
+  gap: .95rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.release-notes__item:last-child { border-bottom: 0; }
+
+.release-notes__item-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+
+.release-notes__item h3 {
+  margin: .05rem 0 .3rem;
+  font-size: .98rem;
+}
+
+.release-notes__item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.release-notes__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.15rem 1.65rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+
+.release-notes__footer p {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.release-notes__confirm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  min-height: 44px;
+  padding: .7rem 1.1rem;
+  border: 1px solid var(--navy);
+  border-radius: 10px;
+  color: #fff;
+  background: var(--navy);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+body:not(.light-mode) .release-notes__confirm { color: var(--navy-deep); }
+
+.release-notes__confirm:hover { filter: brightness(.92); }
+
+@media (max-width: 620px) {
+  .release-notes-backdrop { align-items: end; padding: 0; }
+  .release-notes { max-height: 92dvh; border-radius: 18px 18px 0 0; }
+  .release-notes__header,
+  .release-notes__intro,
+  .release-notes__list,
+  .release-notes__footer { padding-left: 1.1rem; padding-right: 1.1rem; }
+  .release-notes__footer { align-items: stretch; flex-direction: column; }
+  .release-notes__confirm { width: 100%; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .release-notes-backdrop { animation: release-backdrop-in 180ms ease-out; }
+  .release-notes { animation: release-panel-in 240ms cubic-bezier(.2, .8, .2, 1); }
+  @keyframes release-backdrop-in { from { opacity: 0; } }
+  @keyframes release-panel-in { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+}
