@@ -3,10 +3,11 @@ const fullName = (row) => [row.paterno, row.materno, row.nombres].filter(Boolean
 const justificationLabel = (row) => row.justificado ? 'Sí' : 'No';
 
 export const buildDetailedRows = (records) => [
-  ['N°', 'Fecha', 'Hora', 'Minutos de atraso', 'Severidad', 'Justificado', 'Tipo de respaldo', 'Documento', 'Apellidos y nombres', 'RUT', 'Curso', 'Observación'],
+  ['N°', 'Fecha', 'Control horario', 'Hora', 'Minutos de atraso', 'Severidad', 'Justificado', 'Tipo de respaldo', 'Documento', 'Apellidos y nombres', 'RUT', 'Curso', 'Observación'],
   ...records.map((row, index) => [
     index + 1,
     row.fecha,
+    row.control_nombre || 'Ingreso de la jornada',
     String(row.hora || '').slice(0, 5),
     Number(row.minutos_atraso || 0),
     row.severidad,

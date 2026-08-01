@@ -1,8 +1,17 @@
 const express = require('express');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const { calculateDelayMinutes, calculateStatusAndSeverity, normalizeClockTime } = require('../utils/punctuality');
-const { asBoundedInteger, isIsoDate, validateDateRange, validatePunctualityConfig, validateReason } = require('../utils/validation');
+const {
+  asBoundedInteger,
+  isIsoDate,
+  validateDateRange,
+  validatePunctualityConfig,
+  validatePunctualityControl,
+  validatePunctualityControlSet,
+  validateReason
+} = require('../utils/validation');
 const {
   DocumentValidationError,
   createDocument,
@@ -10,6 +19,7 @@ const {
   removeStoredFile,
   resolveDocumentPath
 } = require('../services/documentService');
+const { recordOperationalEvent } = require('../services/operationalEventService');
 
 const ACTIVE_ENTRY_FILTER = "r.tipo_registro = 'Entrada' AND r.anulado = false AND r.estado IN ('Presente', 'Atrasado')";
 
@@ -25,18 +35,90 @@ const registrationSnapshot = (row) => ({
   comentario_justificacion: row.comentario_justificacion || null,
   documento_id: row.documento_id || null,
   anulado: Boolean(row.anulado),
-  version: row.version
+  version: row.version,
+  id_curso_registro: row.id_curso_registro || null,
+  curso_registro: row.curso_registro || null,
+  jornada_registro: row.jornada_registro,
+  hora_entrada_aplicada: row.hora_entrada_aplicada,
+  hora_limite_aplicada: row.hora_limite_aplicada,
+  minutos_atraso_grave_aplicado: row.minutos_atraso_grave_aplicado,
+  minutos_atraso: row.minutos_atraso,
+  version_regla: row.version_regla,
+  control_puntualidad_id: row.control_puntualidad_id,
+  control_codigo: row.control_codigo,
+  control_nombre: row.control_nombre,
+  control_tipo: row.control_tipo,
+  control_version: row.control_version
 });
 
 const getConfig = async (queryable, { forUpdate = false } = {}) => {
   const result = await queryable.query(`
     SELECT id, nombre_jornada, hora_entrada, hora_limite_atraso, minutos_atraso_grave,
-           umbral_alerta, umbral_critico, actualizado_por, actualizado_en
+           umbral_alerta, umbral_critico, version_regla, actualizado_por, actualizado_en
     FROM configuracion_asistencia
     LIMIT 1
     ${forUpdate ? 'FOR UPDATE' : ''}
   `);
   return result.rows[0] || null;
+};
+
+const controlSelect = `
+  SELECT id, configuracion_id, codigo, nombre, tipo,
+         TO_CHAR(hora_apertura, 'HH24:MI:SS') AS hora_apertura,
+         TO_CHAR(hora_referencia, 'HH24:MI:SS') AS hora_referencia,
+         TO_CHAR(hora_inicio_atraso, 'HH24:MI:SS') AS hora_inicio_atraso,
+         TO_CHAR(hora_cierre, 'HH24:MI:SS') AS hora_cierre,
+         minutos_atraso_grave, dias_semana, cursos_ids, cuenta_alertas,
+         activo, orden, version, creado_en, actualizado_en
+  FROM controles_puntualidad
+`;
+
+const getControls = async (queryable, { activeOnly = false, forUpdate = false } = {}) => {
+  const result = await queryable.query(`
+    ${controlSelect}
+    ${activeOnly ? 'WHERE activo = true' : ''}
+    ORDER BY activo DESC, orden, hora_referencia, id
+    ${forUpdate ? 'FOR UPDATE' : ''}
+  `);
+  return result.rows;
+};
+
+const controlSnapshot = (control) => ({
+  codigo: control.codigo,
+  nombre: control.nombre,
+  tipo: control.tipo,
+  hora_apertura: normalizeClockTime(control.hora_apertura),
+  hora_referencia: normalizeClockTime(control.hora_referencia),
+  hora_inicio_atraso: normalizeClockTime(control.hora_inicio_atraso),
+  hora_cierre: normalizeClockTime(control.hora_cierre),
+  minutos_atraso_grave: Number(control.minutos_atraso_grave),
+  dias_semana: (control.dias_semana || []).map(Number),
+  cursos_ids: (control.cursos_ids || []).map(Number),
+  cuenta_alertas: Boolean(control.cuenta_alertas),
+  activo: Boolean(control.activo)
+});
+
+const slugControlCode = (name) => {
+  const slug = String(name || 'control')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 38);
+  return `${slug || 'control'}-${crypto.randomUUID().slice(0, 8)}`;
+};
+
+const findCurrentControls = async (queryable, { date, time, courseId = null }) => {
+  const result = await queryable.query(`
+    ${controlSelect}
+    WHERE activo = true
+      AND EXTRACT(ISODOW FROM $1::date)::int = ANY(dias_semana)
+      AND $2::time BETWEEN hora_apertura AND hora_cierre
+      AND (cardinality(cursos_ids) = 0 OR $3::int = ANY(cursos_ids))
+    ORDER BY
+      CASE WHEN cardinality(cursos_ids) > 0 THEN 0 ELSE 1 END,
+      hora_referencia DESC,
+      orden,
+      id
+  `, [date, time, courseId]);
+  return result.rows;
 };
 
 const getInstitutionalNow = async (queryable) => {
@@ -55,23 +137,66 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
   router.get('/config', async (req, res) => {
     try {
-      const config = await getConfig(pool);
+      const [config, controls] = await Promise.all([getConfig(pool), getControls(pool)]);
       if (!config) return res.status(503).json({ message: 'La jornada institucional no está configurada.' });
-      res.json(config);
+      res.json({ ...config, controles: controls });
     } catch (error) {
       console.error('[puntualidad/config]', error.message);
       res.status(500).json({ message: 'No fue posible obtener la configuración de puntualidad.' });
     }
   });
 
-  router.put('/config', verifyPermission('settings.manage'), async (req, res) => {
+  router.get('/controles/estado', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
+    try {
+      const now = await getInstitutionalNow(pool);
+      const controls = await findCurrentControls(pool, {
+        date: now.fecha,
+        time: now.hora,
+        courseId: asBoundedInteger(req.query?.curso_id, 1, 2147483647)
+      });
+      const upcoming = await pool.query(`
+        ${controlSelect}
+        WHERE activo = true
+          AND EXTRACT(ISODOW FROM $1::date)::int = ANY(dias_semana)
+          AND hora_apertura > $2::time
+        ORDER BY hora_apertura, orden
+        LIMIT 3
+      `, [now.fecha, now.hora]);
+      res.json({
+        fecha: now.fecha,
+        hora: now.hora,
+        actual: controls[0] || null,
+        actuales: controls,
+        proximos: upcoming.rows,
+        puede_cambiar: req.user.permissions.includes('punctuality.controls.override')
+      });
+    } catch (error) {
+      console.error('[puntualidad/controles/estado]', error.message);
+      res.status(500).json({ message: 'No fue posible determinar el control horario actual.' });
+    }
+  });
+
+  router.put('/config', verifyAnyPermission(['settings.manage', 'punctuality.controls.manage']), async (req, res) => {
     const validation = validatePunctualityConfig(req.body);
     if (validation.error) return res.status(400).json({ message: validation.error });
+    const controlsInput = req.body?.controles;
+    if (controlsInput !== undefined && (!Array.isArray(controlsInput) || controlsInput.length < 1 || controlsInput.length > 30)) {
+      return res.status(400).json({ message: 'La jornada debe contener entre 1 y 30 controles horarios.' });
+    }
+    const validatedControls = [];
+    for (const control of controlsInput || []) {
+      const checked = validatePunctualityControl(control);
+      if (checked.error) return res.status(400).json({ message: checked.error });
+      validatedControls.push(checked.value);
+    }
+    const controlsValidation = validatePunctualityControlSet(validatedControls);
+    if (controlsValidation.error) return res.status(400).json({ message: controlsValidation.error });
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const before = await getConfig(client, { forUpdate: true });
+      const controlsBefore = await getControls(client, { forUpdate: true });
       if (!before) {
         await client.query('ROLLBACK');
         return res.status(503).json({ message: 'La jornada institucional no está inicializada.' });
@@ -87,10 +212,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
             umbral_alerta = $5,
             umbral_critico = $6,
             actualizado_por = $7,
-            actualizado_en = CURRENT_TIMESTAMP
+            actualizado_en = CURRENT_TIMESTAMP,
+            version_regla = version_regla + 1
         WHERE id = $8
         RETURNING id, nombre_jornada, hora_entrada, hora_limite_atraso, minutos_atraso_grave,
-                  umbral_alerta, umbral_critico, actualizado_por, actualizado_en
+                  umbral_alerta, umbral_critico, version_regla, actualizado_por, actualizado_en
       `, [
         value.nombre_jornada,
         value.hora_entrada,
@@ -101,6 +227,116 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         req.user.id,
         before.id
       ]);
+      const nextConfig = updated.rows[0];
+
+      if (controlsInput !== undefined) {
+        const requestedIds = new Set(validatedControls.filter((control) => control.id).map((control) => control.id));
+        const knownIds = new Set(controlsBefore.map((control) => Number(control.id)));
+        if ([...requestedIds].some((id) => !knownIds.has(id))) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ message: 'Uno de los controles horarios no pertenece a esta jornada.' });
+        }
+
+        const courseIds = [...new Set(validatedControls.flatMap((control) => control.cursos_ids))];
+        if (courseIds.length > 0) {
+          const courses = await client.query('SELECT id_curso FROM curso WHERE id_curso = ANY($1::int[])', [courseIds]);
+          if (courses.rows.length !== courseIds.length) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ message: 'Uno de los cursos seleccionados ya no existe.' });
+          }
+        }
+
+        for (const control of validatedControls) {
+          let saved;
+          if (control.id) {
+            const result = await client.query(`
+              UPDATE controles_puntualidad
+              SET nombre = $1, tipo = $2, hora_apertura = $3, hora_referencia = $4,
+                  hora_inicio_atraso = $5, hora_cierre = $6, minutos_atraso_grave = $7,
+                  dias_semana = $8::smallint[], cursos_ids = $9::int[],
+                  cuenta_alertas = $10, activo = $11, orden = $12,
+                  version = version + 1, actualizado_por = $13, actualizado_en = CURRENT_TIMESTAMP
+              WHERE id = $14
+              RETURNING *
+            `, [
+              control.nombre, control.tipo, control.hora_apertura, control.hora_referencia,
+              control.hora_inicio_atraso, control.hora_cierre, control.minutos_atraso_grave,
+              control.dias_semana, control.cursos_ids, control.cuenta_alertas, control.activo,
+              control.orden, req.user.id, control.id
+            ]);
+            saved = result.rows[0];
+          } else {
+            const result = await client.query(`
+              INSERT INTO controles_puntualidad
+                (configuracion_id, codigo, nombre, tipo, hora_apertura, hora_referencia,
+                 hora_inicio_atraso, hora_cierre, minutos_atraso_grave, dias_semana,
+                 cursos_ids, cuenta_alertas, activo, orden, creado_por, actualizado_por)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::smallint[],
+                      $11::int[], $12, $13, $14, $15, $15)
+              RETURNING *
+            `, [
+              before.id, slugControlCode(control.nombre), control.nombre, control.tipo,
+              control.hora_apertura, control.hora_referencia, control.hora_inicio_atraso,
+              control.hora_cierre, control.minutos_atraso_grave, control.dias_semana,
+              control.cursos_ids, control.cuenta_alertas, control.activo, control.orden,
+              req.user.id
+            ]);
+            saved = result.rows[0];
+          }
+          await client.query(`
+            INSERT INTO controles_puntualidad_versiones
+              (control_id, version, snapshot, motivo, creado_por)
+            VALUES ($1, $2, $3::jsonb, $4, $5)
+          `, [
+            saved.id,
+            saved.version,
+            JSON.stringify(controlSnapshot(saved)),
+            String(req.body?.motivo_cambio || 'Actualización de controles horarios').trim().slice(0, 500),
+            req.user.id
+          ]);
+        }
+
+        const omitted = controlsBefore.filter((control) => !requestedIds.has(Number(control.id)) && control.activo);
+        for (const control of omitted) {
+          const result = await client.query(`
+            UPDATE controles_puntualidad
+            SET activo = false, version = version + 1, actualizado_por = $1, actualizado_en = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING *
+          `, [req.user.id, control.id]);
+          const saved = result.rows[0];
+          await client.query(`
+            INSERT INTO controles_puntualidad_versiones
+              (control_id, version, snapshot, motivo, creado_por)
+            VALUES ($1, $2, $3::jsonb, $4, $5)
+          `, [
+            saved.id,
+            saved.version,
+            JSON.stringify(controlSnapshot(saved)),
+            'Control desactivado desde la configuración',
+            req.user.id
+          ]);
+        }
+      }
+
+      await client.query(`
+        INSERT INTO configuracion_puntualidad_versiones (
+          version_regla, configuracion_id, nombre_jornada, hora_entrada,
+          hora_limite_atraso, minutos_atraso_grave, umbral_alerta, umbral_critico,
+          creado_por, motivo
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [
+        nextConfig.version_regla,
+        nextConfig.id,
+        nextConfig.nombre_jornada,
+        nextConfig.hora_entrada,
+        nextConfig.hora_limite_atraso,
+        nextConfig.minutos_atraso_grave,
+        nextConfig.umbral_alerta,
+        nextConfig.umbral_critico,
+        req.user.id,
+        String(req.body?.motivo_cambio || 'Actualización de la configuración institucional').trim().slice(0, 500)
+      ]);
 
       await insertarAudit(client, {
         usuario_id: req.user.id,
@@ -108,11 +344,20 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         accion: 'ACTUALIZAR_CONFIG_PUNTUALIDAD',
         entidad: 'configuracion_puntualidad',
         entidad_id: before.id,
-        detalle: { antes: before, despues: updated.rows[0] },
+        detalle: {
+          antes: { configuracion: before, controles: controlsBefore.map(controlSnapshot) },
+          despues: {
+            configuracion: updated.rows[0],
+            controles: (await getControls(client)).map(controlSnapshot)
+          }
+        },
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
-      res.json({ message: 'Configuración actualizada.', config: updated.rows[0] });
+      res.json({
+        message: 'Configuración y controles horarios actualizados.',
+        config: { ...updated.rows[0], controles: await getControls(client) }
+      });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error('[puntualidad/config:update]', error.message);
@@ -130,8 +375,13 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     try {
       await client.query('BEGIN');
       const studentResult = await client.query(
-        `SELECT id_alumno, nombres, paterno, materno, activo
-         FROM alumno WHERE id_alumno = $1 FOR SHARE`,
+        `SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.activo,
+                m.id_matricula, m.id_curso, c.nombre_curso
+         FROM alumno a
+         LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+         LEFT JOIN curso c ON c.id_curso = m.id_curso
+         WHERE a.id_alumno = $1
+         FOR SHARE OF a`,
         [studentId]
       );
       if (studentResult.rows.length === 0) {
@@ -145,21 +395,111 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
       const config = await getConfig(client);
       const now = await getInstitutionalNow(client);
-      const { status, severidad } = calculateStatusAndSeverity('Entrada', now.hora, config || {});
       const requestedOrigin = String(req.body?.origen || 'manual').trim().toLowerCase();
       const origen = requestedOrigin === 'lector' ? 'lector' : 'manual';
+      const student = studentResult.rows[0];
+      const currentControls = await findCurrentControls(client, {
+        date: now.fecha,
+        time: now.hora,
+        courseId: student.id_curso || null
+      });
+      const automaticControl = currentControls[0] || null;
+      const requestedControlId = asBoundedInteger(req.body?.control_id, 1, 2147483647);
+      let control = automaticControl;
+      let overrideReason = null;
+
+      if (requestedControlId && Number(automaticControl?.id) !== requestedControlId) {
+        if (!req.user.permissions.includes('punctuality.controls.override')) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ message: 'Tu cuenta no puede cambiar el control horario sugerido.' });
+        }
+        const reasonValidation = validateReason(req.body?.motivo_override, { min: 8, max: 500 });
+        if (reasonValidation.error) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ message: 'Explica por qué se utilizará un control distinto al sugerido.' });
+        }
+        const requested = await client.query(`
+          ${controlSelect}
+          WHERE id = $1
+            AND activo = true
+            AND EXTRACT(ISODOW FROM $2::date)::int = ANY(dias_semana)
+            AND (cardinality(cursos_ids) = 0 OR $3::int = ANY(cursos_ids))
+          LIMIT 1
+        `, [requestedControlId, now.fecha, student.id_curso || null]);
+        control = requested.rows[0] || null;
+        overrideReason = reasonValidation.value;
+      } else if (requestedControlId && automaticControl) {
+        control = automaticControl;
+      }
+
+      if (!control) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          code: 'SIN_CONTROL_HORARIO',
+          message: 'No hay un control de puntualidad activo para este curso y horario.'
+        });
+      }
+
+      const appliedConfig = {
+        hora_entrada: control.hora_referencia,
+        hora_limite_atraso: control.hora_inicio_atraso,
+        minutos_atraso_grave: control.minutos_atraso_grave
+      };
+      const { status, severidad } = calculateStatusAndSeverity('Entrada', now.hora, appliedConfig);
+      const delayMinutes = calculateDelayMinutes(now.hora, control.hora_inicio_atraso);
 
       const inserted = await client.query(`
         INSERT INTO attendance_registrations
-          (id_alumno, fecha, hora, estado, tipo_registro, severidad, origen, registrado_por, creado_en)
-        VALUES ($1, $2, $3, $4, 'Entrada', $5, $6, $7, CURRENT_TIMESTAMP)
-        ON CONFLICT (id_alumno, fecha, tipo_registro) WHERE anulado = false DO NOTHING
+          (id_alumno, fecha, hora, estado, tipo_registro, severidad, origen, registrado_por, creado_en,
+           id_matricula_registro, id_curso_registro, curso_registro, jornada_registro,
+           hora_entrada_aplicada, hora_limite_aplicada, minutos_atraso_grave_aplicado,
+           minutos_atraso, version_regla, snapshot_migrado,
+           control_puntualidad_id, control_codigo, control_nombre, control_tipo,
+           hora_apertura_aplicada, hora_cierre_aplicada, control_version, cuenta_alertas_aplicado)
+        VALUES ($1, $2, $3, $4, 'Entrada', $5, $6, $7, CURRENT_TIMESTAMP,
+                $8, $9, $10, $11, $12, $13, $14, $15, $16, false,
+                $17, $18, $19, $20, $21, $22, $23, $24)
+        ON CONFLICT (id_alumno, fecha, control_puntualidad_id)
+          WHERE anulado = false AND tipo_registro = 'Entrada'
+        DO NOTHING
         RETURNING *
-      `, [studentId, now.fecha, now.hora, status, severidad, origen, req.user.id]);
+      `, [
+        studentId,
+        now.fecha,
+        now.hora,
+        status,
+        severidad,
+        origen,
+        req.user.id,
+        student.id_matricula || null,
+        student.id_curso || null,
+        student.nombre_curso || 'Sin curso informado',
+        config?.nombre_jornada || 'Jornada principal',
+        control.hora_referencia,
+        control.hora_inicio_atraso,
+        control.minutos_atraso_grave,
+        delayMinutes,
+        config?.version_regla || 1,
+        control.id,
+        control.codigo,
+        control.nombre,
+        control.tipo,
+        control.hora_apertura,
+        control.hora_cierre,
+        control.version,
+        control.cuenta_alertas
+      ]);
 
       if (inserted.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'El ingreso de esta persona ya fue registrado hoy.' });
+        await recordOperationalEvent(pool, {
+          type: 'INGRESO_DUPLICADO',
+          entity: 'alumno',
+          entityId: studentId,
+          detail: { fecha: now.fecha, origen, control_id: control.id, control_nombre: control.nombre },
+          userId: req.user.id
+        });
+        return res.status(409).json({ message: `Esta persona ya fue registrada en “${control.nombre}”.` });
       }
 
       const registration = inserted.rows[0];
@@ -175,7 +515,18 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           hora: now.hora,
           estado: status,
           severidad,
-          origen
+          origen,
+          curso: student.nombre_curso || null,
+          jornada: config?.nombre_jornada || 'Jornada principal',
+          control_id: control.id,
+          control_nombre: control.nombre,
+          control_tipo: control.tipo,
+          control_version: control.version,
+          seleccion_manual: Boolean(overrideReason),
+          motivo_override: overrideReason,
+          hora_limite_aplicada: control.hora_inicio_atraso,
+          minutos_atraso: delayMinutes,
+          version_regla: config?.version_regla || 1
         },
         ip: getClientIp(req)
       });
@@ -183,12 +534,12 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
       res.status(201).json({
         ...registration,
-        minutos_atraso: calculateDelayMinutes(now.hora, config?.hora_limite_atraso || '08:15:00')
+        minutos_atraso: delayMinutes
       });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error('[puntualidad/registros:create]', error.message);
-      if (error.code === '23505') return res.status(409).json({ message: 'El ingreso de esta persona ya fue registrado hoy.' });
+      if (error.code === '23505') return res.status(409).json({ message: 'La persona ya fue registrada en este control horario.' });
       res.status(500).json({ message: 'No fue posible registrar el ingreso.' });
     } finally {
       client.release();
@@ -204,11 +555,16 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
                r.origen, r.registrado_por, r.creado_en,
                r.version, r.corregido_en, r.motivo_correccion,
                a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv,
-               c.id_curso, c.nombre_curso AS curso,
-               u.nombre AS registrado_por_nombre
+               a.documento_erp, a.uuid_erp,
+               COALESCE(r.id_curso_registro, c.id_curso) AS id_curso,
+                COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso informado') AS curso,
+                r.jornada_registro, r.hora_limite_aplicada, r.minutos_atraso,
+                r.version_regla, r.snapshot_migrado, r.control_puntualidad_id,
+                r.control_codigo, r.control_nombre, r.control_tipo, r.control_version,
+                u.nombre AS registrado_por_nombre
         FROM attendance_registrations r
         JOIN alumno a ON a.id_alumno = r.id_alumno
-        LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
         LEFT JOIN curso c ON c.id_curso = m.id_curso
         LEFT JOIN usuarios u ON u.id = r.registrado_por
         LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
@@ -223,6 +579,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   });
 
   router.get('/resumen-hoy', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
+    const controlId = asBoundedInteger(req.query?.control_id, 1, 2147483647);
     try {
       const result = await pool.query(`
         SELECT
@@ -234,8 +591,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.justificado = true)::int AS justificados,
           (SELECT COUNT(*)::int FROM alumno WHERE activo = true AND rol = 'Estudiante') AS matricula_activa
         FROM attendance_registrations r
-        WHERE r.fecha = CURRENT_DATE AND ${ACTIVE_ENTRY_FILTER}
-      `);
+        WHERE r.fecha = CURRENT_DATE
+          AND ${ACTIVE_ENTRY_FILTER}
+          AND ($1::bigint IS NULL OR r.control_puntualidad_id = $1)
+      `, [controlId]);
       const summary = result.rows[0];
       const registered = summary.ingresos_registrados || 0;
       const onTime = summary.a_tiempo || 0;
@@ -280,8 +639,13 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         return res.status(400).json({ message: 'La fecha o la hora corregida no es válida.' });
       }
 
-      const config = await getConfig(client);
-      const classification = calculateStatusAndSeverity('Entrada', correctedTime, config || {});
+      const historicalConfig = {
+        hora_entrada: target.hora_entrada_aplicada,
+        hora_limite_atraso: target.hora_limite_aplicada,
+        minutos_atraso_grave: target.minutos_atraso_grave_aplicado
+      };
+      const classification = calculateStatusAndSeverity('Entrada', correctedTime, historicalConfig);
+      const correctedDelayMinutes = calculateDelayMinutes(correctedTime, target.hora_limite_aplicada);
       const before = registrationSnapshot(target);
       const updatedResult = await client.query(`
         UPDATE attendance_registrations
@@ -292,8 +656,9 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
             corregido_por = $5,
             corregido_en = CURRENT_TIMESTAMP,
             motivo_correccion = $6,
+            minutos_atraso = $7,
             version = version + 1
-        WHERE id_registro = $7
+        WHERE id_registro = $8
         RETURNING *
       `, [
         correctedDate,
@@ -302,6 +667,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         classification.severidad,
         req.user.id,
         reasonValidation.value,
+        correctedDelayMinutes,
         registrationId
       ]);
       const after = registrationSnapshot(updatedResult.rows[0]);
@@ -626,7 +992,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   });
 
   router.get('/analitica', verifyPermission('analytics.view'), async (req, res) => {
-    const { desde, hasta, id_curso: courseIdRaw, justificado, severidad } = req.query;
+    const { desde, hasta, id_curso: courseIdRaw, control_id: controlIdRaw, justificado, severidad } = req.query;
     const range = validateDateRange(desde, hasta);
     if (range.error) return res.status(400).json({ message: range.error });
 
@@ -636,8 +1002,14 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     if (courseIdRaw) {
       const courseId = asBoundedInteger(courseIdRaw, 1, 2147483647);
       if (!courseId) return res.status(400).json({ message: 'El curso seleccionado no es válido.' });
-      conditions.push(`m.id_curso = $${index++}`);
+      conditions.push(`COALESCE(r.id_curso_registro, m.id_curso) = $${index++}`);
       params.push(courseId);
+    }
+    if (controlIdRaw) {
+      const controlId = asBoundedInteger(controlIdRaw, 1, 2147483647);
+      if (!controlId) return res.status(400).json({ message: 'El control horario no es válido.' });
+      conditions.push(`r.control_puntualidad_id = $${index++}`);
+      params.push(controlId);
     }
     if (justificado !== undefined && justificado !== '') {
       if (!['true', 'false'].includes(String(justificado))) return res.status(400).json({ message: 'El filtro de justificación no es válido.' });
@@ -652,7 +1024,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     const where = conditions.join(' AND ');
 
     try {
-      const [metrics, daily, courses, slots, recurrent] = await Promise.all([
+      const [metrics, daily, courses, slots, recurrent, controls] = await Promise.all([
         pool.query(`
           SELECT
             COUNT(*)::int AS ingresos,
@@ -661,15 +1033,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
             COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Leve')::int AS leves,
             COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Grave')::int AS graves,
             COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.justificado = true)::int AS justificados,
-            ROUND(AVG(
-              CASE WHEN r.estado = 'Atrasado'
-                THEN GREATEST(0, EXTRACT(EPOCH FROM (r.hora - cfg.hora_limite_atraso)) / 60)
-              END
-            )::numeric, 1) AS promedio_minutos_atraso
+            ROUND(AVG(CASE WHEN r.estado = 'Atrasado' THEN r.minutos_atraso END)::numeric, 1)
+              AS promedio_minutos_atraso
           FROM attendance_registrations r
           JOIN alumno a ON a.id_alumno = r.id_alumno
-          LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-          CROSS JOIN LATERAL (SELECT hora_limite_atraso FROM configuracion_asistencia LIMIT 1) cfg
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
           WHERE ${where}
         `, params),
         pool.query(`
@@ -679,22 +1047,22 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado')::int AS atrasos
           FROM attendance_registrations r
           JOIN alumno a ON a.id_alumno = r.id_alumno
-          LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
           WHERE ${where}
           GROUP BY r.fecha
           ORDER BY r.fecha
         `, params),
         pool.query(`
-          SELECT COALESCE(c.nombre_curso, 'Sin curso') AS curso,
+          SELECT COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
                  COUNT(*)::int AS ingresos,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado')::int AS atrasos,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Grave')::int AS graves
           FROM attendance_registrations r
           JOIN alumno a ON a.id_alumno = r.id_alumno
-          LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-          LEFT JOIN curso c ON c.id_curso = m.id_curso
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+          LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
           WHERE ${where}
-          GROUP BY c.nombre_curso
+          GROUP BY COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso')
           ORDER BY atrasos DESC, ingresos DESC, curso
         `, params),
         pool.query(`
@@ -707,11 +1075,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
                  END AS tramo,
                  COUNT(*)::int AS atrasos
           FROM (
-            SELECT GREATEST(1, CEIL(EXTRACT(EPOCH FROM (r.hora - cfg.hora_limite_atraso)) / 60)) AS delay_minutes
+            SELECT r.minutos_atraso AS delay_minutes
             FROM attendance_registrations r
             JOIN alumno a ON a.id_alumno = r.id_alumno
-            LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-            CROSS JOIN LATERAL (SELECT hora_limite_atraso FROM configuracion_asistencia LIMIT 1) cfg
+            LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
             WHERE ${where} AND r.estado = 'Atrasado'
           ) delays
           GROUP BY tramo
@@ -719,18 +1086,35 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         `, params),
         pool.query(`
           SELECT a.id_alumno, a.nombres, a.paterno, a.materno,
-                 COALESCE(c.nombre_curso, 'Sin curso') AS curso,
+                 COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado')::int AS atrasos,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Grave')::int AS graves
           FROM attendance_registrations r
           JOIN alumno a ON a.id_alumno = r.id_alumno
-          LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-          LEFT JOIN curso c ON c.id_curso = m.id_curso
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+          LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
           WHERE ${where}
-          GROUP BY a.id_alumno, a.nombres, a.paterno, a.materno, c.nombre_curso
+          GROUP BY a.id_alumno, a.nombres, a.paterno, a.materno,
+                   COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso')
           HAVING COUNT(*) FILTER (WHERE r.estado = 'Atrasado') > 0
           ORDER BY atrasos DESC, graves DESC, a.paterno
           LIMIT 10
+        `, params),
+        pool.query(`
+          SELECT r.control_puntualidad_id AS id,
+                 r.control_nombre AS nombre,
+                 r.control_tipo AS tipo,
+                 COUNT(*)::int AS ingresos,
+                 COUNT(*) FILTER (WHERE r.estado = 'Atrasado')::int AS atrasos,
+                 COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Grave')::int AS graves,
+                 ROUND(AVG(CASE WHEN r.estado = 'Atrasado' THEN r.minutos_atraso END)::numeric, 1)
+                   AS promedio_minutos
+          FROM attendance_registrations r
+          JOIN alumno a ON a.id_alumno = r.id_alumno
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+          WHERE ${where}
+          GROUP BY r.control_puntualidad_id, r.control_nombre, r.control_tipo
+          ORDER BY atrasos DESC, ingresos DESC, nombre
         `, params)
       ]);
 
@@ -751,6 +1135,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           tasa_atraso: row.ingresos > 0 ? Number(((row.atrasos / row.ingresos) * 100).toFixed(1)) : null
         })),
         por_tramo: slots.rows,
+        por_control: controls.rows.map((row) => ({
+          ...row,
+          tasa_atraso: row.ingresos > 0 ? Number(((row.atrasos / row.ingresos) * 100).toFixed(1)) : null
+        })),
         recurrentes: recurrent.rows,
         periodo: range
       });
@@ -761,7 +1149,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   });
 
   router.get('/reporte', verifyPermission('reports.generate'), async (req, res) => {
-    const { desde, hasta, curso_id: courseIdRaw, alumno_id: studentIdRaw, alumnos_ids: studentIdsRaw } = req.query;
+    const {
+      desde, hasta, curso_id: courseIdRaw, alumno_id: studentIdRaw,
+      alumnos_ids: studentIdsRaw, control_id: controlIdRaw
+    } = req.query;
     const range = validateDateRange(desde, hasta);
     if (range.error) return res.status(400).json({ message: range.error });
 
@@ -777,7 +1168,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     if (courseIdRaw) {
       const courseId = asBoundedInteger(courseIdRaw, 1, 2147483647);
       if (!courseId) return res.status(400).json({ message: 'El curso seleccionado no es válido.' });
-      conditions.push(`m.id_curso = $${index++}`);
+      conditions.push(`COALESCE(r.id_curso_registro, m.id_curso) = $${index++}`);
       params.push(courseId);
     }
     if (studentIdRaw) {
@@ -792,21 +1183,30 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       conditions.push(`a.id_alumno = ANY($${index++}::int[])`);
       params.push(ids);
     }
+    if (controlIdRaw) {
+      const controlId = asBoundedInteger(controlIdRaw, 1, 2147483647);
+      if (!controlId) return res.status(400).json({ message: 'El control horario seleccionado no es válido.' });
+      conditions.push(`r.control_puntualidad_id = $${index++}`);
+      params.push(controlId);
+    }
 
     try {
       const result = await pool.query(`
         SELECT r.id_registro, r.fecha::text AS fecha, TO_CHAR(r.hora, 'HH24:MI:SS') AS hora,
                r.severidad, r.justificado, r.tipo_justificacion, r.comentario_justificacion,
                r.documento_id, d.nombre_original AS documento_nombre, r.origen,
-               a.id_alumno, a.rut, a.dv, a.nombres, a.paterno, a.materno,
-               COALESCE(c.nombre_curso, 'Sin curso') AS curso,
-               GREATEST(1, CEIL(EXTRACT(EPOCH FROM (r.hora - cfg.hora_limite_atraso)) / 60))::int AS minutos_atraso
+               a.id_alumno, a.rut, a.dv, a.documento_erp, a.uuid_erp,
+               a.nombres, a.paterno, a.materno,
+               COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
+               r.jornada_registro, r.hora_entrada_aplicada, r.hora_limite_aplicada,
+               r.minutos_atraso, r.version_regla, r.snapshot_migrado,
+               r.control_puntualidad_id, r.control_codigo, r.control_nombre,
+               r.control_tipo, r.control_version
         FROM attendance_registrations r
         JOIN alumno a ON a.id_alumno = r.id_alumno
-        LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-        LEFT JOIN curso c ON c.id_curso = m.id_curso
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
         LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
-        CROSS JOIN LATERAL (SELECT hora_limite_atraso FROM configuracion_asistencia LIMIT 1) cfg
         WHERE ${conditions.join(' AND ')}
         ORDER BY r.fecha, r.hora, c.nombre_curso, a.paterno, a.nombres
       `, params);
@@ -826,13 +1226,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         WITH cfg AS (
           SELECT umbral_alerta, umbral_critico FROM configuracion_asistencia LIMIT 1
         ), recent AS (
-          SELECT r.id_alumno, r.fecha, r.estado, r.severidad
+          SELECT r.id_alumno, r.fecha, r.estado, r.severidad,
+                 r.id_curso_registro, r.curso_registro
           FROM attendance_registrations r
           WHERE r.fecha >= CURRENT_DATE - ($1::int - 1)
             AND ${ACTIVE_ENTRY_FILTER}
+            AND r.cuenta_alertas_aplicado = true
         ), aggregates AS (
           SELECT a.id_alumno, a.nombres, a.paterno, a.materno,
-                 COALESCE(c.nombre_curso, 'Sin curso') AS curso,
+                 COALESCE(recent.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
                  COUNT(*) FILTER (WHERE recent.estado = 'Atrasado')::int AS atrasos,
                  COUNT(*) FILTER (WHERE recent.estado = 'Atrasado' AND recent.severidad = 'Grave')::int AS graves,
                  COUNT(*) FILTER (
@@ -845,10 +1247,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
                  MAX(recent.fecha) FILTER (WHERE recent.estado = 'Atrasado')::text AS ultimo_atraso
           FROM alumno a
           JOIN recent ON recent.id_alumno = a.id_alumno
-          LEFT JOIN matricula m ON m.id_alumno = a.id_alumno
-          LEFT JOIN curso c ON c.id_curso = m.id_curso
+          LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+          LEFT JOIN curso c ON c.id_curso = COALESCE(recent.id_curso_registro, m.id_curso)
           WHERE a.activo = true
-          GROUP BY a.id_alumno, a.nombres, a.paterno, a.materno, c.nombre_curso
+          GROUP BY a.id_alumno, a.nombres, a.paterno, a.materno,
+                   COALESCE(recent.curso_registro, c.nombre_curso, 'Sin curso')
         )
         SELECT aggregates.*,
                CASE
