@@ -1,0 +1,14 @@
+services:
+  backend:
+    environment:
+      COOKIE_SECURE: "true"
+      CORS_ORIGIN: ${HTTPS_CORS_ORIGIN:-https://asistencia.ldsm.test},${CORS_ORIGIN}
+
+  frontend:
+    ports:
+      - "443:443"
+    volumes:
+      - ./frontend/frontend.https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -q -O - https://127.0.0.1/healthz | grep -q ok"]

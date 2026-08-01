@@ -45,6 +45,7 @@ services:
       DB_POOL_MAX: 10
     volumes:
       - uploads_data:/app/uploads
+      - ./backups:/app/backups:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/api/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s

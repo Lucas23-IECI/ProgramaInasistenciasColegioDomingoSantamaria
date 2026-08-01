@@ -51,7 +51,7 @@ jobs:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Instalar dependencias reproducibles
@@ -61,7 +61,7 @@ jobs:
       - name: Compilar version de produccion
         run: npm run build
       - name: Auditar dependencias
-        run: npm audit --audit-level=moderate
+        run: npm run audit:security
 
   cuestionarios:
     name: Portal de cuestionarios
