@@ -457,26 +457,30 @@ app.post('/api/students', verifyToken, verifyPermission('students.manage'), asyn
           identityType: IDENTIFIER_TYPES.RUN_CHILE,
           rut: identity.rut,
           dv: identity.dv,
-          validationLevel: identity.validationLevel
+          validationLevel: identity.validationLevel,
+          validationEvidence: identity.validationEvidence
         }
       : identity.identityType === MANUAL_IDENTITY_TYPES.IPE_MINEDUC
         ? {
             identityType: IDENTIFIER_TYPES.IPE_MINEDUC,
             documentoErp: identity.documentOriginal,
-            validationLevel: identity.validationLevel
+            validationLevel: identity.validationLevel,
+            validationEvidence: identity.validationEvidence
           }
         : identity.identityType === MANUAL_IDENTITY_TYPES.SIN_DOCUMENTO
           ? {
               identityType: IDENTIFIER_TYPES.CODIGO_INTERNO,
               internalCode: operationalCode,
-              validationLevel: identity.validationLevel
+              validationLevel: identity.validationLevel,
+              validationEvidence: identity.validationEvidence
             }
           : {
               identityType: IDENTIFIER_TYPES.DOCUMENTO_EXTRANJERO,
               documentoErp: identity.documentOriginal,
               foreignDocumentType: identity.foreignDocumentType,
               countryCode: identity.countryCode,
-              validationLevel: identity.validationLevel
+              validationLevel: identity.validationLevel,
+              validationEvidence: identity.validationEvidence
             };
 
     await syncStudentIdentifiers(client, {

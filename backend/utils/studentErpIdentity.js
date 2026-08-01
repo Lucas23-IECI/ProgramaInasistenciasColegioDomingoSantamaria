@@ -1,4 +1,5 @@
 const { sanitizeStudentText, validateStudentRut } = require('./students');
+const { validateIdentityDocument } = require('./identityValidatorRegistry');
 
 const normalizeErpDocument = (value) => sanitizeStudentText(value, 64)
   .toUpperCase()
@@ -59,10 +60,12 @@ const normalizeCountryCode = (value) => {
 };
 
 const isMineducProvisionalIdentifier = (value) => {
-  const compact = normalizeBarcodeToken(value);
-  // MINEDUC describe el antiguo "RUT 100" como un número provisorio sobre
-  // 100 millones. No se valida con el módulo 11 del RUN chileno.
-  return /^1\d{8}[0-9K]$/.test(compact);
+  const validation = validateIdentityDocument({
+    identityType: IDENTITY_TYPES.IPE_MINEDUC,
+    countryCode: 'CHL',
+    documentOriginal: value
+  });
+  return validation.accepted;
 };
 
 const isStructurallyValidForeignDocument = (value) => {
@@ -114,6 +117,18 @@ const normalizeErpStudentIdentity = ({
       : hasForeignDocument
         ? IDENTITY_TYPES.DOCUMENTO_EXTRANJERO
         : IDENTITY_TYPES.ID_ERP;
+  const validatorIdentityType = identityType === IDENTITY_TYPES.DOCUMENTO_EXTRANJERO
+    ? foreignDocumentType || IDENTITY_TYPES.DOCUMENTO_EXTRANJERO
+    : identityType;
+  const documentValidation = validateIdentityDocument({
+    identityType: validatorIdentityType,
+    countryCode: identityType === IDENTITY_TYPES.RUN_CHILE || identityType === IDENTITY_TYPES.IPE_MINEDUC
+      ? 'CHL'
+      : countryCode,
+    documentOriginal: identityType === IDENTITY_TYPES.ID_ERP ? erpId : documentErp,
+    rut: normalizedRut.rut,
+    dv: normalizedRut.dv
+  });
   const canIdentify = Boolean(erpId || rut || hasMineducIdentifier || hasTrustedForeignDocumentContext);
   const barcode = hasValidRut
     ? `${rut}${dv}`
@@ -142,8 +157,11 @@ const normalizeErpStudentIdentity = ({
       : hasMineducIdentifier
         ? 'FUENTE_MINEDUC_ERP'
         : hasForeignDocument
-          ? 'FORMATO_Y_ORIGEN_ERP'
-          : 'ID_ERP'
+          ? documentValidation.accepted
+            ? 'FORMATO_Y_ORIGEN_ERP'
+            : 'PENDIENTE_DATOS_DOCUMENTO'
+          : 'ID_ERP',
+    validationEvidence: documentValidation
   };
 };
 

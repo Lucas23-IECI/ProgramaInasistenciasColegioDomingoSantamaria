@@ -47,7 +47,9 @@ const run = async () => {
     });
     const samples = await pool.query(`
       SELECT DISTINCT ON (ai.tipo)
-             ai.tipo, ai.valor_normalizado, ai.id_alumno
+             ai.tipo, ai.valor_normalizado, ai.id_alumno,
+             ai.validador_id, ai.validador_version,
+             ai.resultado_validacion, ai.validado_en
       FROM alumno_identificador ai
       JOIN alumno a ON a.id_alumno = ai.id_alumno
       WHERE ai.estado <> 'REVOCADO'
@@ -58,6 +60,9 @@ const run = async () => {
     `);
     const expectedTypes = new Set(['RUN_CHILE', 'IPE_MINEDUC', 'ID_ERP', 'CODIGO_BARRAS']);
     for (const sample of samples.rows) {
+      if (!sample.validador_id || !sample.validador_version || !sample.resultado_validacion) {
+        throw new Error(`El identificador ${sample.tipo} no conserva evidencia versionada.`);
+      }
       const search = await requestJson(
         `/students/search?q=${encodeURIComponent(sample.valor_normalizado)}`,
         { cookie: login.cookie }
@@ -88,6 +93,13 @@ const run = async () => {
     );
     if (!Array.isArray(details.data.identificadores) || !details.data.identificadores.length) {
       throw new Error('La ficha de estudiante no devolvió sus identificadores relacionados.');
+    }
+    if (details.data.identificadores.some((identifier) => (
+      !identifier.validador_id
+      || !identifier.validador_version
+      || !identifier.resultado_validacion
+    ))) {
+      throw new Error('La ficha no expuso la evidencia versionada de todos sus identificadores.');
     }
 
     console.log(

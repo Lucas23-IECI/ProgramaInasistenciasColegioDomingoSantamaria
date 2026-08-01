@@ -120,6 +120,14 @@ CREATE TABLE alumno_identificador (
   ),
   es_principal BOOLEAN NOT NULL DEFAULT false,
   nivel_validacion VARCHAR(40),
+  validador_id VARCHAR(80),
+  validador_version VARCHAR(20),
+  resultado_validacion VARCHAR(24) CONSTRAINT ck_alumno_identificador_resultado_validacion CHECK (
+    resultado_validacion IS NULL OR resultado_validacion IN (
+      'VERIFICADO', 'ESTRUCTURAL', 'DECLARADO', 'SISTEMA', 'PENDIENTE', 'RECHAZADO'
+    )
+  ),
+  validado_en TIMESTAMPTZ,
   vigente_desde DATE NOT NULL DEFAULT CURRENT_DATE,
   vigente_hasta DATE,
   creado_por INT REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -146,6 +154,9 @@ CREATE INDEX idx_alumno_identificador_alumno
   ON alumno_identificador (id_alumno, es_principal DESC, actualizado_en DESC);
 CREATE INDEX idx_alumno_identificador_busqueda
   ON alumno_identificador (valor_normalizado)
+  WHERE estado <> 'REVOCADO';
+CREATE INDEX idx_alumno_identificador_validacion
+  ON alumno_identificador (resultado_validacion, tipo, pais_emisor)
   WHERE estado <> 'REVOCADO';
 
 ALTER TABLE attendance_registrations

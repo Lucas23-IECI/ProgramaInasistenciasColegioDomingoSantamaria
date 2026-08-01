@@ -1,3 +1,5 @@
+const { validateIdentityDocument } = require('../utils/identityValidatorRegistry');
+
 const IDENTIFIER_TYPES = Object.freeze({
   RUN_CHILE: 'RUN_CHILE',
   IPE_MINEDUC: 'IPE_MINEDUC',
@@ -30,6 +32,32 @@ const shouldPreserveRegularizedRun = (currentPrimaryType, incomingIdentityType) 
   && incomingIdentityType !== IDENTIFIER_TYPES.RUN_CHILE
 );
 
+const resolveValidationEvidence = ({ identity = {}, type, value, countryCode = null }) => {
+  if (identity.validationEvidence?.validatorId) return identity.validationEvidence;
+  return validateIdentityDocument({
+    identityType: type,
+    countryCode,
+    documentOriginal: value,
+    rut: identity.rut,
+    dv: identity.dv
+  });
+};
+
+const withValidationEvidence = (candidate, identity = {}) => {
+  const validation = resolveValidationEvidence({
+    identity,
+    type: candidate.type,
+    value: candidate.originalValue,
+    countryCode: candidate.countryCode
+  });
+  return {
+    ...candidate,
+    validatorId: validation.validatorId,
+    validatorVersion: validation.validatorVersion,
+    validationResult: validation.result
+  };
+};
+
 const buildStudentIdentifierCandidates = ({
   identity = {},
   barcode = null,
@@ -42,7 +70,7 @@ const buildStudentIdentifierCandidates = ({
     : 'LEGACY';
 
   if (identity.identityType === IDENTIFIER_TYPES.RUN_CHILE && identity.rut && identity.dv) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: IDENTIFIER_TYPES.RUN_CHILE,
       originalValue: `${identity.rut}-${identity.dv}`,
       normalizedValue: normalizeIdentifierValue(`${identity.rut}${identity.dv}`),
@@ -50,9 +78,9 @@ const buildStudentIdentifierCandidates = ({
       source: sourceNormalized,
       validationLevel: identity.validationLevel || 'DV_VERIFICADO',
       principal: true
-    });
+    }, identity));
   } else if (identity.identityType === IDENTIFIER_TYPES.IPE_MINEDUC && identity.documentoErp) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: IDENTIFIER_TYPES.IPE_MINEDUC,
       originalValue: identity.documentoErp,
       normalizedValue: normalizeIdentifierValue(identity.documentoErp),
@@ -60,12 +88,12 @@ const buildStudentIdentifierCandidates = ({
       source: sourceNormalized,
       validationLevel: identity.validationLevel || 'FUENTE_MINEDUC_ERP',
       principal: true
-    });
+    }, identity));
   } else if (
     identity.identityType === IDENTIFIER_TYPES.DOCUMENTO_EXTRANJERO
     && identity.documentoErp
   ) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: foreignTypeToIdentifierType(identity.foreignDocumentType),
       originalValue: identity.documentoErp,
       normalizedValue: normalizeIdentifierValue(identity.documentoErp),
@@ -73,12 +101,12 @@ const buildStudentIdentifierCandidates = ({
       source: sourceNormalized,
       validationLevel: identity.validationLevel || 'FORMATO_Y_ORIGEN_ERP',
       principal: true
-    });
+    }, identity));
   } else if (
     identity.identityType === IDENTIFIER_TYPES.CODIGO_INTERNO
     && identity.internalCode
   ) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: IDENTIFIER_TYPES.CODIGO_INTERNO,
       originalValue: identity.internalCode,
       normalizedValue: normalizeIdentifierValue(identity.internalCode),
@@ -86,11 +114,11 @@ const buildStudentIdentifierCandidates = ({
       source: sourceNormalized,
       validationLevel: identity.validationLevel || 'SIN_DOCUMENTO_CIVIL',
       principal: true
-    });
+    }, identity));
   }
 
   if (identity.uuidErp) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: IDENTIFIER_TYPES.ID_ERP,
       originalValue: identity.uuidErp,
       normalizedValue: normalizeIdentifierValue(identity.uuidErp),
@@ -98,11 +126,11 @@ const buildStudentIdentifierCandidates = ({
       source: 'ERP',
       validationLevel: 'ID_ERP',
       principal: candidates.length === 0
-    });
+    }, {}));
   }
 
   if (barcode) {
-    candidates.push({
+    candidates.push(withValidationEvidence({
       type: IDENTIFIER_TYPES.CODIGO_BARRAS,
       originalValue: barcode,
       normalizedValue: normalizeIdentifierValue(barcode),
@@ -110,7 +138,7 @@ const buildStudentIdentifierCandidates = ({
       source: 'SISTEMA',
       validationLevel: 'CODIGO_OPERATIVO',
       principal: false
-    });
+    }, {}));
   }
 
   const unique = new Map();
@@ -171,12 +199,19 @@ const syncStudentIdentifiers = async (client, {
          SET valor_original = $1,
              fuente = $2,
              nivel_validacion = COALESCE($3, nivel_validacion),
+             validador_id = COALESCE($4, validador_id),
+             validador_version = COALESCE($5, validador_version),
+             resultado_validacion = COALESCE($6, resultado_validacion),
+             validado_en = CASE WHEN $4 IS NULL THEN validado_en ELSE CURRENT_TIMESTAMP END,
              actualizado_en = CURRENT_TIMESTAMP
-         WHERE id_identificador = $4`,
+         WHERE id_identificador = $7`,
         [
           candidate.originalValue,
           candidate.source,
           candidate.validationLevel,
+          candidate.validatorId,
+          candidate.validatorVersion,
+          candidate.validationResult,
           existing.rows[0].id_identificador
         ]
       );
@@ -187,8 +222,10 @@ const syncStudentIdentifiers = async (client, {
     await client.query(
       `INSERT INTO alumno_identificador (
          id_alumno, tipo, valor_original, valor_normalizado, pais_emisor,
-         fuente, estado, es_principal, nivel_validacion, creado_por
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         fuente, estado, es_principal, nivel_validacion, creado_por,
+         validador_id, validador_version, resultado_validacion, validado_en
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                 CASE WHEN $11::varchar IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)`,
       [
         studentId,
         candidate.type,
@@ -199,7 +236,10 @@ const syncStudentIdentifiers = async (client, {
         state,
         shouldBePrincipal,
         candidate.validationLevel,
-        userId
+        userId,
+        candidate.validatorId,
+        candidate.validatorVersion,
+        candidate.validationResult
       ]
     );
     if (shouldBePrincipal) hasPrimary = true;
@@ -212,6 +252,7 @@ const getStudentIdentifiers = async (queryable, studentId) => {
   const result = await queryable.query(
     `SELECT id_identificador, tipo, valor_original, valor_normalizado,
             pais_emisor, fuente, estado, es_principal, nivel_validacion,
+            validador_id, validador_version, resultado_validacion, validado_en,
             vigente_desde, vigente_hasta, creado_en, actualizado_en
      FROM alumno_identificador
      WHERE id_alumno = $1
@@ -264,6 +305,13 @@ const regularizeIpeToRun = async (client, {
   }
 
   const normalizedRun = normalizeIdentifierValue(`${rut}${dv}`);
+  const runValidation = validateIdentityDocument({
+    identityType: IDENTIFIER_TYPES.RUN_CHILE,
+    countryCode: 'CHL',
+    documentOriginal: `${rut}-${dv}`,
+    rut,
+    dv
+  });
   const collision = await client.query(
     `SELECT ai.id_alumno
      FROM alumno_identificador ai
@@ -317,11 +365,12 @@ const regularizeIpeToRun = async (client, {
     `INSERT INTO alumno_identificador (
        id_alumno, tipo, valor_original, valor_normalizado, pais_emisor,
        fuente, estado, es_principal, nivel_validacion, creado_por,
-       respaldo_documento_id, metadatos
+       respaldo_documento_id, metadatos, validador_id, validador_version,
+       resultado_validacion, validado_en
      ) VALUES (
        $1, 'RUN_CHILE', $2, $3, 'CHL',
        'REGULARIZACION', 'PRINCIPAL', true, 'DV_VERIFICADO', $4,
-       $5, $6::jsonb
+       $5, $6::jsonb, $7, $8, $9, CURRENT_TIMESTAMP
      )
      RETURNING id_identificador, tipo, valor_original, valor_normalizado,
                estado, es_principal, vigente_desde`,
@@ -334,7 +383,10 @@ const regularizeIpeToRun = async (client, {
       JSON.stringify({
         identificador_anterior_id: previousIdentifier.id_identificador,
         tipo_respaldo: supportType
-      })
+      }),
+      runValidation.validatorId,
+      runValidation.validatorVersion,
+      runValidation.result
     ]
   );
   const newIdentifier = newIdentifierResult.rows[0];

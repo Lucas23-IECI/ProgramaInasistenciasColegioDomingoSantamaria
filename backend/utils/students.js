@@ -1,3 +1,11 @@
+const {
+  VALIDATION_RESULTS,
+  calculateChileanRutDv,
+  normalizeChileanRut,
+  validateChileanRut,
+  validateIdentityDocument
+} = require('./identityValidatorRegistry');
+
 const sanitizeStudentText = (value, maxLength = 100) => String(value ?? '')
   .trim()
   .replace(/\s+/g, ' ')
@@ -27,45 +35,9 @@ const normalizeManualIdentityType = (value, fallbackToRun = true) => {
   return fallbackToRun ? MANUAL_IDENTITY_TYPES.RUN_CHILE : '';
 };
 
-const normalizeStudentRut = (rutInput, dvInput = '') => {
-  const suppliedDv = String(dvInput ?? '').trim().toUpperCase().replace(/[^0-9K]/g, '').slice(0, 1);
-  const compact = String(rutInput ?? '').trim().toUpperCase().replace(/[^0-9K]/g, '');
-
-  if (!compact) return { rut: '', dv: '' };
-  if (suppliedDv) {
-    return {
-      rut: compact.replace(/\D/g, '').slice(0, 8),
-      dv: suppliedDv
-    };
-  }
-
-  return {
-    rut: compact.slice(0, -1).replace(/\D/g, '').slice(0, 8),
-    dv: compact.slice(-1)
-  };
-};
-
-const calculateRutDv = (rut) => {
-  let sum = 0;
-  let multiplier = 2;
-  const digits = String(rut ?? '').replace(/\D/g, '');
-
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    sum += Number(digits[index]) * multiplier;
-    multiplier = multiplier === 7 ? 2 : multiplier + 1;
-  }
-
-  const result = 11 - (sum % 11);
-  if (result === 11) return '0';
-  if (result === 10) return 'K';
-  return String(result);
-};
-
-const validateStudentRut = (rutInput, dvInput = '') => {
-  const normalized = normalizeStudentRut(rutInput, dvInput);
-  if (!/^\d{6,8}$/.test(normalized.rut) || !/^[0-9K]$/.test(normalized.dv)) return false;
-  return calculateRutDv(normalized.rut) === normalized.dv;
-};
+const normalizeStudentRut = normalizeChileanRut;
+const calculateRutDv = calculateChileanRutDv;
+const validateStudentRut = validateChileanRut;
 
 const normalizeManualStudentIdentity = (payload = {}) => {
   const identityType = normalizeManualIdentityType(
@@ -80,6 +52,13 @@ const normalizeManualStudentIdentity = (payload = {}) => {
 
   if (identityType === MANUAL_IDENTITY_TYPES.RUN_CHILE) {
     const normalizedRut = normalizeStudentRut(documentInput, payload.dv);
+    const validationEvidence = validateIdentityDocument({
+      identityType,
+      countryCode: 'CHL',
+      documentOriginal: `${normalizedRut.rut}-${normalizedRut.dv}`,
+      rut: normalizedRut.rut,
+      dv: normalizedRut.dv
+    });
     return {
       identityType,
       rut: normalizedRut.rut,
@@ -90,7 +69,8 @@ const normalizeManualStudentIdentity = (payload = {}) => {
       documentNormalized: `${normalizedRut.rut}${normalizedRut.dv}`,
       countryCode: 'CHL',
       foreignDocumentType: null,
-      validationLevel: 'DV_VERIFICADO'
+      validationLevel: validationEvidence.validationLevel,
+      validationEvidence
     };
   }
 
@@ -103,41 +83,51 @@ const normalizeManualStudentIdentity = (payload = {}) => {
       documentNormalized: '',
       countryCode: null,
       foreignDocumentType: null,
-      validationLevel: 'SIN_DOCUMENTO_CIVIL'
+      validationLevel: 'SIN_DOCUMENTO_CIVIL',
+      validationEvidence: {
+        accepted: true,
+        result: VALIDATION_RESULTS.DECLARED,
+        validatorId: null,
+        validatorVersion: null,
+        errors: [],
+        warnings: ['La ficha no dispone de un documento civil para validar.']
+      }
     };
   }
 
   const documentOriginal = normalizeIdentityDocument(documentInput);
   const documentNormalized = normalizeIdentityToken(documentOriginal);
   const isIpe = identityType === MANUAL_IDENTITY_TYPES.IPE_MINEDUC;
+  const resolvedCountry = isIpe ? 'CHL' : countryCode;
+  const validationEvidence = validateIdentityDocument({
+    identityType,
+    countryCode: resolvedCountry,
+    documentOriginal,
+    documentNormalized
+  });
   return {
     identityType,
     rut: null,
     dv: null,
     documentOriginal,
     documentNormalized,
-    countryCode: isIpe ? 'CHL' : countryCode,
+    countryCode: resolvedCountry,
     foreignDocumentType: isIpe ? null : identityType,
     validationLevel: isIpe
       ? 'IPE_DECLARADO_MANUAL'
-      : 'FORMATO_Y_PAIS_DECLARADO'
+      : validationEvidence.validationLevel,
+    validationEvidence
   };
 };
 
 const validateManualStudentIdentity = (identity, { manualDetail = '' } = {}) => {
   const errors = [];
   if (identity.identityType === MANUAL_IDENTITY_TYPES.RUN_CHILE) {
-    if (!validateStudentRut(identity.rut, identity.dv)) {
-      errors.push('El RUN chileno no es válido.');
-    }
-    return errors;
+    return [...(identity.validationEvidence?.errors || [])];
   }
 
   if (identity.identityType === MANUAL_IDENTITY_TYPES.IPE_MINEDUC) {
-    if (!/^1\d{8}[0-9K]$/.test(identity.documentNormalized)) {
-      errors.push('El IPE debe corresponder a un identificador provisorio de Mineduc.');
-    }
-    return errors;
+    return [...(identity.validationEvidence?.errors || [])];
   }
 
   if (identity.identityType === MANUAL_IDENTITY_TYPES.SIN_DOCUMENTO) {
@@ -147,13 +137,7 @@ const validateManualStudentIdentity = (identity, { manualDetail = '' } = {}) => 
     return errors;
   }
 
-  if (!/^[0-9A-Z]{3,64}$/.test(identity.documentNormalized)) {
-    errors.push('El documento extranjero debe contener entre 3 y 64 letras o números.');
-  }
-  if (!/^[A-Z]{3}$/.test(identity.countryCode || '')) {
-    errors.push('Seleccione el país emisor del documento extranjero.');
-  }
-  return errors;
+  return [...(identity.validationEvidence?.errors || [])];
 };
 
 const normalizeStudentPayload = (payload = {}) => {

@@ -38,6 +38,10 @@ test('un RUN conserva simultáneamente el UUID ERP y el código operativo', () =
   );
   assert.equal(candidates[0].countryCode, 'CHL');
   assert.equal(candidates[0].normalizedValue, '123456785');
+  assert.equal(candidates[0].validatorId, 'cl.run.modulo11');
+  assert.equal(candidates[0].validatorVersion, '1.0.0');
+  assert.equal(candidates[0].validationResult, 'VERIFICADO');
+  assert.equal(candidates[1].validationResult, 'SISTEMA');
 });
 
 test('un IPE se registra como identidad escolar y no como RUN chileno', () => {
@@ -53,6 +57,8 @@ test('un IPE se registra como identidad escolar y no como RUN chileno', () => {
   assert.equal(candidates[0].type, IDENTIFIER_TYPES.IPE_MINEDUC);
   assert.equal(candidates[0].principal, true);
   assert.equal(candidates[0].normalizedValue, '1007218911');
+  assert.equal(candidates[0].validatorId, 'cl.mineduc.ipe.estructura');
+  assert.equal(candidates[0].validationResult, 'ESTRUCTURAL');
   assert.equal(candidates[1].type, IDENTIFIER_TYPES.ID_ERP);
 });
 
@@ -71,6 +77,8 @@ test('un documento extranjero conserva tipo y país emisor sin validarlo como RU
   assert.equal(candidates[0].type, IDENTIFIER_TYPES.PASAPORTE);
   assert.equal(candidates[0].countryCode, 'VEN');
   assert.equal(candidates[0].validationLevel, 'FORMATO_Y_ORIGEN_ERP');
+  assert.equal(candidates[0].validatorId, 'global.documento.estructural');
+  assert.equal(candidates[0].validationResult, 'ESTRUCTURAL');
 });
 
 test('el UUID ERP pasa a ser principal solo cuando no existe documento', () => {
