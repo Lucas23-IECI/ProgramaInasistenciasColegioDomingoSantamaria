@@ -15,6 +15,7 @@ const {
   buildVisitsWorkbook,
   streamVisitsPdf
 } = require('../services/visitReportService');
+const { protectStudentRecord } = require('../utils/studentPrivacy');
 
 const VISIT_PERMISSIONS = [
   'visits.view',
@@ -168,7 +169,7 @@ const mapWithdrawal = (row) => ({
     parentesco_codigo: row.parentesco_codigo,
     origen: row.origen_autorizacion
   } : null,
-  estudiante: {
+  estudiante: protectStudentRecord({
     id_alumno: row.id_alumno,
     nombres: row.nombres,
     paterno: row.paterno,
@@ -178,7 +179,7 @@ const mapWithdrawal = (row) => ({
     documento_erp: row.documento_erp,
     uuid_erp: row.uuid_erp,
     nombre_curso: row.nombre_curso
-  },
+  }),
   visitante: visitorPayload(row),
   solicitado_por_nombre: row.solicitado_por_nombre,
   decidido_por_nombre: row.decidido_por_nombre,
@@ -310,7 +311,7 @@ const createVisitsRouter = ({
       );
       res.json(result.rows.map((row) => ({
         ...visitorPayload(row, { revealDocument: true }),
-        estudiantes: row.estudiantes
+        estudiantes: (row.estudiantes || []).map((student) => protectStudentRecord(student))
       })));
     } catch (error) {
       console.error('[retiros:buscar-apoderado]', error.message);
@@ -343,7 +344,7 @@ const createVisitsRouter = ({
          LIMIT 15`,
         [`%${query}%`, `%${body || document}%`, `%${document}%`]
       );
-      res.json(result.rows);
+      res.json(result.rows.map((student) => protectStudentRecord(student)));
     } catch (error) {
       console.error('[visitas:buscar-estudiante]', error.message);
       res.status(500).json({ message: 'No fue posible buscar estudiantes.' });

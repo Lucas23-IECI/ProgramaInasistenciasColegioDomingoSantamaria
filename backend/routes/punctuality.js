@@ -20,6 +20,7 @@ const {
   resolveDocumentPath
 } = require('../services/documentService');
 const { recordOperationalEvent } = require('../services/operationalEventService');
+const { protectStudentRecord } = require('../utils/studentPrivacy');
 
 const ACTIVE_ENTRY_FILTER = "r.tipo_registro = 'Entrada' AND r.anulado = false AND r.estado IN ('Presente', 'Atrasado')";
 
@@ -571,7 +572,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         WHERE r.fecha = CURRENT_DATE AND ${ACTIVE_ENTRY_FILTER}
         ORDER BY r.hora DESC, r.id_registro DESC
       `);
-      res.json(result.rows);
+      res.json(result.rows.map((row) => protectStudentRecord(row)));
     } catch (error) {
       console.error('[puntualidad/hoy]', error.message);
       res.status(500).json({ message: 'No fue posible obtener los ingresos del día.' });
@@ -1210,7 +1211,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         WHERE ${conditions.join(' AND ')}
         ORDER BY r.fecha, r.hora, c.nombre_curso, a.paterno, a.nombres
       `, params);
-      res.json({ periodo: range, total: result.rows.length, registros: result.rows });
+      res.json({
+        periodo: range,
+        total: result.rows.length,
+        registros: result.rows.map((row) => protectStudentRecord(row))
+      });
     } catch (error) {
       console.error('[puntualidad/reporte]', error.message);
       res.status(500).json({ message: 'No fue posible generar los datos del reporte.' });

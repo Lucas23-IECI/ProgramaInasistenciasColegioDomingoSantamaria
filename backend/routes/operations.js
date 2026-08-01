@@ -3,6 +3,7 @@ const fs = require('fs/promises');
 const path = require('path');
 
 const { isIsoDate } = require('../utils/validation');
+const { protectStudentRecord } = require('../utils/studentPrivacy');
 
 const parsePositiveId = (value) => {
   const parsed = Number(value);
@@ -154,11 +155,11 @@ const createOperationsRouter = ({
       visits: visits.rows,
       requested_withdrawals: requestedWithdrawals.rows,
       authorized_withdrawals: authorizedWithdrawals.rows,
-      unenrolled_students: unenrolled.rows,
+      unenrolled_students: unenrolled.rows.map((student) => protectStudentRecord(student)),
       operational_events: events.rows,
       pending_justifications: justifications.rows,
       blocked_users: lockedUsers.rows,
-      manual_students_pending: manualStudents.rows
+      manual_students_pending: manualStudents.rows.map((student) => protectStudentRecord(student))
     };
   };
 

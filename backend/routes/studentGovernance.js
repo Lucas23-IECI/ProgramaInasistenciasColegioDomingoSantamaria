@@ -1,5 +1,6 @@
 const express = require('express');
 const { validateStudentRut } = require('../utils/students');
+const { protectStudentRecord } = require('../utils/studentPrivacy');
 const {
   buildStudentWorkbook,
   fetchStudentExportDataset
@@ -105,8 +106,8 @@ const getStudentMergePreview = async (queryable, primaryId, duplicateId) => {
 
   return {
     found: true,
-    primary,
-    duplicate,
+    primary: protectStudentRecord(primary),
+    duplicate: protectStudentRecord(duplicate),
     counts: {
       primary: {
         attendance: countFor(attendance, primaryId),
@@ -253,7 +254,10 @@ const createStudentGovernanceRouter = ({
            AND a.fusionado_en_id IS NULL
          ORDER BY a.creado_manualmente_en ASC, a.id_alumno`
       );
-      res.json({ students: result.rows, total: result.rowCount });
+      res.json({
+        students: result.rows.map((student) => protectStudentRecord(student)),
+        total: result.rowCount
+      });
     } catch (error) {
       console.error('[padron:manual-pending]', error.message);
       res.status(500).json({ message: 'No fue posible consultar las altas manuales pendientes.' });

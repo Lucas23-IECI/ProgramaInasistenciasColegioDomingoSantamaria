@@ -14,6 +14,7 @@ export const getStudentRut = (student) => {
 };
 
 export const getStudentIdentifier = (student) => {
+  if (student?.documento_mostrado) return String(student.documento_mostrado);
   if (student?.rut) return `${student.rut}${student.dv ? `-${student.dv}` : ''}`;
   if (student?.documento_erp) return String(student.documento_erp);
   if (student?.uuid_erp) return String(student.uuid_erp);
@@ -46,6 +47,7 @@ export const getStudentIdentifierLabel = (student) => {
 };
 
 export const getStudentMaskedRut = (student) => {
+  if (student?.documento_mostrado) return String(student.documento_mostrado);
   const rut = String(student?.rut || '');
   if (!rut) {
     const alternative = String(student?.documento_erp || student?.uuid_erp || '');

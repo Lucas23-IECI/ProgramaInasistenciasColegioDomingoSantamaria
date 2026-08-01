@@ -13,6 +13,7 @@ const { logout, user } = useContext(AuthContext);
   const canRegularizeIdentity = hasPermission(user, PERMISSIONS.STUDENTS_IDENTITY_REGULARIZE);
   const canExportStudents = hasPermission(user, PERMISSIONS.STUDENTS_EXPORT);
   const canExportSensitiveStudents = hasPermission(user, PERMISSIONS.STUDENTS_EXPORT_SENSITIVE);
+  const canViewSensitiveIdentifiers = hasPermission(user, PERMISSIONS.STUDENTS_IDENTIFIERS_VIEW_SENSITIVE);
   const canImportGuardians = hasPermission(user, PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS) || canImport;
   const canViewAnalytics = hasPermission(user, PERMISSIONS.ANALYTICS_VIEW);
   const canManageFamilies = hasPermission(user, PERMISSIONS.FAMILY_MANAGE);
@@ -121,12 +122,15 @@ const { logout, user } = useContext(AuthContext);
     }
   };
 
-  const openDetails = async (id) => {
+  const openDetails = async (id, includeSensitive = false) => {
     setSelectedStudentId(id);
     setLoadingDetails(true);
     setStudentDetails(null);
     try {
-      const res = await axios.get(`${API_URL}/students/${id}/details`);
+      const res = await axios.get(`${API_URL}/students/${id}/details`, {
+        params: includeSensitive ? { include_sensitive: true } : undefined,
+        withCredentials: true
+      });
       setStudentDetails(res.data);
     } catch (err) {
       console.error(err);
@@ -483,6 +487,7 @@ const { logout, user } = useContext(AuthContext);
     canRegularizeIdentity,
     canExportStudents,
     canExportSensitiveStudents,
+    canViewSensitiveIdentifiers,
     canImportGuardians,
     canViewAnalytics,
     canManageFamilies,

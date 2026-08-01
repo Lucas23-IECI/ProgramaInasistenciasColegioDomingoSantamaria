@@ -38,6 +38,42 @@
 .student-detail-actions .is-danger { color: #a32632; background: transparent; border-color: #c66b73; }
 .student-detail-actions .is-reactivate { background: #167a62; border-color: #167a62; }
 
+.student-privacy-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #b9d5e5;
+  border-left: 4px solid #17638d;
+  background: #eef7fb;
+}
+.student-privacy-bar[data-revealed] { border-color: #d8b45d; border-left-color: #a86e00; background: #fff8e7; }
+.student-privacy-bar > span { display: flex; align-items: flex-start; gap: 10px; color: #17638d; }
+.student-privacy-bar[data-revealed] > span { color: #875900; }
+.student-privacy-bar strong,
+.student-privacy-bar small { display: block; }
+.student-privacy-bar small { margin-top: 2px; color: var(--text-light); }
+.student-privacy-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: #17638d;
+  font-weight: 700;
+  cursor: pointer;
+}
+.student-privacy-bar[data-revealed] button { color: #875900; }
+
+@media (max-width: 720px) {
+  .student-privacy-bar { align-items: stretch; flex-direction: column; }
+  .student-privacy-bar button { justify-content: center; width: 100%; }
+}
+
 .student-manual-overlay {
   position: fixed;
   inset: 0;

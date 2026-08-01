@@ -1,4 +1,5 @@
 const { normalizeIdentifierValue } = require('../../services/studentIdentifierService');
+const { protectStudentRecord } = require('../../utils/studentPrivacy');
 
 const registerStudentRegistryRoutes = (context) => {
   const {
@@ -117,7 +118,7 @@ app.get('/api/students', verifyToken, verifyAnyPermission(['students.view', 'stu
       ORDER BY a.paterno ASC, a.nombres ASC
     `;
     const resStudents = await pool.query(query);
-    res.json(resStudents.rows);
+    res.json(resStudents.rows.map((student) => protectStudentRecord(student)));
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener miembros.' });
   }
@@ -156,7 +157,7 @@ app.get('/api/students/search', verifyToken, verifyAnyPermission(['punctuality.r
       LIMIT 15
     `;
     const result = await pool.query(query, [searchTerm, identifierTerm]);
-    res.json(result.rows);
+    res.json(result.rows.map((student) => protectStudentRecord(student)));
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ message: 'Error en búsqueda' });
@@ -255,7 +256,7 @@ app.get('/api/students/scan/:barcode', verifyToken, verifyPermission('punctualit
     const registroPrevio = checkRes.rows[0] || null;
 
     res.json({
-      alumno,
+      alumno: protectStudentRecord(alumno),
       alreadyRegistered,
       registroPrevio,
       restricciones: !control
@@ -326,7 +327,7 @@ app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuali
     const alreadyRegistered = checkRes.rows.length > 0;
 
     res.json({
-      alumno,
+      alumno: protectStudentRecord(alumno),
       alreadyRegistered,
       restricciones: !control
         ? ['No hay un control horario activo']

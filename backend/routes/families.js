@@ -1,4 +1,5 @@
 const express = require('express');
+const { protectStudentRecord } = require('../utils/studentPrivacy');
 
 const parsePositiveId = (value) => {
   const parsed = Number(value);
@@ -81,7 +82,10 @@ const createFamiliesRouter = ({
         `, [visitorId])
       ]);
       if (!visitor.rowCount) return res.status(404).json({ message: 'La ficha no existe.' });
-      res.json({ person: visitor.rows[0], students: links.rows });
+      res.json({
+        person: visitor.rows[0],
+        students: links.rows.map((student) => protectStudentRecord(student))
+      });
     } catch (error) {
       console.error('[familias:detalle]', error.message);
       res.status(500).json({ message: 'No fue posible cargar la ficha familiar.' });
