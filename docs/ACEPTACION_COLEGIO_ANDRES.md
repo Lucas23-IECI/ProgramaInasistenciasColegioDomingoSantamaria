@@ -3,36 +3,61 @@
 Este procedimiento contiene únicamente las acciones que deben ejecutarse o
 confirmarse físicamente en el establecimiento. La aplicación, sus pruebas,
 la restauración temporal, el ERP oficial y la interfaz responsive se validan
-antes de publicar la rama `test`.
+primero en `test`. Andrés actualiza el notebook solamente después de que esos
+cambios hayan sido aprobados y fusionados en `main`.
 
-## 1. Actualizar el código desde la rama de pruebas
+## 1. Actualizar el código después del merge a main
 
-No ejecutar `git init` dentro de una carpeta descargada como ZIP. Primero abrir
-PowerShell en la carpeta del sistema y comprobar:
+Andrés no debe cambiar a `test`: esa rama es exclusivamente para desarrollo y
+pruebas. Tampoco debe volver a ejecutar el instalador ni cargar nuevamente el
+Excel por una actualización normal.
+
+Antes de actualizar, abrir PowerShell en la carpeta del sistema y crear un
+respaldo:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\respaldo-ahora.ps1
+```
+
+Después comprobar que la carpeta continúa conectada correctamente al
+repositorio:
 
 ```powershell
 git status
 git remote -v
 ```
 
-Si la carpeta ya es un clon conectado a GitHub:
+Cuando Lucas confirme que `test` ya fue fusionada en `main`, ejecutar:
 
 ```powershell
 git fetch origin
-git switch test
-git pull --ff-only origin test
+git switch main
+git pull --ff-only origin main
 ```
 
-Si `test` todavía no existe localmente:
+Reconstruir los servicios conservando la base y los volúmenes actuales:
 
 ```powershell
-git fetch origin
-git switch --track origin/test
+docker compose up -d --build
+.\scripts\estado.ps1
 ```
+
+Si la instalación definitiva ya utiliza el archivo HTTPS adicional, usar en
+su lugar:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
+.\scripts\estado.ps1
+```
+
+La actualización reconstruye la aplicación, pero conserva PostgreSQL, los
+documentos y los respaldos en sus volúmenes. No usar `docker compose down -v`.
 
 Si aparece `not a git repository`, `origin` no existe o Git informa cambios
-locales, no forzar ni borrar archivos. Conservar `.env`, `certs` y los
-respaldos, y preparar un clon limpio antes de continuar.
+locales, no ejecutar `git init`, no forzar y no borrar archivos. Conservar
+`.env`, `certs`, respaldos y datos; primero debe regularizarse esa copia como
+un clon válido del repositorio.
 
 ## 2. Preparar el PC servidor y la red
 
