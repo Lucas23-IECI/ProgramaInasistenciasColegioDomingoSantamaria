@@ -19,7 +19,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-select": "^2.3.7",
     "@zxing/browser": "0.1.5",
     "@zxing/library": "0.21.3",
     "axios": "^1.13.6",
