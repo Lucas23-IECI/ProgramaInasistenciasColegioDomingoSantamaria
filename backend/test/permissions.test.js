@@ -90,6 +90,24 @@ test('la regularizacion IPE a RUN exige permiso, respaldo y auditoria', () => {
   assert.match(migrationSource, /documento_id INT NOT NULL/);
 });
 
+test('la lectura MRZ exige permiso y no envía imágenes ni texto al servidor', () => {
+  const routeSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'management.js'), 'utf8');
+  const migrationSource = fs.readFileSync(
+    path.join(__dirname, '..', 'migrations', '029_lectura_mrz_pasaporte.sql'),
+    'utf8'
+  );
+  const frontendSource = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'components', 'PassportMrzPanel.jsx'),
+    'utf8'
+  );
+
+  assert.match(routeSource, /verifyPermission\('students\.identity\.mrz'\)/);
+  assert.match(routeSource, /conserva_imagen: false/);
+  assert.match(routeSource, /conserva_mrz: false/);
+  assert.match(migrationSource, /'students\.identity\.mrz'/);
+  assert.doesNotMatch(frontendSource, /FormData|type="file"|getUserMedia/);
+});
+
 test('las exportaciones del padrón separan la salida operativa de la restringida', () => {
   const routeSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'studentGovernance.js'), 'utf8');
   const migrationSource = fs.readFileSync(

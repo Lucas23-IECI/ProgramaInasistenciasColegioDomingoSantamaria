@@ -93,6 +93,39 @@ const registerStudentManagementRoutes = (context) => {
     getClientIp
   } = context;
 
+app.post('/api/students/identity/mrz-events', verifyToken, verifyPermission('students.identity.mrz'), async (req, res) => {
+  const format = sanitizeStudentText(req.body?.formato, 12).toUpperCase();
+  const issuer = sanitizeStudentText(req.body?.pais_emisor, 3).toUpperCase();
+  const validations = req.body?.validaciones;
+  const reviewed = req.body?.revision_fisica === true;
+  const expectedChecks = ['numero_pasaporte', 'fecha_nacimiento', 'fecha_vencimiento', 'datos_opcionales', 'compuesto'];
+
+  if (format !== 'TD3' || !/^[A-Z<]{3}$/.test(issuer)) {
+    return res.status(400).json({ message: 'La lectura MRZ no tiene un formato reconocido.' });
+  }
+  if (!reviewed || !validations || expectedChecks.some((check) => validations[check] !== true)) {
+    return res.status(400).json({ message: 'La lectura requiere validaciones correctas y revisión física del pasaporte.' });
+  }
+
+  await registrarAudit({
+    usuario_id: req.user.id,
+    usuario_correo: req.user.correo,
+    accion: 'LECTURA_MRZ_VALIDADA',
+    entidad: 'identidad_estudiante',
+    entidad_id: null,
+    detalle: {
+      formato: format,
+      pais_emisor: issuer,
+      validaciones: expectedChecks,
+      revision_fisica: true,
+      conserva_imagen: false,
+      conserva_mrz: false,
+    },
+    ip: getClientIp(req)
+  });
+  res.json({ message: 'Lectura MRZ validada sin almacenar imagen ni texto del documento.' });
+});
+
 // GET SINGLE STUDENT DETAILS
 app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students.view', 'students.manage', 'students.identity.regularize']), async (req, res) => {
   const { id } = req.params;

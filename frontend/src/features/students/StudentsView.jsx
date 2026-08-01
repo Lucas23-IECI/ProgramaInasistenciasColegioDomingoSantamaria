@@ -15,6 +15,7 @@ export function StudentsView(controller) {
     canImport,
     canManage,
     canRegularizeIdentity,
+    canReadPassportMrz,
     canExportStudents,
     canExportSensitiveStudents,
     canViewSensitiveIdentifiers,
@@ -898,6 +899,7 @@ export function StudentsView(controller) {
       <StudentManualModal
         state={manualEditor}
         courses={courses}
+        canReadPassportMrz={canReadPassportMrz}
         onClose={() => setManualEditor(null)}
         onSaved={handleManualSaved}
       />

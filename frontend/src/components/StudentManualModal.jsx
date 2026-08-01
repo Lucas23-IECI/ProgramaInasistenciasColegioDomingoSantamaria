@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { AlertTriangle, Archive, CheckCircle2, RotateCcw, Save, UserPlus, X } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, RotateCcw, Save, ScanLine, UserPlus, X } from 'lucide-react';
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
+import PassportMrzPanel from './PassportMrzPanel';
 import { formatChilePhoneInput } from '../utils/personFormat';
 import {
   MANUAL_IDENTITY_TYPES,
@@ -42,12 +43,13 @@ const manualReasonOptions = [
 
 const getStudent = (details) => details?.alumno || details || null;
 
-const StudentManualModal = ({ state, courses, onClose, onSaved }) => {
+const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClose, onSaved }) => {
   const student = getStudent(state?.student);
   const mode = state?.mode || 'create';
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [mrzOpen, setMrzOpen] = useState(false);
 
   useEffect(() => {
     if (!state) return undefined;
@@ -104,6 +106,21 @@ const StudentManualModal = ({ state, courses, onClose, onSaved }) => {
   if (!state) return null;
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const applyMrz = (parsed) => {
+    const countryIsKnown = countryOptions.some((option) => option.value === parsed.pais_emisor);
+    const [firstSurname = '', ...otherSurnames] = parsed.apellidos.split(' ').filter(Boolean);
+    setForm((current) => ({
+      ...current,
+      documento: parsed.numero_pasaporte,
+      pais_emisor: countryIsKnown ? parsed.pais_emisor : 'OTRO',
+      pais_emisor_otro: countryIsKnown ? '' : parsed.pais_emisor,
+      nombres: current.nombres || parsed.nombres,
+      paterno: current.paterno || firstSurname,
+      materno: current.materno || otherSurnames.join(' '),
+    }));
+    setMrzOpen(false);
+  };
 
   const validate = () => {
     if (mode === 'retire') {
@@ -312,6 +329,11 @@ const StudentManualModal = ({ state, courses, onClose, onSaved }) => {
                         ? 'Se conserva como identidad provisoria hasta su regularización.'
                         : 'Se comprueba estructura, país y duplicidad; no autenticidad física.'}
                   </small>
+                  {mode === 'create' && canReadPassportMrz && form.tipo_identificador === MANUAL_IDENTITY_TYPES.PASAPORTE && (
+                    <button type="button" className="student-mrz-open" onClick={() => setMrzOpen(true)}>
+                      <ScanLine size={17} /> Leer zona MRZ
+                    </button>
+                  )}
                 </label>
               )}
               {isForeignManualIdentity(form.tipo_identificador) && (
@@ -445,6 +467,7 @@ const StudentManualModal = ({ state, courses, onClose, onSaved }) => {
           </footer>
         </form>
       </section>
+      {mrzOpen && <PassportMrzPanel onApply={applyMrz} onClose={() => setMrzOpen(false)} />}
     </div>
   );
 };

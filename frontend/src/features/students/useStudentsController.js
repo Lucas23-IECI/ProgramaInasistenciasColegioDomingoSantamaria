@@ -11,6 +11,7 @@ const { logout, user } = useContext(AuthContext);
   const canImport = hasPermission(user, PERMISSIONS.STUDENTS_IMPORT);
   const canManage = hasPermission(user, PERMISSIONS.STUDENTS_MANAGE);
   const canRegularizeIdentity = hasPermission(user, PERMISSIONS.STUDENTS_IDENTITY_REGULARIZE);
+  const canReadPassportMrz = hasPermission(user, PERMISSIONS.STUDENTS_IDENTITY_MRZ);
   const canExportStudents = hasPermission(user, PERMISSIONS.STUDENTS_EXPORT);
   const canExportSensitiveStudents = hasPermission(user, PERMISSIONS.STUDENTS_EXPORT_SENSITIVE);
   const canViewSensitiveIdentifiers = hasPermission(user, PERMISSIONS.STUDENTS_IDENTIFIERS_VIEW_SENSITIVE);
@@ -485,6 +486,7 @@ const { logout, user } = useContext(AuthContext);
     canImport,
     canManage,
     canRegularizeIdentity,
+    canReadPassportMrz,
     canExportStudents,
     canExportSensitiveStudents,
     canViewSensitiveIdentifiers,
