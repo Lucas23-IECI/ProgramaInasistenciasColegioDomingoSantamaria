@@ -21,19 +21,31 @@ import GlobalTools from './components/GlobalTools.jsx'
 import { HelpTourProvider } from './context/HelpTourContext.jsx'
 import { ADMIN_MODULE_PERMISSIONS, PERMISSIONS, hasAnyPermission, hasPermission } from './permissions'
 import { ReleaseNotesProvider } from './context/ReleaseNotesContext.jsx'
+import { installChunkRecovery, recoverFromStaleChunk } from './utils/chunkRecovery.js'
 
-const Students = lazy(() => import('./Students.jsx'))
-const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
-const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
-const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
-const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
-const ChangePassword = lazy(() => import('./ChangePassword.jsx'))
-const PunctualitySettings = lazy(() => import('./PunctualitySettings.jsx'))
-const VisitsAdmin = lazy(() => import('./VisitsAdmin.jsx'))
-const OperationalInbox = lazy(() => import('./OperationalInbox.jsx'))
-const VisitSettingsAdmin = lazy(() => import('./VisitSettingsAdmin.jsx'))
-const FamilyDirectory = lazy(() => import('./FamilyDirectory.jsx'))
-const DataGovernanceAdmin = lazy(() => import('./DataGovernanceAdmin.jsx'))
+installChunkRecovery()
+
+const lazyRoute = (importer) => lazy(async () => {
+  try {
+    return await importer()
+  } catch (error) {
+    if (recoverFromStaleChunk(error)) return new Promise(() => {})
+    throw error
+  }
+})
+
+const Students = lazyRoute(() => import('./Students.jsx'))
+const AdminDashboard = lazyRoute(() => import('./AdminDashboard.jsx'))
+const UsuariosAdmin = lazyRoute(() => import('./UsuariosAdmin.jsx'))
+const AuditoriaAdmin = lazyRoute(() => import('./AuditoriaAdmin.jsx'))
+const AnaliticasAdmin = lazyRoute(() => import('./AnaliticasAdmin.jsx'))
+const ChangePassword = lazyRoute(() => import('./ChangePassword.jsx'))
+const PunctualitySettings = lazyRoute(() => import('./PunctualitySettings.jsx'))
+const VisitsAdmin = lazyRoute(() => import('./VisitsAdmin.jsx'))
+const OperationalInbox = lazyRoute(() => import('./OperationalInbox.jsx'))
+const VisitSettingsAdmin = lazyRoute(() => import('./VisitSettingsAdmin.jsx'))
+const FamilyDirectory = lazyRoute(() => import('./FamilyDirectory.jsx'))
+const DataGovernanceAdmin = lazyRoute(() => import('./DataGovernanceAdmin.jsx'))
 
 const ProtectedRoute = ({ children, permission, anyPermissions }) => {
   const { user, loading } = useContext(AuthContext);
