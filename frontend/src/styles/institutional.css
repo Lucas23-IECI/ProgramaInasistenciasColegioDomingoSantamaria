@@ -2930,7 +2930,7 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
 .scanner-mode-selector {
   display: grid;
   gap: 0.55rem;
-  width: min(680px, 100%);
+  width: min(920px, 100%);
   margin-bottom: 1rem;
 }
 
@@ -2944,7 +2944,7 @@ body.light-mode .kiosk-mode .kiosk-stat + .kiosk-stat {
 
 .scanner-mode-selector__options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 0.3rem;
   border: 1px solid #3f596f;
   border-radius: 0.85rem;
@@ -3017,8 +3017,148 @@ body.light-mode .kiosk-mode .scanner-mode-option:not([data-active]):not(:disable
   color: #244e6a;
 }
 
+.camera-scanner {
+  display: grid;
+  width: min(920px, 100%);
+  margin-bottom: 1.1rem;
+  overflow: hidden;
+  border: 1px solid #40596e;
+  border-radius: 1rem;
+  background: #102131;
+  box-shadow: 0 18px 38px rgba(2, 12, 22, 0.2);
+}
+
+.camera-scanner__viewport {
+  position: relative;
+  min-height: clamp(250px, 48vw, 470px);
+  overflow: hidden;
+  background: #07131e;
+}
+
+.camera-scanner__viewport video {
+  display: block;
+  width: 100%;
+  height: clamp(250px, 48vw, 470px);
+  object-fit: cover;
+}
+
+.camera-scanner__shade {
+  position: absolute;
+  inset: 0;
+  border: clamp(36px, 8vw, 78px) solid rgba(3, 14, 23, 0.58);
+  pointer-events: none;
+}
+
+.camera-scanner__target {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: grid;
+  place-items: center;
+  width: min(72%, 560px);
+  height: clamp(92px, 17vw, 150px);
+  border: 2px solid #8bd4c2;
+  border-radius: 0.85rem;
+  color: #b6f4e6;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(7, 34, 27, 0.45), inset 0 0 32px rgba(31, 155, 126, 0.12);
+  pointer-events: none;
+}
+
+.camera-scanner__target::after {
+  position: absolute;
+  right: 8%;
+  left: 8%;
+  height: 2px;
+  background: #73d9bf;
+  box-shadow: 0 0 12px rgba(115, 217, 191, 0.8);
+  content: '';
+  animation: camera-scan-line 1.8s ease-in-out infinite alternate;
+}
+
+.camera-scanner__loading,
+.camera-scanner__unavailable {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.65rem;
+  background: rgba(7, 19, 30, 0.88);
+  color: #e8f2f8;
+  font-weight: 750;
+}
+
+.camera-scanner__loading svg { animation: spin 1s linear infinite; }
+.camera-scanner__unavailable { color: #ffd9a3; }
+
+.camera-scanner__status {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border-top: 1px solid #40596e;
+  color: #8fd3c3;
+}
+
+.camera-scanner__status div { display: grid; gap: 0.12rem; }
+.camera-scanner__status strong { color: #f0f7fb; font-size: 0.88rem; }
+.camera-scanner__status span { color: #afc0cd; font-size: 0.77rem; }
+.camera-scanner__status small { color: #91a8b9; font-size: 0.68rem; font-weight: 700; }
+.camera-scanner[data-status='error'] .camera-scanner__status { color: #f4bc65; }
+
+.camera-scanner__privacy {
+  margin: 0;
+  padding: 0 1rem 0.9rem 3rem;
+  color: #91a8b9;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.camera-scanner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0 1rem 1rem;
+}
+
+.camera-scanner__actions button { display: inline-flex; align-items: center; gap: 0.45rem; }
+
+body.light-mode .kiosk-mode .camera-scanner {
+  border-color: #bfced9;
+  background: #f8fbfc;
+  box-shadow: 0 12px 28px rgba(29, 74, 105, 0.11);
+}
+
+body.light-mode .kiosk-mode .camera-scanner__status { border-color: #d1dce4; color: #157154; }
+body.light-mode .kiosk-mode .camera-scanner__status strong { color: #102a3d; }
+body.light-mode .kiosk-mode .camera-scanner__status span,
+body.light-mode .kiosk-mode .camera-scanner__status small,
+body.light-mode .kiosk-mode .camera-scanner__privacy { color: #587084; }
+
+@keyframes camera-scan-line {
+  from { transform: translateY(-28px); }
+  to { transform: translateY(28px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .camera-scanner__target::after,
+  .camera-scanner__loading svg { animation: none; }
+}
+
 @media (max-width: 640px) {
   .scanner-mode-selector__options { grid-template-columns: 1fr; }
+  .scanner-mode-option { min-height: 52px; }
+  .camera-scanner { border-radius: 0.78rem; }
+  .camera-scanner__viewport,
+  .camera-scanner__viewport video { min-height: 280px; height: 280px; }
+  .camera-scanner__shade { border-width: 34px 18px; }
+  .camera-scanner__target { width: 86%; height: 106px; }
+  .camera-scanner__status { grid-template-columns: auto 1fr; }
+  .camera-scanner__status small { grid-column: 2; }
+  .camera-scanner__privacy { padding-left: 1rem; }
+  .camera-scanner__actions { display: grid; grid-template-columns: 1fr; }
+  .camera-scanner__actions button { justify-content: center; width: 100%; }
 }
 /* Contexto de auditoría individual de una cuenta del personal. */
 .audit-subject {

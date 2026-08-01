@@ -341,15 +341,15 @@ const tours = {
     steps: [{
       element: '[data-tour="scanner-status"]',
       popover: {
-        title: 'Estado del lector',
-        description: 'Confirma el horario vigente y si el lector está disponible para registrar ingresos.',
+        title: 'Elige cómo registrar',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según los permisos de tu cuenta.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="scanner-input"]',
       popover: {
         title: 'Registrar una persona',
-        description: 'Escanea el código del carnet o utiliza la búsqueda manual por nombre o RUT.',
+        description: 'La pistola registra al leer el carnet. En búsqueda manual escribe el nombre o cualquier identificador disponible.',
         side: 'bottom',
       },
     }, {
@@ -366,15 +366,15 @@ const tours = {
     steps: [{
       element: '[data-tour="scanner-status"]',
       popover: {
-        title: 'Estado del lector',
-        description: 'Confirma el horario vigente y si el lector está disponible para registrar ingresos.',
+        title: 'Elige cómo registrar',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según los permisos de tu cuenta.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="scanner-input"]',
       popover: {
         title: 'Registrar una persona',
-        description: 'Escanea el código del carnet o utiliza la búsqueda manual por nombre o RUT.',
+        description: 'La pistola registra al leer el carnet. En búsqueda manual escribe el nombre o cualquier identificador disponible.',
         side: 'bottom',
       },
     }, {

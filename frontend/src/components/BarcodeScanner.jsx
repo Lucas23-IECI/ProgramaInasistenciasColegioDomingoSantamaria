@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard, Camera } from 'lucide-react';
 import { playBeep } from '../utils/audioNotifier';
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
+import CameraBarcodeScanner from './CameraBarcodeScanner';
 import { AuthContext } from '../context/AuthContext';
-import { hasPermission, PERMISSIONS } from '../permissions';
+import { hasPermission, hasRegistrationMethodPermission, PERMISSIONS } from '../permissions';
 import { getStudentIdentifier } from '../utils/studentFormat';
+import { REGISTRATION_METHODS, vibrateForRegistration } from '../utils/cameraScanner';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
   const { user } = useContext(AuthContext);
@@ -46,9 +48,16 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const [showResults, setShowResults] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
-  // Scanner status
-  const [scannerActive, setScannerActive] = useState(true);
-  const [manualOverride, setManualOverride] = useState(false);
+  // Método operativo explícito: pistola, cámara o búsqueda manual.
+  const [inputMode, setInputMode] = useState(REGISTRATION_METHODS.BARCODE);
+  const canUseBarcode = hasRegistrationMethodPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER_BARCODE);
+  const canUseCamera = hasRegistrationMethodPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER_CAMERA);
+  const canUseManual = hasRegistrationMethodPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER_MANUAL);
+  const activeInputMode = (
+    (inputMode === REGISTRATION_METHODS.BARCODE && canUseBarcode)
+    || (inputMode === REGISTRATION_METHODS.CAMERA && canUseCamera)
+    || (inputMode === REGISTRATION_METHODS.MANUAL && canUseManual)
+  ) ? inputMode : canUseBarcode ? REGISTRATION_METHODS.BARCODE : canUseCamera ? REGISTRATION_METHODS.CAMERA : REGISTRATION_METHODS.MANUAL;
 
   // Confirmación antes de registro (flujo escáner)
   const [pendingRegistration, setPendingRegistration] = useState(null);
@@ -56,17 +65,17 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Detección de escáner vs teclado manual
   const keystrokeTimestamps = useRef([]);
   const scannerThreshold = 80;
-  const lastScannerDetection = useRef(Date.now());
 
   const inputRef = useRef(null);
   const autoResetTimer = useRef(null);
   const searchDebounce = useRef(null);
   const isProcessing = useRef(false);
-  const overrideTimer = useRef(null);
   const pendingTimer = useRef(null);
   const searchResultRefs = useRef([]);
 
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    if (activeInputMode !== REGISTRATION_METHODS.CAMERA) inputRef.current?.focus();
+  }, [activeInputMode]);
 
   // Fetch Config on mount
   useEffect(() => {
@@ -155,24 +164,13 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   // Keep focus on input
   useEffect(() => {
     const refocus = () => {
-      if (!showResults && (document.activeElement === document.body || document.activeElement === inputRef.current)) {
+      if (activeInputMode !== REGISTRATION_METHODS.CAMERA && !showResults && (document.activeElement === document.body || document.activeElement === inputRef.current)) {
         inputRef.current?.focus();
       }
     };
     const interval = setInterval(refocus, 1000);
     return () => clearInterval(interval);
-  }, [showResults]);
-
-  // Auto-detect scanner inactive
-  useEffect(() => {
-    if (manualOverride) return;
-    const interval = setInterval(() => {
-      if (Date.now() - lastScannerDetection.current > 15000) {
-        setScannerActive(false);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [manualOverride]);
+  }, [showResults, activeInputMode]);
 
   const resetState = useCallback(() => {
     setInputValue('');
@@ -188,8 +186,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     setPendingRegistration(null);
     clearTimeout(pendingTimer.current);
     keystrokeTimestamps.current = [];
-    inputRef.current?.focus();
-  }, []);
+    if (activeInputMode !== REGISTRATION_METHODS.CAMERA) inputRef.current?.focus();
+  }, [activeInputMode]);
 
   // Auto-reset after feedback
   useEffect(() => {
@@ -294,7 +292,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       const currentPending = pendingRegistration;
       setPendingRegistration(null);
       isProcessing.current = false;
-      await registerAttendance(currentPending.student, currentPending.calculatedStatus);
+      await registerAttendance(currentPending.student, currentPending.calculatedStatus, currentPending.method);
     }
 
     if (isProcessing.current) return;
@@ -309,11 +307,9 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     const wasScanner = isScannerInput();
 
     if (wasScanner) {
-      if (!manualOverride) setScannerActive(true);
-      lastScannerDetection.current = Date.now();
       setShowResults(false);
       setSearchResults([]);
-      await scanByBarcode(value);
+      await scanByBarcode(value, REGISTRATION_METHODS.BARCODE);
     } else {
       setShowResults(false);
       try {
@@ -342,7 +338,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   };
 
   // Flujo escáner: buscar → mostrar confirmación 1.5s → registrar automáticamente
-  const scanByBarcode = async (barcode) => {
+  const scanByBarcode = async (barcode, method = REGISTRATION_METHODS.BARCODE) => {
     if (isOffline) return;
     if (isProcessing.current) return;
     isProcessing.current = true;
@@ -376,10 +372,10 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
       if (!isAlreadyReg) {
         // Confirmación antes de registrar
-        setPendingRegistration({ student: foundStudent, calculatedStatus, tipoRegistro });
+        setPendingRegistration({ student: foundStudent, calculatedStatus, tipoRegistro, method });
         pendingTimer.current = setTimeout(async () => {
           setPendingRegistration(null);
-          await registerAttendance(foundStudent, calculatedStatus);
+          await registerAttendance(foundStudent, calculatedStatus, method);
           isProcessing.current = false;
         }, 1500);
       } else {
@@ -418,7 +414,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       const currentPending = pendingRegistration;
       setPendingRegistration(null);
       isProcessing.current = false;
-      await registerAttendance(currentPending.student, currentPending.calculatedStatus);
+      await registerAttendance(currentPending.student, currentPending.calculatedStatus, currentPending.method);
     }
 
     if (isProcessing.current) return;
@@ -449,7 +445,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       }
 
       if (!isAlreadyReg) {
-        await registerAttendance(foundStudent, calculatedStatus);
+        await registerAttendance(foundStudent, calculatedStatus, REGISTRATION_METHODS.MANUAL);
       } else {
         setError(`Ya registrado hoy.`);
         triggerFlash('warning');
@@ -464,11 +460,12 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     }
   };
 
-  const registerAttendance = async (studentData, status) => {
+  const registerAttendance = async (studentData, status, method = activeInputMode) => {
     try {
       const response = await axios.post(`${API_URL}/puntualidad/registros`, {
         id_alumno: studentData.id_alumno,
-        origen: scannerActive ? 'lector' : 'manual',
+        origen: method === REGISTRATION_METHODS.MANUAL ? 'manual' : 'lector',
+        metodo_registro: method,
         control_id: selectedControlId ? Number(selectedControlId) : undefined,
         motivo_override: selectedControlId && String(selectedControlId) !== String(controlState.actual?.id || '')
           ? overrideReason
@@ -488,9 +485,11 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       if (persistedStatus === 'Atrasado') {
         triggerFlash('warning');
         playBeep('warning');
+        vibrateForRegistration('warning');
       } else {
         triggerFlash('success');
         playBeep('success');
+        vibrateForRegistration('success');
       }
     } catch (err) {
       if (err.response && err.response.status === 409) {
@@ -498,10 +497,12 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         setError('Ya registrado hoy.');
         triggerFlash('warning');
         playBeep('warning');
+        vibrateForRegistration('warning');
       } else {
         setError(err.response?.data?.message || 'Error al registrar. Intente nuevamente.');
         triggerFlash('error');
         playBeep('error');
+        vibrateForRegistration('error');
       }
     }
   };
@@ -513,19 +514,16 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     setTimeout(() => setFlashColor(null), 800);
   };
 
-  const selectInputMode = (useScanner) => {
-    clearTimeout(overrideTimer.current);
-    setManualOverride(true);
-    setScannerActive(useScanner);
+  const selectInputMode = (mode) => {
+    setInputMode(mode);
     setInputValue('');
     setSearchResults([]);
-    requestAnimationFrame(() => inputRef.current?.focus());
-    overrideTimer.current = setTimeout(() => setManualOverride(false), 30000);
+    setShowResults(false);
+    if (mode !== REGISTRATION_METHODS.CAMERA) requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   useEffect(() => {
     return () => {
-      clearTimeout(overrideTimer.current);
       clearTimeout(pendingTimer.current);
       clearTimeout(searchDebounce.current);
     };
@@ -613,48 +611,68 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       <div className="scanner-mode-selector" data-tour="scanner-status" aria-label="Método de registro">
         <span className="scanner-mode-selector__label">Método de registro</span>
         <div className="scanner-mode-selector__options">
-          <button type="button" className="scanner-mode-option" data-active={scannerActive || undefined} onClick={() => selectInputMode(true)} disabled={isOffline}>
-            <ScanLine size={18} /><span><strong>Escanear carnet</strong><small>Pistola de códigos</small></span>
-          </button>
-          <button type="button" className="scanner-mode-option" data-active={!scannerActive || undefined} onClick={() => selectInputMode(false)} disabled={isOffline}>
-            <Keyboard size={18} /><span><strong>Búsqueda manual</strong><small>Nombre o RUT</small></span>
-          </button>
+          {canUseBarcode && (
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.BARCODE || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.BARCODE)} disabled={isOffline}>
+              <ScanLine size={18} /><span><strong>Pistola de códigos</strong><small>Lector conectado al equipo</small></span>
+            </button>
+          )}
+          {canUseCamera && (
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.CAMERA || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.CAMERA)} disabled={isOffline}>
+              <Camera size={18} /><span><strong>Cámara del dispositivo</strong><small>Celular, tablet o notebook</small></span>
+            </button>
+          )}
+          {canUseManual && (
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.MANUAL || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.MANUAL)} disabled={isOffline}>
+              <Keyboard size={18} /><span><strong>Búsqueda manual</strong><small>Nombre o identificador</small></span>
+            </button>
+          )}
         </div>
         {isOffline && <span className="scanner-mode-selector__offline">Sistema temporalmente fuera de línea</span>}
       </div>
 
-      <form onSubmit={handleSubmit} className="kiosk-input-form" data-tour="scanner-input">
-        <div className="kiosk-input-wrapper">
-          <Search size={20} className="kiosk-input-icon" />
-          <input
-            ref={inputRef}
-            type="text"
-            className="kiosk-input"
-            style={isOffline ? { backgroundColor: 'rgba(30,41,59,0.3)', cursor: 'not-allowed', color: '#64748b' } : {}}
-            placeholder={isOffline ? 'Reconectando...' : scannerActive ? 'Acerque el código de barra al lector...' : 'Escriba RUT o Nombre...'}
-            value={inputValue}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            disabled={isOffline}
-            autoFocus={!isOffline}
-            autoComplete="off"
-          />
-          <button
-            type="button"
-            className={`kiosk-filter-btn ${showFilters ? 'active' : ''}`}
-            onClick={isOffline ? undefined : () => setShowFilters(prev => !prev)}
-            disabled={isOffline}
-            style={isOffline ? { cursor: 'not-allowed', opacity: 0.5 } : {}}
-            title="Filtros"
-            aria-label="Mostrar filtros de búsqueda"
-          >
-            <Filter size={16} />
-          </button>
-        </div>
-      </form>
+      <CameraBarcodeScanner
+        active={activeInputMode === REGISTRATION_METHODS.CAMERA}
+        disabled={isOffline}
+        onDetected={(value) => scanByBarcode(value, REGISTRATION_METHODS.CAMERA)}
+        onManualFallback={() => selectInputMode(REGISTRATION_METHODS.MANUAL)}
+      />
+
+      {activeInputMode !== REGISTRATION_METHODS.CAMERA && (
+        <form onSubmit={handleSubmit} className="kiosk-input-form" data-tour="scanner-input">
+          <div className="kiosk-input-wrapper">
+            <Search size={20} className="kiosk-input-icon" />
+            <input
+              ref={inputRef}
+              type="text"
+              className="kiosk-input"
+              style={isOffline ? { backgroundColor: 'rgba(30,41,59,0.3)', cursor: 'not-allowed', color: '#64748b' } : {}}
+              placeholder={isOffline ? 'Reconectando...' : activeInputMode === REGISTRATION_METHODS.BARCODE ? 'Acerque el código de barra al lector...' : 'Escriba nombre o identificador...'}
+              value={inputValue}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              disabled={isOffline}
+              autoFocus={!isOffline}
+              autoComplete="off"
+            />
+            {activeInputMode === REGISTRATION_METHODS.MANUAL && (
+              <button
+                type="button"
+                className={`kiosk-filter-btn ${showFilters ? 'active' : ''}`}
+                onClick={isOffline ? undefined : () => setShowFilters(prev => !prev)}
+                disabled={isOffline}
+                style={isOffline ? { cursor: 'not-allowed', opacity: 0.5 } : {}}
+                title="Filtros"
+                aria-label="Mostrar filtros de búsqueda"
+              >
+                <Filter size={16} />
+              </button>
+            )}
+          </div>
+        </form>
+      )}
 
       {/* Advanced filters */}
-      {showFilters && (
+      {activeInputMode === REGISTRATION_METHODS.MANUAL && showFilters && (
         <div className="kiosk-filters fade-in" style={{ background: 'rgba(15,23,42,0.4)', borderRadius: '12px', padding: '12px', marginTop: '10px', border: '1px solid rgba(59,130,246,0.15)' }}>
           <div className="kiosk-filter-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <GraduationCap size={15} style={{ color: '#3b82f6' }} />
@@ -669,7 +687,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       )}
 
       {/* Search results dropdown */}
-      {showResults && filteredSearchResults.length > 0 && (
+      {activeInputMode === REGISTRATION_METHODS.MANUAL && showResults && filteredSearchResults.length > 0 && (
         <div className="kiosk-search-results" role="listbox">
           {filteredSearchResults.map((s, idx) => (
             <button
