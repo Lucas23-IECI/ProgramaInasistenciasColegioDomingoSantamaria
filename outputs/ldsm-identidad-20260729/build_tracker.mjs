@@ -27,7 +27,7 @@ const tasks = [
   ["Exportaciones", "Exportación operativa con documentos ocultos", "Codex", "Completada", "P1", d("2026-08-01"), d("2026-08-01")],
   ["Exportaciones", "Exportación administrativa restringida", "Codex", "Completada", "P1", d("2026-08-01"), d("2026-08-01")],
   ["Exportaciones", "Exportación de casos y calidad del padrón", "Codex", "Completada", "P1", d("2026-08-01"), d("2026-08-01")],
-  ["Seguridad", "Enmascarar identificadores por defecto", "Codex", "No iniciada", "P0", d("2026-09-10"), d("2026-09-18")],
+  ["Seguridad", "Enmascarar identificadores por defecto", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
   ["Seguridad", "Auditar revelación y exportación sensible", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
   ["Validadores", "Arquitectura extensible de validadores por país", "Codex", "No iniciada", "P1", d("2026-09-18"), d("2026-09-30")],
   ["Validadores", "RUN, IPE, documentos y validación estructural", "Codex", "Completada", "P1", d("2026-07-30"), d("2026-07-30")],
