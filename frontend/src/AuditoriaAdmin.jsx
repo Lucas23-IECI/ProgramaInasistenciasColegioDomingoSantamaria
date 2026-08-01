@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { RefreshCw, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ClipboardList, UserRound, X } from 'lucide-react';
 import { API_URL } from './config';
@@ -51,6 +51,16 @@ const ACCIONES = [
   'DESACTIVAR_ALUMNO',
   'CREAR_PERFIL_ACCESO',
   'EDITAR_PERFIL_ACCESO',
+  'REGISTRAR_VISITA',
+  'REGISTRAR_SALIDA_VISITA',
+  'ANULAR_VISITA',
+  'SOLICITAR_RETIRO_ALUMNO',
+  'AUTORIZAR_RETIRO_ALUMNO',
+  'RECHAZAR_RETIRO_ALUMNO',
+  'ENTREGAR_ALUMNO',
+  'CANCELAR_RETIRO_ALUMNO',
+  'CREAR_AUTORIZACION_RETIRO',
+  'ACTUALIZAR_AUTORIZACION_RETIRO',
 ];
 
 const BADGE_STYLE = {
@@ -73,6 +83,16 @@ const BADGE_STYLE = {
   CREAR_ALUMNO:             { background: '#ede9fe', color: '#6d28d9' },
   EDITAR_ALUMNO:            { background: '#fef9c3', color: '#854d0e' },
   DESACTIVAR_ALUMNO:        { background: '#fee2e2', color: '#b91c1c' },
+  REGISTRAR_VISITA:         { background: '#dcfce7', color: '#166534' },
+  REGISTRAR_SALIDA_VISITA:  { background: '#dbeafe', color: '#1d4ed8' },
+  ANULAR_VISITA:            { background: '#fee2e2', color: '#b91c1c' },
+  SOLICITAR_RETIRO_ALUMNO:  { background: '#fef3c7', color: '#92400e' },
+  AUTORIZAR_RETIRO_ALUMNO:  { background: '#dcfce7', color: '#166534' },
+  RECHAZAR_RETIRO_ALUMNO:   { background: '#fee2e2', color: '#b91c1c' },
+  ENTREGAR_ALUMNO:          { background: '#dbeafe', color: '#1d4ed8' },
+  CANCELAR_RETIRO_ALUMNO:   { background: '#f1f5f9', color: '#475569' },
+  CREAR_AUTORIZACION_RETIRO: { background: '#ede9fe', color: '#6d28d9' },
+  ACTUALIZAR_AUTORIZACION_RETIRO: { background: '#f3e8ff', color: '#6b21a8' },
   CREAR_PERFIL_ACCESO:      { background: '#dbeafe', color: '#1d4ed8' },
   EDITAR_PERFIL_ACCESO:     { background: '#e0e7ff', color: '#4338ca' },
 };

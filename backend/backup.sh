@@ -66,6 +66,9 @@ printf 'timestamp=%s\ndatabase=%s\ndocuments=%s\nmanifest=%s\n' \
   "$FILES_NAME_ONLY" \
   "$(basename "$MANIFEST")" > "$STATUS_TEMP"
 mv "$STATUS_TEMP" "$STATUS_FILE"
+# El backend solo necesita leer este índice para informar el estado del respaldo.
+# Los dumps, documentos y manifiestos conservan los permisos privados del umask.
+chmod 0644 "$STATUS_FILE"
 
 if [ -n "$MIRROR_DIR" ]; then
   case "$MIRROR_DIR" in
@@ -83,6 +86,7 @@ if [ -n "$MIRROR_DIR" ]; then
   done
   cp "$STATUS_FILE" "${MIRROR_DIR}/last-success.env.tmp"
   mv "${MIRROR_DIR}/last-success.env.tmp" "${MIRROR_DIR}/last-success.env"
+  chmod 0644 "${MIRROR_DIR}/last-success.env"
 fi
 
 find "$BACKUP_DIR" -type f \( -name 'ldsm_db_*.dump' -o -name 'ldsm_documentos_*.tar.gz' -o -name 'ldsm_*.sha256' \) -mtime "+$RETENTION_DAYS" -delete

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { AuthContext } from './AuthContext';
 import ReleaseNotesDialog from '../components/ReleaseNotesDialog';
 import { CURRENT_RELEASE } from '../releaseNotes';

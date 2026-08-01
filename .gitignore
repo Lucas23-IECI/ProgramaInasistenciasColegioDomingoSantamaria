@@ -8,6 +8,8 @@ node_modules/
 dist/
 build/
 coverage/
+frontend/test-results/
+frontend/playwright-report/
 
 .DS_Store
 Thumbs.db
@@ -33,3 +35,13 @@ docs/NUEVAS_FUNCIONALIDADES_MAYO.md
 /imports/
 /exports/
 /credenciales-iniciales.txt
+
+# Artefactos auxiliares del tracker (se conserva el libro final y su constructor)
+/outputs/**/*.log
+/outputs/**/*.png
+/outputs/**/*.ndjson
+/outputs/**/inspect_*.mjs
+
+# Certificados privados para HTTPS en la red interna
+/certs/*
+!/certs/.gitkeep

@@ -1,11 +1,13 @@
 import { lazy, StrictMode, Suspense, useContext } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import './index.css'
 import './styles/institutional.css'
 import './styles/design-system.css'
 import './styles/punctuality.css'
 import './styles/release-notes.css'
+import './styles/visits.css'
+import './styles/operations.css'
 import { AuthProvider, AuthContext } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import App from './App.jsx'
@@ -19,14 +21,31 @@ import GlobalTools from './components/GlobalTools.jsx'
 import { HelpTourProvider } from './context/HelpTourContext.jsx'
 import { ADMIN_MODULE_PERMISSIONS, PERMISSIONS, hasAnyPermission, hasPermission } from './permissions'
 import { ReleaseNotesProvider } from './context/ReleaseNotesContext.jsx'
+import { installChunkRecovery, recoverFromStaleChunk } from './utils/chunkRecovery.js'
 
-const Students = lazy(() => import('./Students.jsx'))
-const AdminDashboard = lazy(() => import('./AdminDashboard.jsx'))
-const UsuariosAdmin = lazy(() => import('./UsuariosAdmin.jsx'))
-const AuditoriaAdmin = lazy(() => import('./AuditoriaAdmin.jsx'))
-const AnaliticasAdmin = lazy(() => import('./AnaliticasAdmin.jsx'))
-const ChangePassword = lazy(() => import('./ChangePassword.jsx'))
-const PunctualitySettings = lazy(() => import('./PunctualitySettings.jsx'))
+installChunkRecovery()
+
+const lazyRoute = (importer) => lazy(async () => {
+  try {
+    return await importer()
+  } catch (error) {
+    if (recoverFromStaleChunk(error)) return new Promise(() => {})
+    throw error
+  }
+})
+
+const Students = lazyRoute(() => import('./Students.jsx'))
+const AdminDashboard = lazyRoute(() => import('./AdminDashboard.jsx'))
+const UsuariosAdmin = lazyRoute(() => import('./UsuariosAdmin.jsx'))
+const AuditoriaAdmin = lazyRoute(() => import('./AuditoriaAdmin.jsx'))
+const AnaliticasAdmin = lazyRoute(() => import('./AnaliticasAdmin.jsx'))
+const ChangePassword = lazyRoute(() => import('./ChangePassword.jsx'))
+const PunctualitySettings = lazyRoute(() => import('./PunctualitySettings.jsx'))
+const VisitsAdmin = lazyRoute(() => import('./VisitsAdmin.jsx'))
+const OperationalInbox = lazyRoute(() => import('./OperationalInbox.jsx'))
+const VisitSettingsAdmin = lazyRoute(() => import('./VisitSettingsAdmin.jsx'))
+const FamilyDirectory = lazyRoute(() => import('./FamilyDirectory.jsx'))
+const DataGovernanceAdmin = lazyRoute(() => import('./DataGovernanceAdmin.jsx'))
 
 const ProtectedRoute = ({ children, permission, anyPermissions }) => {
   const { user, loading } = useContext(AuthContext);
@@ -86,12 +105,26 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin" element={<ProtectedRoute anyPermissions={ADMIN_MODULE_PERMISSIONS}><AdminHub /></ProtectedRoute>} />
             <Route path="/admin/atrasos" element={<ProtectedRoute permission={PERMISSIONS.PUNCTUALITY_VIEW}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/inasistencias" element={<Navigate to="/admin/atrasos" replace />} />
-            <Route path="/admin/estudiantes" element={<ProtectedRoute anyPermissions={[PERMISSIONS.STUDENTS_VIEW, PERMISSIONS.STUDENTS_MANAGE, PERMISSIONS.STUDENTS_IMPORT]}><Students /></ProtectedRoute>} />
+            <Route path="/admin/estudiantes" element={<ProtectedRoute anyPermissions={[PERMISSIONS.STUDENTS_VIEW, PERMISSIONS.STUDENTS_MANAGE, PERMISSIONS.STUDENTS_IMPORT, PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS]}><Students /></ProtectedRoute>} />
             <Route path="/admin/usuarios" element={<ProtectedRoute permission={PERMISSIONS.USERS_MANAGE}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/usuarios/:profileCode" element={<ProtectedRoute permission={PERMISSIONS.USERS_MANAGE}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute permission={PERMISSIONS.AUDIT_VIEW}><AuditoriaAdmin /></ProtectedRoute>} />
             <Route path="/admin/analiticas" element={<ProtectedRoute permission={PERMISSIONS.ANALYTICS_VIEW}><AnaliticasAdmin /></ProtectedRoute>} />
-            <Route path="/admin/configuracion" element={<ProtectedRoute permission={PERMISSIONS.SETTINGS_MANAGE}><PunctualitySettings /></ProtectedRoute>} />
+            <Route path="/admin/configuracion" element={<ProtectedRoute anyPermissions={[PERMISSIONS.SETTINGS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE]}><PunctualitySettings /></ProtectedRoute>} />
+            <Route path="/admin/visitas" element={<ProtectedRoute anyPermissions={[
+              PERMISSIONS.VISITS_VIEW,
+              PERMISSIONS.VISITS_REGISTER,
+              PERMISSIONS.VISITS_CHECKOUT,
+              PERMISSIONS.VISITS_HISTORY,
+              PERMISSIONS.WITHDRAWALS_REGISTER,
+              PERMISSIONS.WITHDRAWALS_APPROVE,
+              PERMISSIONS.WITHDRAWALS_AUTHORIZATIONS,
+              PERMISSIONS.VISITS_REPORTS,
+            ]}><VisitsAdmin /></ProtectedRoute>} />
+            <Route path="/admin/operacion" element={<ProtectedRoute permission={PERMISSIONS.OPERATIONS_VIEW}><OperationalInbox /></ProtectedRoute>} />
+            <Route path="/admin/visitas/configuracion" element={<ProtectedRoute permission={PERMISSIONS.VISITS_SETTINGS}><VisitSettingsAdmin /></ProtectedRoute>} />
+            <Route path="/admin/familias" element={<ProtectedRoute permission={PERMISSIONS.FAMILY_MANAGE}><FamilyDirectory /></ProtectedRoute>} />
+            <Route path="/admin/gobierno-datos" element={<ProtectedRoute permission={PERMISSIONS.SETTINGS_MANAGE}><DataGovernanceAdmin /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>

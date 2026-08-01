@@ -58,6 +58,96 @@ const validatePunctualityConfig = (input = {}) => {
   };
 };
 
+const validatePunctualityControl = (input = {}, { requireId = false } = {}) => {
+  const id = input.id === undefined || input.id === null
+    ? null
+    : asBoundedInteger(input.id, 1, 2147483647);
+  const nombre = String(input.nombre || '').trim();
+  const tipo = String(input.tipo || 'OTRO').trim().toUpperCase();
+  const horaApertura = normalizeClockTime(input.hora_apertura);
+  const horaReferencia = normalizeClockTime(input.hora_referencia);
+  const horaInicioAtraso = normalizeClockTime(input.hora_inicio_atraso);
+  const horaCierre = normalizeClockTime(input.hora_cierre);
+  const minutosGrave = asBoundedInteger(input.minutos_atraso_grave, 1, 180);
+  const tipos = ['INGRESO', 'REGRESO_RECREO', 'REGRESO_ALMUERZO', 'TALLER', 'OTRO'];
+  const dias = [...new Set((Array.isArray(input.dias_semana) ? input.dias_semana : [])
+    .map(Number)
+    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))].sort();
+  const cursos = [...new Set((Array.isArray(input.cursos_ids) ? input.cursos_ids : [])
+    .map(Number)
+    .filter((courseId) => Number.isInteger(courseId) && courseId > 0))];
+
+  if (requireId && !id) return { error: 'El control horario no tiene un identificador válido.' };
+  if (nombre.length < 3 || nombre.length > 100) return { error: 'Cada control debe tener un nombre de 3 a 100 caracteres.' };
+  if (!tipos.includes(tipo)) return { error: 'El tipo de control horario no es válido.' };
+  if (!horaApertura || !horaReferencia || !horaInicioAtraso || !horaCierre) {
+    return { error: `Completa todas las horas del control "${nombre}".` };
+  }
+  const opening = clockToSeconds(horaApertura);
+  const reference = clockToSeconds(horaReferencia);
+  const threshold = clockToSeconds(horaInicioAtraso);
+  const closing = clockToSeconds(horaCierre);
+  if (!(opening <= reference && reference < threshold && threshold < closing)) {
+    return { error: `En "${nombre}", las horas deben seguir el orden apertura, referencia, atraso y cierre.` };
+  }
+  if (minutosGrave === null || threshold + (minutosGrave * 60) >= closing) {
+    return { error: `En "${nombre}", el atraso grave debe comenzar antes del cierre del control.` };
+  }
+  if (dias.length === 0) return { error: `Selecciona al menos un día para "${nombre}".` };
+
+  return {
+    value: {
+      id,
+      nombre,
+      tipo,
+      hora_apertura: horaApertura,
+      hora_referencia: horaReferencia,
+      hora_inicio_atraso: horaInicioAtraso,
+      hora_cierre: horaCierre,
+      minutos_atraso_grave: minutosGrave,
+      dias_semana: dias,
+      cursos_ids: cursos,
+      cuenta_alertas: input.cuenta_alertas !== false,
+      activo: input.activo !== false,
+      orden: asBoundedInteger(input.orden, 0, 10000) ?? 0
+    }
+  };
+};
+
+const validatePunctualityControlSet = (controls = []) => {
+  const activeControls = controls.filter((control) => control?.activo !== false);
+
+  for (let leftIndex = 0; leftIndex < activeControls.length; leftIndex += 1) {
+    const left = activeControls[leftIndex];
+    const leftDays = new Set(left.dias_semana || []);
+    const leftCourses = new Set(left.cursos_ids || []);
+    const leftOpening = clockToSeconds(left.hora_apertura);
+    const leftClosing = clockToSeconds(left.hora_cierre);
+
+    for (let rightIndex = leftIndex + 1; rightIndex < activeControls.length; rightIndex += 1) {
+      const right = activeControls[rightIndex];
+      const sameDay = (right.dias_semana || []).some((day) => leftDays.has(day));
+      if (!sameDay) continue;
+
+      const rightCourses = right.cursos_ids || [];
+      const sameStudents = leftCourses.size === 0
+        || rightCourses.length === 0
+        || rightCourses.some((courseId) => leftCourses.has(courseId));
+      if (!sameStudents) continue;
+
+      const rightOpening = clockToSeconds(right.hora_apertura);
+      const rightClosing = clockToSeconds(right.hora_cierre);
+      if (leftOpening < rightClosing && rightOpening < leftClosing) {
+        return {
+          error: `Los controles "${left.nombre}" y "${right.nombre}" se superponen para al menos un mismo día y curso.`
+        };
+      }
+    }
+  }
+
+  return { value: controls };
+};
+
 const validateReason = (value, { min = 10, max = 500 } = {}) => {
   const reason = String(value || '').trim();
   if (reason.length < min || reason.length > max) {
@@ -71,5 +161,7 @@ module.exports = {
   isIsoDate,
   validateDateRange,
   validatePunctualityConfig,
+  validatePunctualityControl,
+  validatePunctualityControlSet,
   validateReason
 };

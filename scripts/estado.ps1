@@ -8,9 +8,14 @@ Set-Location $ProjectRoot
 docker compose ps
 if ($LASTEXITCODE -ne 0) { throw 'No fue posible consultar Docker Compose.' }
 
-$web = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1/healthz' -TimeoutSec 5
-$api = Invoke-RestMethod -Uri 'http://127.0.0.1/api/health/ready' -TimeoutSec 5
-Write-Host "Frontend HTTP: $($web.StatusCode)"
+$webStatus = & curl.exe --ssl-no-revoke --silent --show-error --output NUL --write-out '%{http_code}' 'https://127.0.0.1/healthz'
+if ($LASTEXITCODE -ne 0 -or $webStatus -ne '200') {
+  throw "El frontend HTTPS no respondió correctamente (HTTP $webStatus)."
+}
+$apiRaw = & curl.exe --ssl-no-revoke --silent --show-error 'https://127.0.0.1/api/health/ready'
+if ($LASTEXITCODE -ne 0) { throw 'El backend HTTPS no respondió.' }
+$api = $apiRaw | ConvertFrom-Json
+Write-Host "Frontend HTTPS: $webStatus"
 Write-Host "Backend: $($api.status)"
 
 $status = Join-Path $ProjectRoot 'backups\last-success.env'

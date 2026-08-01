@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { recoverFromStaleChunk } from '../utils/chunkRecovery.js';
 
 class AppErrorBoundary extends Component {
   state = { hasError: false };
@@ -9,6 +10,7 @@ class AppErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
+    if (recoverFromStaleChunk(error)) return;
     console.error('Error no controlado en la interfaz:', error, info);
   }
 

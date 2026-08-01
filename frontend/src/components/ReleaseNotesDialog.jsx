@@ -36,21 +36,23 @@ const ReleaseNotesDialog = ({ open, release, onClose }) => {
           <button ref={closeButtonRef} type="button" className="release-notes__close" onClick={onClose} aria-label="Cerrar novedades"><X size={21} /></button>
         </header>
 
-        <div className="release-notes__intro">
-          <div className="release-notes__release"><CalendarDays size={16} /><span>{release.label}</span><span aria-hidden="true">·</span><span>{release.date}</span></div>
-          <p id="release-notes-summary">{release.summary}</p>
-        </div>
+        <div className="release-notes__body" role="region" aria-label="Detalle de novedades" tabIndex={0}>
+          <div className="release-notes__intro">
+            <div className="release-notes__release"><CalendarDays size={16} /><span>{release.label}</span><span aria-hidden="true">·</span><span>{release.date}</span></div>
+            <p id="release-notes-summary">{release.summary}</p>
+          </div>
 
-        <div className="release-notes__list">
-          {release.sections.map((section) => {
-            const Icon = section.icon;
-            return (
-              <article key={section.title} className="release-notes__item">
-                <span className="release-notes__item-icon"><Icon size={20} /></span>
-                <div><h3>{section.title}</h3><p>{section.description}</p></div>
-              </article>
-            );
-          })}
+          <div className="release-notes__list">
+            {release.sections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <article key={section.title} className="release-notes__item">
+                  <span className="release-notes__item-icon"><Icon size={20} /></span>
+                  <div><h3>{section.title}</h3><p>{section.description}</p></div>
+                </article>
+              );
+            })}
+          </div>
         </div>
 
         <footer className="release-notes__footer">

@@ -5,8 +5,20 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check seed.js && node --check migrations.js",
-    "test": "node --test"
+    "check": "npm run check:core && npm run check:routes && npm run check:scripts",
+    "check:core": "node --check server.js && node --check seed.js && node --check migrations.js && node --check utils/identityValidatorRegistry.js && node --check utils/studentImportGovernance.js && node --check utils/studentErpIdentity.js && node --check utils/studentPrivacy.js && node --check services/studentIdentifierService.js",
+    "check:routes": "node --check routes/auth.js && node --check routes/audit.js && node --check routes/users.js && node --check routes/students.js && node --check routes/students/registry.js && node --check routes/students/imports.js && node --check routes/students/management.js && node --check routes/punctuality.js && node --check routes/operations.js && node --check routes/families.js && node --check routes/visits.js && node --check routes/visits/authorizations.js && node --check routes/visits/withdrawals.js && node --check routes/studentGovernance.js && node --check services/visitReportService.js && node --check services/studentExportService.js && node --check utils/registrationMethods.js",
+    "check:scripts": "node --check scripts/seed-visits-demo.js && node --check scripts/verify-manual-student-flow.js && node --check scripts/verify-manual-identities-api.js && node --check scripts/verify-student-governance.js && node --check scripts/verify-student-identifiers.js && node --check scripts/verify-identity-regularization.js && node --check scripts/verify-identity-regularization-api.js && node --check scripts/verify-student-exports-api.js && node --check scripts/verify-student-privacy-api.js",
+    "test": "node --test",
+    "test:manual-students": "node scripts/verify-manual-student-flow.js",
+    "test:manual-identities-api": "node scripts/verify-manual-identities-api.js",
+    "test:student-governance": "node scripts/verify-student-governance.js",
+    "test:student-identifiers": "node scripts/verify-student-identifiers.js",
+    "test:identity-regularization": "node scripts/verify-identity-regularization.js",
+    "test:identity-regularization-api": "node scripts/verify-identity-regularization-api.js",
+    "test:student-exports-api": "node scripts/verify-student-exports-api.js",
+    "test:student-privacy-api": "node scripts/verify-student-privacy-api.js",
+    "seed:visits-demo": "node scripts/seed-visits-demo.js"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +33,8 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.20.0"
+    "pdfkit": "^0.17.2",
+    "pg": "^8.20.0",
+    "write-excel-file": "^4.1.1"
   }
 }

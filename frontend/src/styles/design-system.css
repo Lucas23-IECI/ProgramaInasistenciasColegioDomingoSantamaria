@@ -598,14 +598,14 @@ body:has(.student-detail-overlay) .global-tools {
 }
 
 .date-range-presets button {
-  min-height: 36px;
-  padding: 6px 11px;
+  min-height: 44px;
+  padding: 8px 13px;
   border: 1px solid var(--ds-border);
   border-radius: 999px;
   background: transparent;
   color: var(--ds-muted);
   cursor: pointer;
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   font-weight: 650;
 }
 
@@ -1557,7 +1557,7 @@ body:has(.kiosk-mode) .kiosk-header-right {
   .kiosk-mode .kiosk-header-right {
     display: grid;
     width: 100%;
-    grid-template-columns: auto repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
