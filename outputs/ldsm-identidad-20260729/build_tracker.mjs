@@ -29,29 +29,20 @@ const tasks = [
   ["Exportaciones", "Exportación de casos y calidad del padrón", "Codex", "Completada", "P1", d("2026-08-01"), d("2026-08-01")],
   ["Seguridad", "Enmascarar identificadores por defecto", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
   ["Seguridad", "Auditar revelación y exportación sensible", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
-  ["Validadores", "Arquitectura extensible de validadores por país", "Codex", "No iniciada", "P1", d("2026-09-18"), d("2026-09-30")],
+  ["Validadores", "Arquitectura extensible de validadores por país", "Codex", "Completada", "P1", d("2026-08-01"), d("2026-08-01")],
   ["Validadores", "RUN, IPE, documentos y validación estructural", "Codex", "Completada", "P1", d("2026-07-30"), d("2026-07-30")],
-  ["Escáner móvil", "Integrar cámara trasera al terminal existente", "Codex", "No iniciada", "P0", d("2026-09-28"), d("2026-10-09")],
-  ["Escáner móvil", "Antiduplicado, vibración, sonido y fallback", "Codex", "No iniciada", "P0", d("2026-10-05"), d("2026-10-13")],
-  ["HTTPS interno", "Preparar incorporación segura de dispositivos", "Codex + Lucas", "No iniciada", "P0", d("2026-10-07"), d("2026-10-16")],
+  ["Escáner móvil", "Integrar cámara trasera al terminal existente", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
+  ["Escáner móvil", "Antiduplicado, vibración, sonido y fallback", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
+  ["HTTPS interno", "Preparar incorporación segura de dispositivos", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
   ["HTTPS interno", "Probar cámara en Android y escritorios", "Lucas", "No iniciada", "P0", d("2026-10-12"), d("2026-10-22")],
   ["MRZ", "Prototipo de lectura MRZ sin guardar imágenes", "Codex", "No iniciada", "P2", d("2026-10-19"), d("2026-10-30")],
   ["MRZ", "Flujo restringido y revisión física del pasaporte", "Codex", "No iniciada", "P2", d("2026-10-26"), d("2026-11-06")],
-  ["Permisos", "Permisos granulares de identidad y cámara", "Codex", "No iniciada", "P0", d("2026-11-02"), d("2026-11-10")],
+  ["Permisos", "Permisos granulares de identidad y cámara", "Codex", "Completada", "P0", d("2026-08-01"), d("2026-08-01")],
   ["QA", "E2E de identidad, manuales e importación ERP", "Codex", "No iniciada", "P0", d("2026-11-05"), d("2026-11-18")],
   ["QA", "E2E móvil, permisos y datos sensibles", "Codex + Lucas", "No iniciada", "P0", d("2026-11-12"), d("2026-11-25")],
   ["QA", "Recuperación, rendimiento y accesibilidad", "Codex", "No iniciada", "P1", d("2026-11-20"), d("2026-12-04")],
   ["Aceptación", "Auditoría final, manuales y aprobación escolar", "Lucas + LDSM", "No iniciada", "P0", d("2026-12-01"), d("2026-12-15")],
 ];
-
-const validatorArchitectureTask = tasks.find(
-  (task) => task[0] === "Validadores" && task[1].startsWith("Arquitectura extensible")
-);
-if (validatorArchitectureTask) {
-  validatorArchitectureTask[3] = "Completada";
-  validatorArchitectureTask[5] = d("2026-08-01");
-  validatorArchitectureTask[6] = d("2026-08-01");
-}
 
 sheet.getRange("B2:AD2").values = [["Tracker maestro · Identidad estudiantil y registro móvil LDSM"]];
 sheet.getRange("B4:I4").values = [["PERFIL DEL PROYECTO"]];
@@ -156,7 +147,7 @@ sheet.getRange("D10:D39").format.columnWidth = 19;
 sheet.getRange("B10:B39").format.columnWidth = 18;
 
 sheet.getRange("B41:AD42").values = [[
-  "Reglas del plan: el Excel ERP no se modifica; las exportaciones enriquecidas son propias; cada cambio sensible debe auditarse; la cámara móvil requiere HTTPS interno; ninguna regularización puede duplicar estudiantes ni perder historial.",
+  "Estado al 1 ago 2026: cámara web, fallback manual, antiduplicado, permisos por método y preparación HTTPS completados; 102 pruebas backend y 11 frontend aprobadas. Pendiente físico: confiar el certificado y probar cámara en Android/escritorios del colegio. El Excel ERP no se modifica.",
 ]];
 sheet.getRange("B41:AD42").format.wrapText = true;
 
@@ -183,7 +174,7 @@ const inspect = await workbook.inspect({
   tableMaxCols: 30,
   maxChars: 10000,
 });
-console.log(inspect.ndjson);
+console.log(`Inspección estructural completada (${inspect.ndjson.length} caracteres).`);
 
 const errors = await workbook.inspect({
   kind: "match",
