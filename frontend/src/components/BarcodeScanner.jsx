@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import axios from 'axios';
 import { Search, CheckCircle, AlertCircle, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard } from 'lucide-react';
 import { playBeep } from '../utils/audioNotifier';
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
+import { AuthContext } from '../context/AuthContext';
+import { hasPermission, PERMISSIONS } from '../permissions';
+import { getStudentIdentifier } from '../utils/studentFormat';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
+  const { user } = useContext(AuthContext);
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,6 +24,10 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
   // Settings/Config
   const [punctualityConfig, setPunctualityConfig] = useState({ hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' });
+  const [controlState, setControlState] = useState({ actual: null, actuales: [], proximos: [] });
+  const [selectedControlId, setSelectedControlId] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
+  const canOverrideControl = hasPermission(user, PERMISSIONS.PUNCTUALITY_CONTROLS_OVERRIDE);
 
   // Layout mode: 'centered' | 'columns'
   const [layoutMode, setLayoutMode] = useState('centered');
@@ -67,6 +75,29 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       .catch(() => {});
   }, []);
 
+  const fetchControlState = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/puntualidad/controles/estado`);
+      setControlState((previous) => {
+        setSelectedControlId((current) => {
+          const wasAutomatic = !current || String(current) === String(previous.actual?.id || '');
+          return (!canOverrideControl || wasAutomatic)
+            ? (response.data.actual?.id ? String(response.data.actual.id) : '')
+            : current;
+        });
+        return response.data;
+      });
+    } catch {
+      setControlState((current) => ({ ...current, actual: null, actuales: [] }));
+    }
+  }, [canOverrideControl]);
+
+  useEffect(() => {
+    fetchControlState();
+    const interval = setInterval(fetchControlState, 30000);
+    return () => clearInterval(interval);
+  }, [fetchControlState]);
+
   // Polling de salud del servidor (heartbeat)
   useEffect(() => {
     let consecutiveFailures = 0;
@@ -95,9 +126,11 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   }, []);
 
   // Fetch today's stats
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_URL}/puntualidad/resumen-hoy`);
+      const res = await axios.get(`${API_URL}/puntualidad/resumen-hoy`, {
+        params: selectedControlId ? { control_id: selectedControlId } : {}
+      });
       setTodayStats({
         total: res.data.ingresos_registrados || 0,
         presentes: res.data.a_tiempo || 0,
@@ -106,13 +139,13 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     } catch {
       // El indicador conserva el último valor válido si el servicio no responde.
     }
-  };
+  }, [selectedControlId]);
 
   useEffect(() => {
     fetchStats();
     const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStats]);
 
   // Fetch courses for filter
   useEffect(() => {
@@ -329,7 +362,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       });
 
       const foundStudent = res.data.alumno;
-      const isAlreadyReg = res.data.alreadyRegistered;
+      const isAlreadyReg = false;
       const calculatedStatus = res.data.statusPropuesto;
 
       setStudent(foundStudent);
@@ -405,7 +438,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       });
 
       const foundStudent = res.data.alumno;
-      const isAlreadyReg = res.data.alreadyRegistered;
+      const isAlreadyReg = false;
       const calculatedStatus = res.data.statusPropuesto;
 
       setStudent(foundStudent);
@@ -435,7 +468,11 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     try {
       const response = await axios.post(`${API_URL}/puntualidad/registros`, {
         id_alumno: studentData.id_alumno,
-        origen: scannerActive ? 'lector' : 'manual'
+        origen: scannerActive ? 'lector' : 'manual',
+        control_id: selectedControlId ? Number(selectedControlId) : undefined,
+        motivo_override: selectedControlId && String(selectedControlId) !== String(controlState.actual?.id || '')
+          ? overrideReason
+          : undefined
       });
 
       const persistedStatus = response.data.estado || status;
@@ -446,6 +483,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
       // Refresh statistics
       fetchStats();
+      fetchControlState();
 
       if (persistedStatus === 'Atrasado') {
         triggerFlash('warning');
@@ -461,7 +499,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         triggerFlash('warning');
         playBeep('warning');
       } else {
-        setError('Error al registrar. Intente nuevamente.');
+        setError(err.response?.data?.message || 'Error al registrar. Intente nuevamente.');
         triggerFlash('error');
         playBeep('error');
       }
@@ -507,7 +545,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
             Registrando ingreso a {pendingRegistration.student.nombres} {pendingRegistration.student.paterno}...
           </div>
           <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>
-            {pendingRegistration.student.rut}-{pendingRegistration.student.dv} • {pendingRegistration.student.nombre_curso || 'Personal/Staff'}
+            {getStudentIdentifier(pendingRegistration.student)} • {pendingRegistration.student.nombre_curso || 'Personal/Staff'}
           </div>
           <div className="kiosk-feedback-status" style={{ color: pendingRegistration.calculatedStatus === 'Atrasado' ? '#f59e0b' : '#10b981', fontWeight: 'bold' }}>
             Estado: {pendingRegistration.calculatedStatus}
@@ -521,7 +559,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         <div className={`kiosk-feedback kiosk-feedback-dramatic fade-in ${statusRegistrado === 'Atrasado' ? 'kiosk-warning' : 'kiosk-success'}`}>
           <CheckCircle size={56} className="kiosk-check-anim" />
           <div className="kiosk-feedback-text">{successMsg}</div>
-          {student && <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>{student.rut}-{student.dv} • {student.nombre_curso || 'Personal/Staff'}</div>}
+          {student && <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>{getStudentIdentifier(student)} • {student.nombre_curso || 'Personal/Staff'}</div>}
           <div className="kiosk-feedback-status" style={{ textTransform: 'uppercase', letterSpacing: '0.05em' }}>Registro {tipoRegistro} Exitoso</div>
         </div>
       )}
@@ -530,7 +568,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         <div className="kiosk-feedback kiosk-error kiosk-feedback-dramatic fade-in">
           <AlertCircle size={56} className="kiosk-error-anim" />
           <div className="kiosk-feedback-text">{error}</div>
-          {student && <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>{student.rut}-{student.dv}</div>}
+          {student && <div className="kiosk-feedback-sub" style={{ fontFamily: 'Space Mono, monospace' }}>{getStudentIdentifier(student)}</div>}
         </div>
       )}
 
@@ -646,7 +684,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
               <span className="kiosk-search-avatar" aria-hidden="true">{s.nombres?.[0]}{s.paterno?.[0]}</span>
               <div className="kiosk-search-item-info">
                 <span className="kiosk-search-name">{s.nombres} {s.paterno} {s.materno}</span>
-                <span className="kiosk-search-detail" style={{ fontFamily: 'Space Mono, monospace' }}>{s.rut}-{s.dv} • {s.nombre_curso || 'Sin curso'} • {s.rol}</span>
+                <span className="kiosk-search-detail" style={{ fontFamily: 'Space Mono, monospace' }}>{getStudentIdentifier(s)} • {s.nombre_curso || 'Sin curso'} • {s.rol}</span>
               </div>
               <ChevronRight size={16} />
             </button>
@@ -655,6 +693,15 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       )}
     </>
   );
+
+  const isoDay = new Date().getDay() || 7;
+  const controlsToday = (punctualityConfig.controles || []).filter((control) => (
+    control.activo && (control.dias_semana || []).map(Number).includes(isoDay)
+  ));
+  const selectedControl = controlsToday.find((control) => String(control.id) === String(selectedControlId))
+    || controlState.actual;
+  const isManualControl = Boolean(selectedControlId)
+    && String(selectedControlId) !== String(controlState.actual?.id || '');
 
   return (
     <div className={`kiosk-scanner ${layoutMode === 'columns' ? 'kiosk-columns' : ''}`} style={{ width: '100%' }}>
@@ -682,9 +729,21 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
       {/* Top bar: entry times & layout options */}
       <div className="kiosk-topbar">
-        <div className="kiosk-turno-badge" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <Clock size={14} />
-          <span>Inicio de atraso: <strong>{punctualityConfig.hora_limite_atraso.slice(0, 5)}</strong></span>
+        <div className={`kiosk-control-status ${controlState.actual ? 'is-active' : 'is-closed'}`}>
+          <Clock size={17} />
+          <div>
+            <small>{controlState.actual ? 'Control horario activo' : 'Sin control activo'}</small>
+            <strong>{selectedControl?.nombre || 'Fuera de una ventana configurada'}</strong>
+            {selectedControl && <span>Esperado {String(selectedControl.hora_referencia).slice(0, 5)} · atraso desde {String(selectedControl.hora_inicio_atraso).slice(0, 5)} · cierre {String(selectedControl.hora_cierre).slice(0, 5)}</span>}
+          </div>
+          {canOverrideControl && controlsToday.length > 0 && (
+            <AppSelect
+              ariaLabel="Control horario utilizado"
+              value={selectedControlId}
+              onChange={(value) => { setSelectedControlId(value); setOverrideReason(''); }}
+              options={controlsToday.map((control) => ({ value: String(control.id), label: `${String(control.hora_referencia).slice(0, 5)} · ${control.nombre}` }))}
+            />
+          )}
         </div>
         <div className="kiosk-topbar-controls">
           <button
@@ -716,6 +775,21 @@ const BarcodeScanner = ({ tipoRegistro }) => {
           </button>
         </div>
       </div>
+
+      {isManualControl && canOverrideControl && (
+        <label className="kiosk-control-override">
+          <ShieldCheck size={18} />
+          <span><strong>Selección manual</strong><small>Indica por qué este registro no utilizará el control sugerido.</small></span>
+          <input value={overrideReason} maxLength="500" onChange={(event) => setOverrideReason(event.target.value)} placeholder="Motivo obligatorio para auditoría" />
+        </label>
+      )}
+
+      {!controlState.actual && !isManualControl && (
+        <div className="kiosk-no-control" role="status">
+          <AlertCircle size={20} />
+          <div><strong>El terminal está fuera de un bloque de puntualidad</strong><span>{controlState.proximos?.[0] ? `Próximo: ${controlState.proximos[0].nombre}, desde las ${String(controlState.proximos[0].hora_apertura).slice(0, 5)}.` : 'Revisa la jornada configurada o espera el próximo control.'}</span></div>
+        </div>
+      )}
 
       {/* Main Kiosk Area */}
       {layoutMode === 'centered' ? (

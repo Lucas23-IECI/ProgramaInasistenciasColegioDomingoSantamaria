@@ -20,6 +20,10 @@ CREATE TABLE alumno (
   uuid_erp VARCHAR(100) UNIQUE,        -- ERP unique identifier (ID de Usuario)
   rut VARCHAR(12) UNIQUE,               -- Cleaned RUT number without dots and hyphen
   dv CHAR(1),                           -- Verification digit
+  documento_erp VARCHAR(64),            -- Documento original cuando no corresponde a un RUT chileno
+  tipo_identificador VARCHAR(32),
+  tipo_documento_extranjero VARCHAR(32),
+  pais_emisor_documento VARCHAR(3),
   nombres VARCHAR(100) NOT NULL,
   paterno VARCHAR(100) NOT NULL,
   materno VARCHAR(100),
@@ -33,7 +37,9 @@ CREATE TABLE alumno (
   rut_apoderado VARCHAR(50),
   activo BOOLEAN DEFAULT true,
   fecha_actualizacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  codigo_barra VARCHAR(100) UNIQUE      -- Printable barcode value (usually clean RUT)
+  codigo_barra VARCHAR(100) UNIQUE,     -- Printable barcode value (usually clean RUT)
+  origen_alta VARCHAR(20) NOT NULL DEFAULT 'LEGACY',
+  erp_vinculado_en TIMESTAMPTZ
 );
 
 -- Matricula linking alumno and curso
@@ -91,6 +97,56 @@ CREATE TABLE justification_documents (
   creado_por INT REFERENCES usuarios(id) ON DELETE SET NULL,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Identificadores múltiples por integrante. Las columnas heredadas de alumno
+-- se mantienen durante la transición para conservar compatibilidad.
+CREATE TABLE alumno_identificador (
+  id_identificador BIGSERIAL PRIMARY KEY,
+  id_alumno INT NOT NULL REFERENCES alumno(id_alumno) ON DELETE CASCADE,
+  tipo VARCHAR(32) NOT NULL CONSTRAINT ck_alumno_identificador_tipo CHECK (
+    tipo IN (
+      'RUN_CHILE', 'IPE_MINEDUC', 'PASAPORTE', 'DNI', 'CEDULA',
+      'DOCUMENTO_EXTRANJERO', 'ID_ERP', 'CODIGO_INTERNO', 'CODIGO_BARRAS'
+    )
+  ),
+  valor_original VARCHAR(160) NOT NULL,
+  valor_normalizado VARCHAR(160) NOT NULL,
+  pais_emisor VARCHAR(3),
+  fuente VARCHAR(32) NOT NULL DEFAULT 'LEGACY' CONSTRAINT ck_alumno_identificador_fuente CHECK (
+    fuente IN ('ERP', 'MANUAL', 'MINEDUC', 'REGULARIZACION', 'LEGACY', 'SISTEMA')
+  ),
+  estado VARCHAR(20) NOT NULL DEFAULT 'VIGENTE' CONSTRAINT ck_alumno_identificador_estado CHECK (
+    estado IN ('PRINCIPAL', 'VIGENTE', 'ANTERIOR', 'PENDIENTE', 'REVOCADO')
+  ),
+  es_principal BOOLEAN NOT NULL DEFAULT false,
+  nivel_validacion VARCHAR(40),
+  vigente_desde DATE NOT NULL DEFAULT CURRENT_DATE,
+  vigente_hasta DATE,
+  creado_por INT REFERENCES usuarios(id) ON DELETE SET NULL,
+  respaldo_documento_id INT REFERENCES justification_documents(id_documento) ON DELETE SET NULL,
+  metadatos JSONB NOT NULL DEFAULT '{}'::jsonb,
+  creado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT ck_alumno_identificador_valor CHECK (LENGTH(TRIM(valor_normalizado)) >= 2),
+  CONSTRAINT ck_alumno_identificador_vigencia CHECK (
+    vigente_hasta IS NULL OR vigente_hasta >= vigente_desde
+  ),
+  CONSTRAINT ck_alumno_identificador_principal CHECK (
+    es_principal = false OR estado = 'PRINCIPAL'
+  )
+);
+
+CREATE UNIQUE INDEX uq_alumno_identificador_activo
+  ON alumno_identificador (tipo, valor_normalizado, COALESCE(pais_emisor, ''))
+  WHERE estado <> 'REVOCADO';
+CREATE UNIQUE INDEX uq_alumno_identificador_principal
+  ON alumno_identificador (id_alumno)
+  WHERE es_principal = true AND estado <> 'REVOCADO';
+CREATE INDEX idx_alumno_identificador_alumno
+  ON alumno_identificador (id_alumno, es_principal DESC, actualizado_en DESC);
+CREATE INDEX idx_alumno_identificador_busqueda
+  ON alumno_identificador (valor_normalizado)
+  WHERE estado <> 'REVOCADO';
 
 ALTER TABLE attendance_registrations
   ADD COLUMN documento_id INT REFERENCES justification_documents(id_documento) ON DELETE RESTRICT;

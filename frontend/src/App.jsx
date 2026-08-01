@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from './context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import { Clock, LogOut, Maximize2, Minimize2 } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { ArrowLeft, Clock, LogOut, Maximize2, Minimize2 } from 'lucide-react';
 import BarcodeScanner from './components/BarcodeScanner';
 import InstitutionalMark from './components/InstitutionalMark';
 
@@ -36,6 +36,13 @@ function App() {
     }
   };
 
+  const returnToPanel = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => {});
+    }
+    navigate('/admin');
+  };
+
   return (
     <div className="kiosk-mode kiosk-puntualidad">
       <div className="kiosk-panel">
@@ -53,6 +60,15 @@ function App() {
             </div>
 
             <div className="kiosk-header-right">
+              <button
+                type="button"
+                onClick={returnToPanel}
+                className="kiosk-logout-btn kiosk-back-btn"
+                title="Volver al panel principal"
+              >
+                <ArrowLeft size={16}/>
+                <span>Panel principal</span>
+              </button>
               <div className="kiosk-clock">
                 <Clock size={16} />
                 <span>{clockTime}</span>

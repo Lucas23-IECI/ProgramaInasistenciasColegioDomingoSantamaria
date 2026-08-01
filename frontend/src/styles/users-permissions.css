@@ -299,3 +299,21 @@ body:has(.access-modal-backdrop) .global-tools { visibility: hidden; opacity: 0;
   .profile-detail__summary > div:not(.profile-detail__permission-preview) { padding: 0 0 0.65rem; border-right: 0; border-bottom: 1px solid var(--border); }
   .profile-detail__permission-preview { grid-column: auto; }
 }
+
+.permission-fixed-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 1.5rem 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  color: var(--text-dark);
+}
+
+.permission-fixed-note svg { flex: 0 0 auto; color: var(--primary); }
+.permission-fixed-note div { display: grid; gap: 0.2rem; }
+.permission-fixed-note span { color: var(--text-light); font-size: 0.76rem; line-height: 1.45; }
+.permission-option:has(input:disabled),
+.permission-option:has(input:disabled) input { cursor: not-allowed; }

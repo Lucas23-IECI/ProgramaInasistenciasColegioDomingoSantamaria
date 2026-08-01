@@ -3,7 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const serverSource = [
+  fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'),
+  fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'registry.js'), 'utf8')
+].join('\n');
 
 const retiredRoutes = [
   '/api/attendance/config',

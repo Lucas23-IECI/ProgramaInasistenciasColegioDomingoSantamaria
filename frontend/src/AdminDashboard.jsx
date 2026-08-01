@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
@@ -36,6 +36,7 @@ import AppSelect from './components/AppSelect';
 import TimeField from './components/TimeField';
 import { useFeedback } from './context/FeedbackContext';
 import { buildDetailedRows, buildSummaryRows, reportFileName } from './utils/punctualityReport';
+import { getStudentIdentifier } from './utils/studentFormat';
 import { PERMISSIONS, hasPermission } from './permissions';
 
 const PAGE_SIZE = 12;
@@ -88,7 +89,8 @@ const AdminDashboard = () => {
   const canCancel = hasPermission(user, PERMISSIONS.PUNCTUALITY_CANCEL);
   const canJustify = hasPermission(user, PERMISSIONS.PUNCTUALITY_JUSTIFY);
   const canReport = hasPermission(user, PERMISSIONS.REPORTS_GENERATE);
-  const canConfigure = hasPermission(user, PERMISSIONS.SETTINGS_MANAGE);
+  const canConfigure = hasPermission(user, PERMISSIONS.SETTINGS_MANAGE)
+    || hasPermission(user, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE);
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState([]);
   const [config, setConfig] = useState(null);
@@ -98,6 +100,7 @@ const AdminDashboard = () => {
   const [query, setQuery] = useState('');
   const [severity, setSeverity] = useState('');
   const [status, setStatus] = useState('');
+  const [controlFilter, setControlFilter] = useState('');
   const [page, setPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState(null);
   const [actionMode, setActionMode] = useState(null);
@@ -181,14 +184,15 @@ const AdminDashboard = () => {
   const filteredRows = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
     return rows.filter((row) => {
-      const haystack = `${studentName(row)} ${row.rut}-${row.dv} ${row.curso || ''}`.toLocaleLowerCase('es');
+      const haystack = `${studentName(row)} ${getStudentIdentifier(row)} ${row.curso || ''}`.toLocaleLowerCase('es');
       return (!normalized || haystack.includes(normalized))
         && (!severity || row.severidad === severity)
+        && (!controlFilter || String(row.control_puntualidad_id) === String(controlFilter))
         && (!status || (status === 'justificado' ? row.justificado : row.estado === status));
     });
-  }, [query, rows, severity, status]);
+  }, [controlFilter, query, rows, severity, status]);
 
-  useEffect(() => { setPage(1); }, [query, severity, status]);
+  useEffect(() => { setPage(1); }, [controlFilter, query, severity, status]);
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const visibleRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -375,12 +379,11 @@ const AdminDashboard = () => {
             <span className="section-kicker">Jornada en curso</span>
             <h2>{new Intl.DateTimeFormat('es-CL', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</h2>
             <p>
-              {config?.nombre_jornada || 'Jornada principal'} · Entrada {formatTime(config?.hora_entrada)} ·
-              atraso desde las {formatTime(config?.hora_limite_atraso)}
+              {config?.nombre_jornada || 'Jornada principal'} · {(config?.controles || []).filter((control) => control.activo).length} controles horarios configurados
             </p>
           </div>
           <div className="punctuality-hero__actions">
-            {canConfigure && <button type="button" className="quiet-action" onClick={() => navigate('/admin/configuracion')}><Settings size={18} /> Configurar jornada</button>}
+            {canConfigure && <button type="button" className="quiet-action" onClick={() => navigate('/admin/configuracion')}><Settings size={18} /> Configurar controles</button>}
             {canRegister && <button type="button" className="primary-action" onClick={() => navigate('/scanner')}><FileClock size={18} /> Abrir terminal de registro <ArrowRight size={17} /></button>}
           </div>
         </section>
@@ -407,16 +410,18 @@ const AdminDashboard = () => {
             <label className="operation-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, RUT o curso" /></label>
             <label><span>Estado</span><AppSelect ariaLabel="Filtrar por estado" value={status} onChange={setStatus} options={[{ value: '', label: 'Todos' }, { value: 'Presente', label: 'A tiempo' }, { value: 'Atrasado', label: 'Atrasados' }, { value: 'justificado', label: 'Justificados' }]} /></label>
             <label><span>Severidad</span><AppSelect ariaLabel="Filtrar por severidad" value={severity} onChange={setSeverity} options={[{ value: '', label: 'Todas' }, { value: 'Leve', label: 'Leve' }, { value: 'Grave', label: 'Grave' }]} /></label>
+            <label><span>Control horario</span><AppSelect ariaLabel="Filtrar por control horario" value={controlFilter} onChange={setControlFilter} options={[{ value: '', label: 'Todos los controles' }, ...(config?.controles || []).filter((control) => control.activo).map((control) => ({ value: String(control.id), label: control.nombre }))]} /></label>
           </div>
 
           <div className="operation-table-wrap">
             <table className="operation-table">
-              <thead><tr><th>Persona</th><th>Curso</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
+              <thead><tr><th>Persona</th><th>Curso</th><th>Control</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody>
                 {visibleRows.map((row) => (
                   <tr key={row.id_registro}>
-                    <td data-label="Persona"><strong>{studentName(row)}</strong><small>{row.rut}-{row.dv}</small></td>
+                    <td data-label="Persona"><strong>{studentName(row)}</strong><small>{getStudentIdentifier(row)}</small></td>
                     <td data-label="Curso">{row.curso || 'Sin curso'}</td>
+                    <td data-label="Control"><strong>{row.control_nombre || 'Ingreso de la jornada'}</strong><small>{String(row.control_tipo || 'INGRESO').replaceAll('_', ' ').toLocaleLowerCase('es')}</small></td>
                     <td data-label="Hora" className="time-cell">{formatTime(row.hora)}{row.corregido_en && <small>Corregido</small>}</td>
                     <td data-label="Clasificación"><span className="status-pill" data-status={row.estado === 'Presente' ? 'ontime' : row.severidad?.toLowerCase()}>{row.estado === 'Presente' ? 'A tiempo' : `Atraso ${row.severidad?.toLowerCase()}`}</span></td>
                     <td data-label="Respaldo">{row.estado === 'Atrasado' ? <span className="justification-state" data-active={row.justificado || undefined}>{row.documento_id ? 'Con documento' : row.justificado ? 'Justificado' : 'Pendiente'}</span> : <span className="muted-cell">No aplica</span>}</td>
@@ -453,7 +458,7 @@ const AdminDashboard = () => {
 
       {selectedRow && <div className="record-drawer-backdrop" onMouseDown={closeDrawer}>
         <aside className="record-drawer" role="dialog" aria-modal="true" aria-label="Gestionar registro" onMouseDown={(event) => event.stopPropagation()}>
-          <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {selectedRow.rut}-{selectedRow.dv}</p></div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
+          <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {getStudentIdentifier(selectedRow)}</p></div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
           <div className="record-summary"><div><small>Fecha</small><strong>{String(selectedRow.fecha).slice(0, 10)}</strong></div><div><small>Hora</small><strong>{formatTime(selectedRow.hora)}</strong></div><div><small>Resultado</small><strong>{selectedRow.estado === 'Presente' ? 'A tiempo' : `Atraso ${selectedRow.severidad}`}</strong></div></div>
 
           {!actionMode && (

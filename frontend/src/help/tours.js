@@ -67,7 +67,7 @@ const tours = {
         element: '[data-tour="hub-modules"]',
         popover: {
           title: 'Módulos de trabajo',
-          description: 'Selecciona una función para registrar atrasos, consultar personas, revisar indicadores o administrar el sistema.',
+          description: 'Los módulos están agrupados por recepción, puntualidad, comunidad y administración. Cada cuenta ve únicamente las funciones que tiene habilitadas.',
           side: 'top',
         },
       },
@@ -110,6 +110,22 @@ const tours = {
     steps: [
       commonHeaderStep,
       {
+        element: '[data-tour="students-navigation"]',
+        popover: {
+          title: 'Padrón e importaciones',
+          description: 'Cambia entre nómina, carga ERP, apoderados y control del padrón. Las importaciones nunca crean cuentas de acceso.',
+          side: 'bottom',
+        },
+      },
+      {
+        element: '[data-tour="student-manual-create"]',
+        popover: {
+          title: 'Gestión manual',
+          description: 'Agrega una matrícula individual sin importar otra planilla. Desde cada ficha también puedes editar, retirar o reactivar al estudiante con trazabilidad.',
+          side: 'bottom',
+        },
+      },
+      {
         element: '[data-tour="student-search"]',
         popover: {
           title: 'Búsqueda de personas',
@@ -130,6 +146,14 @@ const tours = {
         popover: {
           title: 'Nómina',
           description: 'Filtra la lista y abre la ficha de una persona para revisar su información institucional.',
+          side: 'top',
+        },
+      },
+      {
+        element: '[data-tour="student-governance"]',
+        popover: {
+          title: 'Control del padrón',
+          description: 'Revisa calidad, altas manuales, historial y duplicados. Desde el encabezado puedes exportar datos operativos protegidos; los identificadores completos requieren un permiso restringido.',
           side: 'top',
         },
       },
@@ -195,8 +219,119 @@ const tours = {
     steps: [commonHeaderStep, {
       element: '[data-tour="punctuality-settings"]',
       popover: {
-        title: 'Reglas institucionales',
-        description: 'Define la hora de entrada, el inicio del atraso, la severidad y los umbrales preventivos. Cada cambio queda auditado.',
+        title: 'Jornada institucional',
+        description: 'Aquí defines el nombre de la jornada y cuándo se activan las alertas por atrasos reiterados.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="punctuality-controls"]',
+      popover: {
+        title: 'Controles durante el día',
+        description: 'Agrega ingreso, regresos de recreo, almuerzo o talleres. Cada control puede tener horarios, días y cursos distintos.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="punctuality-preview"]',
+      popover: {
+        title: 'Vista previa operativa',
+        description: 'Comprueba el orden del día y las ventanas que propondrá automáticamente el terminal de registro.',
+        side: 'left',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/visitas': {
+    title: 'Recorrido de visitas y retiros',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="visits-summary"]',
+      popover: {
+        title: 'Situación del establecimiento',
+        description: 'Cada indicador es interactivo: abre directamente las personas dentro, los movimientos del día o los retiros registrados.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="visits-navigation"]',
+      popover: {
+        title: 'Un solo puesto de Portería',
+        description: 'Desde este computador puedes registrar visitas, confirmar salidas y completar retiros sin cambiar de cuenta ni depender de otro equipo.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="visits-list"]',
+      popover: {
+        title: 'Personas dentro',
+        description: 'Registra la salida desde esta lista. El sistema conserva la hora, la cuenta responsable y la trazabilidad.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="visits-reports"]',
+      popover: {
+        title: 'Reportes institucionales',
+        description: 'Define un período y exporta visitas, retiros o ambos en Excel, PDF o Markdown. Los documentos se mantienen enmascarados.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/operacion': {
+    title: 'Recorrido de tareas operativas',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="operations-status"]',
+      popover: {
+        title: 'Estado de la jornada',
+        description: 'Resume las tareas visibles y confirma si el respaldo diario sigue vigente.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="operations-list"]',
+      popover: {
+        title: 'Pendientes accionables',
+        description: 'Cada fila muestra una responsabilidad concreta y abre directamente el módulo donde se resuelve.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="operations-close"]',
+      popover: {
+        title: 'Cierre operacional',
+        description: 'Cierra exclusivamente visitas y retiros cuando ya no quedan movimientos abiertos. No calcula asistencia.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/visitas/configuracion': {
+    title: 'Recorrido de configuración de visitas',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="visits-general-settings"]',
+      popover: {
+        title: 'Reglas de Portería',
+        description: 'Define el horario de revisión y las validaciones generales del módulo.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="visits-catalogs"]',
+      popover: {
+        title: 'Opciones institucionales',
+        description: 'Administra motivos, destinos y relaciones sin eliminar las referencias históricas.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/familias': {
+    title: 'Recorrido de ficha familiar',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="family-directory"]',
+      popover: {
+        title: 'Directorio de responsables',
+        description: 'Busca una persona por nombre o RUT y revisa todos los hermanos vinculados.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/gobierno-datos': {
+    title: 'Recorrido de gobierno de datos',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="data-governance"]',
+      popover: {
+        title: 'Políticas sin borrado automático',
+        description: 'Documenta períodos y revisa cuántos registros quedarían fuera, sin eliminar información.',
         side: 'top',
       },
     }, commonToolsStep],

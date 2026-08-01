@@ -117,7 +117,13 @@ const removeStoredFile = async (storedName) => {
 const deleteDocumentIfUnreferenced = async (client, documentId) => {
   if (!documentId) return null;
   const references = await client.query(
-    'SELECT COUNT(*)::int AS total FROM attendance_registrations WHERE documento_id = $1',
+    `SELECT (
+       (SELECT COUNT(*) FROM attendance_registrations WHERE documento_id = $1)
+       +
+       (SELECT COUNT(*) FROM alumno_identificador WHERE respaldo_documento_id = $1)
+       +
+       (SELECT COUNT(*) FROM regularizaciones_identidad_estudiante WHERE documento_id = $1)
+     )::int AS total`,
     [documentId]
   );
   if (references.rows[0].total > 0) return null;

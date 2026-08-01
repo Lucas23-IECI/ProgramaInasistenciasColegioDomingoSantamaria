@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import {
   Briefcase,
   Check,
@@ -67,7 +67,7 @@ const initials = (value) => String(value || 'Usuario')
   .join('')
   .toUpperCase();
 
-const PermissionGrid = ({ permissions, selected, recommended, onToggle }) => {
+const PermissionGrid = ({ permissions, selected, recommended, onToggle, disabled = false }) => {
   const grouped = groupPermissions(permissions);
   return (
     <div className="permission-groups">
@@ -79,8 +79,8 @@ const PermissionGrid = ({ permissions, selected, recommended, onToggle }) => {
               const active = selected.includes(permission.codigo);
               const suggested = recommended.includes(permission.codigo);
               return (
-                <label key={permission.codigo} className="permission-option" data-active={active || undefined}>
-                  <input type="checkbox" checked={active} onChange={() => onToggle(permission.codigo)} />
+                <label key={permission.codigo} className="permission-option" data-active={active || undefined} data-disabled={disabled || undefined}>
+                  <input type="checkbox" checked={active} onChange={() => onToggle(permission.codigo)} disabled={disabled} />
                   <span className="permission-option__check">{active && <Check size={15} />}</span>
                   <span className="permission-option__copy">
                     <strong>{permission.etiqueta}{suggested && <em>Del perfil</em>}</strong>
@@ -121,9 +121,11 @@ const ModalShell = ({ title, saving, onClose, children }) => {
 
 const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClose, lockedProfile }) => {
   const [showPassword, setShowPassword] = useState(false);
+  const [customCargo, setCustomCargo] = useState(Boolean(form.cargo && !INSTITUTIONAL_JOB_TITLES.includes(form.cargo)));
   const profiles = catalog.templates || [];
   const profile = profiles.find((item) => item.value === form.rol);
   const recommended = profile?.recommended_permissions || [];
+  const fixedReaderProfile = form.rol === 'lector';
   const customChanges = (catalog.permissions || []).filter((permission) => (
     form.permissions.includes(permission.codigo) !== recommended.includes(permission.codigo)
   )).length;
@@ -152,7 +154,35 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
 
       <div className="permission-editor__identity">
         <label><span>Nombre de la persona</span><input value={form.nombre} onChange={(event) => setForm((current) => ({ ...current, nombre: event.target.value }))} placeholder="Ej: María González" /></label>
-        <label><span>Cargo institucional</span><input list="institutional-job-titles" value={form.cargo} onChange={(event) => setForm((current) => ({ ...current, cargo: event.target.value }))} placeholder="Ej: Inspectora de piso" /></label>
+        <label>
+          <span>Cargo institucional</span>
+          <AppSelect
+            ariaLabel="Cargo institucional"
+            value={customCargo ? '__OTRO__' : form.cargo}
+            onChange={(value) => {
+              if (value === '__OTRO__') {
+                setCustomCargo(true);
+                setForm((current) => ({ ...current, cargo: '' }));
+              } else {
+                setCustomCargo(false);
+                setForm((current) => ({ ...current, cargo: value }));
+              }
+            }}
+            options={[
+              { value: '', label: 'Seleccionar cargo' },
+              ...INSTITUTIONAL_JOB_TITLES.map((title) => ({ value: title, label: title })),
+              { value: '__OTRO__', label: 'Otro cargo institucional' }
+            ]}
+          />
+          {customCargo && (
+            <input
+              value={form.cargo}
+              onChange={(event) => setForm((current) => ({ ...current, cargo: event.target.value }))}
+              placeholder="Escribe el cargo"
+              autoFocus
+            />
+          )}
+        </label>
         <label><span>Correo de ingreso</span><input type="email" value={form.correo} onChange={(event) => setForm((current) => ({ ...current, correo: event.target.value }))} placeholder="maria@ldsm.local" /></label>
         <label>
           <span>Contraseña {mode === 'edit' && <small>vacía para conservarla</small>}</span>
@@ -161,7 +191,6 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
             <button type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>
           </div>
         </label>
-        <datalist id="institutional-job-titles">{INSTITUTIONAL_JOB_TITLES.map((title) => <option key={title} value={title} />)}</datalist>
       </div>
 
       <div className="permission-template">
@@ -169,11 +198,17 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
         {lockedProfile
           ? <div className="permission-template__locked"><ShieldCheck size={18} /><span><strong>{lockedProfile.label}</strong><small>Perfil seleccionado</small></span></div>
           : <AppSelect ariaLabel="Perfil de usuario" value={form.rol} onChange={selectProfile} options={profiles.filter((item) => item.activo).map((item) => ({ value: item.value, label: item.label }))} />}
-        <div className="permission-template__status" data-custom={customChanges > 0 || undefined}><ShieldCheck size={18} /><span><strong>{form.permissions.length} funciones habilitadas</strong><small>{customChanges ? `${customChanges} ajustes personales` : 'Usa la recomendación del perfil'}</small></span></div>
-        <button type="button" className="permission-reset" onClick={() => setForm((current) => ({ ...current, permissions: [...recommended] }))} disabled={!customChanges}><RotateCcw size={16} /> Usar recomendación</button>
+        <div className="permission-template__status" data-custom={!fixedReaderProfile && customChanges > 0 || undefined}><ShieldCheck size={18} /><span><strong>{form.permissions.length} funciones habilitadas</strong><small>{fixedReaderProfile ? 'Perfil operativo fijo de Portería' : customChanges ? `${customChanges} ajustes personales` : 'Usa la recomendación del perfil'}</small></span></div>
+        {!fixedReaderProfile && <button type="button" className="permission-reset" onClick={() => setForm((current) => ({ ...current, permissions: [...recommended] }))} disabled={!customChanges}><RotateCcw size={16} /> Usar recomendación</button>}
       </div>
 
-      <PermissionGrid permissions={catalog.permissions || []} selected={form.permissions} recommended={recommended} onToggle={togglePermission} />
+      {fixedReaderProfile && (
+        <div className="permission-fixed-note">
+          <ShieldCheck size={20} />
+          <div><strong>Acceso fijo de Portería</strong><span>Esta cuenta siempre tendrá únicamente Registro de estudiantes y Control de visitas y retiros.</span></div>
+        </div>
+      )}
+      <PermissionGrid permissions={catalog.permissions || []} selected={form.permissions} recommended={recommended} onToggle={togglePermission} disabled={fixedReaderProfile} />
       {error && <div className="permission-editor__error" role="alert">{error}</div>}
       <div className="permission-editor__footer">
         <span><ShieldCheck size={17} /> Los ajustes personales solo afectan a esta cuenta.</span>
@@ -488,7 +523,7 @@ const UsuariosAdmin = () => {
             <section className="profile-detail" data-tour="profile-summary">
               <div className="profile-detail__hero">
                 <div className="profile-detail__identity"><span className="access-profile-card__icon"><ShieldCheck size={24} /></span><div><span className="section-kicker">Perfil de usuario</span><h2>{activeProfile.label}</h2><p>{activeProfile.description || 'Sin descripción institucional.'}</p></div></div>
-                <div className="profile-detail__actions" data-tour="profile-actions"><button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button><button type="button" className="primary-action" onClick={openCreateUser}><Plus size={18} /> Crear cuenta</button></div>
+                <div className="profile-detail__actions" data-tour="profile-actions">{activeProfile.value !== 'lector' && <button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button>}<button type="button" className="primary-action" onClick={openCreateUser}><Plus size={18} /> Crear cuenta</button></div>
               </div>
               <div className="profile-detail__summary">
                 <div><strong>{usuarios.filter((account) => account.rol === activeProfile.value && account.activo).length}</strong><span>Cuentas activas</span></div>

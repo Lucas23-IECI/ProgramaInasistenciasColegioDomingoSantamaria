@@ -7,7 +7,7 @@ const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const path = require('path');
 const helmet = require('helmet');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
@@ -19,9 +19,40 @@ const {
   validateEmail,
   validatePassword
 } = require('./utils/security');
-const { calculateStatusAndSeverity } = require('./utils/punctuality');
+const { calculateDelayMinutes, calculateStatusAndSeverity } = require('./utils/punctuality');
 const { isIsoDate, validateDateRange } = require('./utils/validation');
+const {
+  MANUAL_IDENTITY_TYPES,
+  normalizeManualStudentIdentity,
+  normalizeStudentPayload,
+  sanitizeStudentText,
+  validateManualStudentIdentity,
+  validateStudentPayload,
+  validateStudentRut
+} = require('./utils/students');
+const { normalizeErpStudentIdentity } = require('./utils/studentErpIdentity');
+const { findCourseMatch, normalizeCourseKey } = require('./utils/courseImport');
+const { evaluateStudentReconciliation } = require('./utils/studentReconciliation');
+const {
+  compareStudentFields,
+  detectIdentifierCollision,
+  validateImportMode
+} = require('./utils/studentImportGovernance');
 const { createPunctualityRouter } = require('./routes/punctuality');
+const { createVisitsRouter } = require('./routes/visits');
+const { createOperationsRouter } = require('./routes/operations');
+const { createVisitSettingsRouter } = require('./routes/visitSettings');
+const { createFamiliesRouter } = require('./routes/families');
+const { createStudentGovernanceRouter } = require('./routes/studentGovernance');
+const { registerAuthRoutes } = require('./routes/auth');
+const { registerStudentRoutes } = require('./routes/students');
+const { registerUserRoutes } = require('./routes/users');
+const { registerAuditRoutes } = require('./routes/audit');
+const { assignEnrollment, closeEnrollment } = require('./services/enrollmentService');
+const { recordOperationalEvent } = require('./services/operationalEventService');
+const {
+  buildStudentIdentifierCandidates
+} = require('./services/studentIdentifierService');
 const {
   attachPermissionProfile,
   countActivePermissionHolders,
@@ -69,6 +100,12 @@ app.use((req, res, next) => {
 // CORS CONFIGURATION
 const rawOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 let allowedOrigins = rawOrigin.split(',').map(o => o.trim());
+if (String(process.env.COOKIE_SECURE || '').toLowerCase() === 'true') {
+  const secureVariants = allowedOrigins
+    .filter(origin => origin.startsWith('http://'))
+    .map(origin => origin.replace(/^http:\/\//, 'https://'));
+  allowedOrigins = [...new Set([...allowedOrigins, ...secureVariants])];
+}
 const fallbackOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -203,6 +240,15 @@ const normalizeRutAndDv = (rutInput, dvInput) => {
     };
   }
 
+  // Cuando el ERP o la API entregan el DV en una columna/campo separado,
+  // el cuerpo corresponde íntegramente al RUN y no debe perder su último dígito.
+  if (rawDv) {
+    return {
+      rut: rawRut.replace(/\D/g, ''),
+      dv: rawDv.replace(/[^0-9K]/g, '').slice(0, 1)
+    };
+  }
+
   // If no hyphen, look if the last char could be the DV
   if (rawRut.length > 1) {
     const lastChar = rawRut.slice(-1);
@@ -258,11 +304,367 @@ const normalizeDateInput = (value) => {
   return null;
 };
 
+const getImportedStudentFields = (row) => {
+  const apellidos = pickRowValue(row, ['Apellidos', 'apellido', 'lastname']);
+  const surnameParts = apellidos.split(/\s+/).filter(Boolean);
+  const curso = pickRowValue(row, ['Curso', 'grade']);
+  return {
+    uuid_erp: pickRowValue(row, ['ID de Usuario (no modificar)', 'id usuario', 'id_usuario', 'uuid_erp']),
+    rut: pickRowValue(row, ['RUT', 'run', 'id']),
+    dv: pickRowValue(row, ['DV', 'dígito verificador', 'digito verificador']),
+    tipo_documento: pickRowValue(row, [
+      'Tipo de documento',
+      'tipo documento',
+      'tipo_documento',
+      'document type'
+    ]),
+    pais_emisor_documento: pickRowValue(row, [
+      'País emisor',
+      'Pais emisor',
+      'país documento',
+      'pais_documento',
+      'country'
+    ]),
+    nombres: pickRowValue(row, ['Nombres', 'nombre', 'name']),
+    apellidos,
+    paterno: surnameParts[0] || '',
+    materno: surnameParts.slice(1).join(' '),
+    email: pickRowValue(row, ['Email', 'correo', 'mail']),
+    telefono: pickRowValue(row, ['Teléfono', 'telefono', 'phone']),
+    rol: pickRowValue(row, ['Rol', 'rol', 'role']) || 'Estudiante',
+    curso,
+    grade: curso,
+    seccion: pickRowValue(row, ['Sección', 'seccion']),
+    genero: pickRowValue(row, ['Género', 'genero', 'gender']),
+    fecha_nacimiento: normalizeDateInput(pickRowValue(row, ['Fecha Nacimiento', 'fecha_nacimiento', 'nacimiento'])),
+    nombre_usuario: pickRowValue(row, ['Nombre Usuario', 'nombre_usuario', 'username']),
+    rut_apoderado: pickRowValue(row, ['RUT Apoderados', 'apoderado_rut', 'rut_apoderado'])
+  };
+};
+
+const summarizeStudentImportRows = (rows) => {
+  const counts = rows.reduce((summary, row) => {
+    summary[row.status] = (summary[row.status] || 0) + 1;
+    return summary;
+  }, {});
+
+  return {
+    total: rows.length,
+    valid: counts.VALIDA || 0,
+    suggested: counts.EQUIVALENCIA_SUGERIDA || 0,
+    unknown: counts.CURSO_DESCONOCIDO || 0,
+    rejected: (counts.RECHAZADA || 0)
+      + (counts.DUPLICADA_ARCHIVO || 0)
+      + (counts.CONFLICTO_IDENTIDAD || 0)
+      + (counts.COLISION_UUID_RUT || 0)
+      + (counts.COLISION_IDENTIFICADORES || 0),
+    conflicts: (counts.CONFLICTO_IDENTIDAD || 0)
+      + (counts.COLISION_UUID_RUT || 0)
+      + (counts.COLISION_IDENTIFICADORES || 0)
+      + (counts.FICHA_INACTIVA_REAPARECE || 0),
+    identifier_collisions: (counts.COLISION_UUID_RUT || 0)
+      + (counts.COLISION_IDENTIFICADORES || 0),
+    inactive_reappearances: rows.filter((row) => row.inactive_reappearance).length,
+    manual_links: rows.filter((row) => row.reconciliation?.code === 'VINCULAR_MANUAL').length,
+    accepted_by_erp_id: rows.filter((row) => row.identity?.acceptedByErpId).length,
+    run_chile: rows.filter((row) => row.identity?.identityType === 'RUN_CHILE').length,
+    ipe_mineduc: rows.filter((row) => row.identity?.identityType === 'IPE_MINEDUC').length,
+    documentos_extranjeros: rows.filter((row) => row.identity?.identityType === 'DOCUMENTO_EXTRANJERO').length,
+    solo_id_erp: rows.filter((row) => row.identity?.identityType === 'ID_ERP').length,
+    without_course: rows.filter((row) => !row.curso_origen).length
+  };
+};
+
+const buildStudentImportPreview = (rows, courses) => {
+  const seenRuts = new Set();
+  const seenErpIds = new Set();
+  const seenDocuments = new Set();
+  const preview = rows.map((row, index) => {
+    const fields = getImportedStudentFields(row);
+    const identity = normalizeErpStudentIdentity({
+      uuidErp: fields.uuid_erp,
+      rutInput: fields.rut,
+      dvInput: fields.dv,
+      documentTypeInput: fields.tipo_documento,
+      countryCodeInput: fields.pais_emisor_documento,
+      normalizeRutAndDv
+    });
+    const match = findCourseMatch(fields.curso, courses);
+    const errors = [];
+    const warnings = [];
+    let status = 'VALIDA';
+
+    if (!identity.canIdentify) {
+      errors.push('Falta un RUT chileno válido o el identificador obligatorio del ERP.');
+    }
+    if (!fields.nombres) errors.push('Falta el nombre.');
+    if (!fields.curso) {
+      warnings.push('Sin curso informado; la persona se importará sin matrícula vigente.');
+    }
+    if (identity.identityType === 'IPE_MINEDUC') {
+      warnings.push('Identificador provisorio escolar reconocido desde la fuente ERP.');
+    } else if (identity.identityType === 'DOCUMENTO_EXTRANJERO') {
+      warnings.push('Documento extranjero aceptado por formato y procedencia ERP; no se presenta como RUN chileno.');
+      if (!identity.countryCode || !fields.tipo_documento) {
+        warnings.push('Para una validación documental completa, informe tipo de documento y país emisor.');
+      }
+    } else if (identity.identityType === 'ID_ERP') {
+      warnings.push('Sin documento informado; la ficha se identificará mediante el UUID único del ERP.');
+    }
+
+    const rutKey = identity.rut ? `${identity.rut}-${identity.dv}` : null;
+    if (rutKey && seenRuts.has(rutKey)) {
+      status = 'DUPLICADA_ARCHIVO';
+      errors.push('El RUT está repetido dentro de la planilla.');
+    }
+    if (rutKey) seenRuts.add(rutKey);
+
+    if (identity.uuidErp && seenErpIds.has(identity.uuidErp)) {
+      status = 'DUPLICADA_ARCHIVO';
+      errors.push('El identificador ERP está repetido dentro de la planilla.');
+    }
+    if (identity.uuidErp) seenErpIds.add(identity.uuidErp);
+
+    const documentKey = !identity.hasValidRut ? identity.barcode : null;
+    if (documentKey && seenDocuments.has(documentKey)) {
+      status = 'DUPLICADA_ARCHIVO';
+      errors.push('El documento está repetido dentro de la planilla.');
+    }
+    if (documentKey) seenDocuments.add(documentKey);
+
+    if (errors.length && status !== 'DUPLICADA_ARCHIVO') status = 'RECHAZADA';
+    if (!errors.length && fields.curso && match.kind === 'suggested') status = 'EQUIVALENCIA_SUGERIDA';
+    if (!errors.length && fields.curso && match.kind === 'unknown') status = 'CURSO_DESCONOCIDO';
+
+    return {
+      row: index + 2,
+      rut: fields.rut,
+      dv: identity.dv,
+      rut_normalizado: identity.rut,
+      documento_erp: identity.documentoErp,
+      tipo_identificador: identity.identityType,
+      tipo_documento_extranjero: identity.foreignDocumentType,
+      pais_emisor_documento: identity.countryCode,
+      uuid_erp: identity.uuidErp,
+      identity,
+      nombres: fields.nombres,
+      apellidos: fields.apellidos,
+      imported: {
+        ...fields,
+        rut: identity.rut,
+        dv: identity.dv,
+        documento_erp: identity.documentoErp,
+        tipo_identificador: identity.identityType,
+        tipo_documento_extranjero: identity.foreignDocumentType,
+        pais_emisor_documento: identity.countryCode
+      },
+      curso_origen: fields.curso,
+      curso_key: normalizeCourseKey(fields.curso),
+      status,
+      errors,
+      warnings,
+      course: match.kind === 'exact' ? match.course : null,
+      suggestion: match.course ? {
+        id_curso: match.course.id_curso,
+        nombre_curso: match.course.nombre_curso,
+        score: Number(match.score.toFixed(2))
+      } : null
+    };
+  });
+
+  return {
+    rows: preview,
+    summary: summarizeStudentImportRows(preview)
+  };
+};
+
+const enrichStudentImportPreview = async (preview, queryable = pool) => {
+  const ruts = [...new Set(
+    preview.rows
+      .map((row) => row.rut_normalizado)
+      .filter(Boolean)
+  )];
+  const uuids = [...new Set(
+    preview.rows
+      .map((row) => row.uuid_erp)
+      .filter(Boolean)
+  )];
+  const documents = [...new Set(
+    preview.rows
+      .filter((row) => !row.identity?.hasValidRut)
+      .map((row) => row.identity?.barcode)
+      .filter(Boolean)
+  )];
+  const rowIdentifierCandidates = preview.rows.map((row) => (
+    buildStudentIdentifierCandidates({
+      identity: row.identity,
+      barcode: row.codigo_barra,
+      source: 'ERP'
+    })
+  ));
+  const identifierValues = [...new Set(
+    rowIdentifierCandidates
+      .flat()
+      .map((candidate) => candidate.normalizedValue)
+      .filter(Boolean)
+  )];
+  if (!ruts.length && !uuids.length && !documents.length && !identifierValues.length) {
+    return preview;
+  }
+
+  const existingResult = await queryable.query(
+    `SELECT a.id_alumno, a.rut, a.dv, a.documento_erp,
+            a.tipo_identificador, a.tipo_documento_extranjero, a.pais_emisor_documento,
+            a.nombres, a.paterno, a.materno, a.activo,
+            a.uuid_erp, a.email, a.telefono, a.rol, a.seccion, a.genero,
+            a.fecha_nacimiento, a.nombre_usuario, a.rut_apoderado,
+            a.origen_alta, a.erp_vinculado_en,
+            c.nombre_curso AS grade
+     FROM alumno a
+     LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+     LEFT JOIN curso c ON c.id_curso = m.id_curso
+     WHERE a.fusionado_en_id IS NULL
+       AND (
+         a.rut = ANY($1::text[])
+         OR a.uuid_erp = ANY($2::text[])
+         OR REGEXP_REPLACE(UPPER(COALESCE(a.documento_erp, '')), '[^0-9A-Z]', '', 'g') = ANY($3::text[])
+       )`,
+    [ruts, uuids, documents]
+  );
+  const existingByRut = new Map(
+    existingResult.rows
+      .filter((student) => student.rut)
+      .map((student) => [student.rut, student])
+  );
+  const existingByUuid = new Map(
+    existingResult.rows
+      .filter((student) => student.uuid_erp)
+      .map((student) => [student.uuid_erp, student])
+  );
+  const existingByDocument = new Map(
+    existingResult.rows
+      .filter((student) => student.documento_erp)
+      .map((student) => [
+        String(student.documento_erp).toUpperCase().replace(/[^0-9A-Z]/g, ''),
+        student
+      ])
+  );
+  const identifierResult = identifierValues.length
+    ? await queryable.query(
+      `SELECT ai.tipo, ai.valor_normalizado, ai.pais_emisor,
+              a.id_alumno, a.rut, a.dv, a.documento_erp,
+              a.tipo_identificador, a.tipo_documento_extranjero, a.pais_emisor_documento,
+              a.nombres, a.paterno, a.materno, a.activo,
+              a.uuid_erp, a.email, a.telefono, a.rol, a.seccion, a.genero,
+              a.fecha_nacimiento, a.nombre_usuario, a.rut_apoderado,
+              a.origen_alta, a.erp_vinculado_en,
+              c.nombre_curso AS grade
+       FROM alumno_identificador ai
+       INNER JOIN alumno a ON a.id_alumno = ai.id_alumno
+       LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+       LEFT JOIN curso c ON c.id_curso = m.id_curso
+       WHERE a.fusionado_en_id IS NULL
+         AND ai.estado <> 'REVOCADO'
+         AND ai.valor_normalizado = ANY($1::text[])`,
+      [identifierValues]
+    )
+    : { rows: [] };
+  const existingByIdentifier = new Map();
+  for (const student of identifierResult.rows) {
+    const key = [
+      student.tipo,
+      student.valor_normalizado,
+      student.pais_emisor || ''
+    ].join(':');
+    const matches = existingByIdentifier.get(key) || [];
+    if (!matches.some((match) => Number(match.id_alumno) === Number(student.id_alumno))) {
+      matches.push(student);
+    }
+    existingByIdentifier.set(key, matches);
+  }
+
+  const rows = preview.rows.map((row, index) => {
+    const rutMatch = row.rut_normalizado ? existingByRut.get(row.rut_normalizado) || null : null;
+    const uuidMatch = row.uuid_erp ? existingByUuid.get(row.uuid_erp) || null : null;
+    const documentMatch = !row.identity?.hasValidRut && row.identity?.barcode
+      ? existingByDocument.get(row.identity.barcode) || null
+      : null;
+    const identifierMatches = rowIdentifierCandidates[index]
+      .flatMap((candidate) => (
+        existingByIdentifier.get([
+          candidate.type,
+          candidate.normalizedValue,
+          candidate.countryCode || ''
+        ].join(':')) || []
+      ));
+    const allMatches = [
+      rutMatch,
+      uuidMatch,
+      documentMatch,
+      ...identifierMatches
+    ].filter(Boolean);
+    const uniqueMatches = [...new Map(
+      allMatches.map((match) => [Number(match.id_alumno), match])
+    ).values()];
+    const collision = detectIdentifierCollision({
+      rutMatch,
+      uuidMatch,
+      documentMatch,
+      identifierMatches
+    });
+    const existing = uniqueMatches[0] || null;
+    const reconciliation = evaluateStudentReconciliation(row, existing);
+    const comparison = existing ? compareStudentFields(row.imported, existing) : [];
+    const next = {
+      ...row,
+      reconciliation,
+      identifier_collision: collision,
+      inactive_reappearance: existing?.activo === false,
+      field_comparison: comparison,
+      existing_student: existing ? {
+        id_alumno: existing.id_alumno,
+        nombre: `${existing.nombres} ${existing.paterno} ${existing.materno || ''}`.trim(),
+        curso: existing.grade || null,
+        activo: existing.activo,
+        origen_alta: existing.origen_alta
+      } : null
+    };
+
+    if (collision && !['RECHAZADA', 'DUPLICADA_ARCHIVO'].includes(row.status)) {
+      next.status = 'COLISION_IDENTIFICADORES';
+      next.errors = [...(row.errors || []), collision.message];
+    } else if (reconciliation.blocking && !['RECHAZADA', 'DUPLICADA_ARCHIVO'].includes(row.status)) {
+      next.status = 'CONFLICTO_IDENTIDAD';
+      next.errors = [
+        ...(row.errors || []),
+        `El RUT coincide, pero difieren ${reconciliation.differences.join(' y ')}. Revise la ficha antes de importar.`
+      ];
+    } else if (existing && existing.activo === false && row.status === 'VALIDA') {
+      next.status = 'FICHA_INACTIVA_REAPARECE';
+      next.errors = [
+        ...(row.errors || []),
+        'La nómina contiene una ficha inactiva. Debe comprobar su reincorporación antes de reactivarla.'
+      ];
+    }
+    return next;
+  });
+
+  return {
+    ...preview,
+    rows,
+    summary: summarizeStudentImportRows(rows)
+  };
+};
+
 const STUDENT_PUBLIC_FIELDS = `
-  a.id_alumno, a.uuid_erp, a.rut, a.dv, a.nombres, a.paterno, a.materno,
+  a.id_alumno, a.uuid_erp, a.rut, a.dv, a.documento_erp,
+  a.tipo_identificador, a.tipo_documento_extranjero, a.pais_emisor_documento,
+  a.nombres, a.paterno, a.materno,
   a.email, a.telefono, a.rol, a.seccion, a.genero, a.fecha_nacimiento,
   a.nombre_usuario, a.rut_apoderado, a.activo, a.fecha_actualizacion,
-  a.codigo_barra
+  a.codigo_barra, a.origen_alta, a.erp_vinculado_en, a.creado_manualmente_por,
+  a.motivo_alta_manual, a.detalle_alta_manual, a.creado_manualmente_en,
+  a.fusionado_en_id
 `;
 
 
@@ -293,6 +695,49 @@ const getClientIp = (req) => {
 };
 
 app.use('/api/puntualidad', createPunctualityRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/visitas', createVisitsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/operaciones', createOperationsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/configuracion-visitas', createVisitSettingsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/familias', createFamiliesRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/padron', createStudentGovernanceRouter({
   pool,
   verifyToken,
   verifyPermission,
@@ -352,1350 +797,76 @@ const readinessHandler = async (req, res) => {
 app.get('/api/health/ready', readinessHandler);
 app.get('/api/health', readinessHandler);
 
-// AUTHENTICATION
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  const { correo, password } = req.body;
-  if (!correo || !password) {
-    return res.status(400).json({ message: 'Correo y contraseña son requeridos.' });
-  }
-
-  try {
-    const normalizedEmail = normalizeEmail(correo);
-    const userRes = await pool.query(
-      'SELECT * FROM usuarios WHERE LOWER(correo) = $1 AND eliminado_en IS NULL LIMIT 1',
-      [normalizedEmail]
-    );
-
-    if (userRes.rows.length === 0) {
-      await registrarAudit({
-        usuario_correo: normalizedEmail.slice(0, 150),
-        accion: 'LOGIN_FALLIDO',
-        detalle: { motivo: 'credenciales_invalidas' },
-        ip: getClientIp(req)
-      });
-      return res.status(401).json({ message: 'Credenciales inválidas.' });
-    }
-
-    const user = userRes.rows[0];
-
-    if (!user.activo) {
-      await registrarAudit({
-        usuario_id: user.id,
-        usuario_correo: user.correo,
-        accion: 'LOGIN_FALLIDO',
-        detalle: { motivo: 'cuenta_desactivada' },
-        ip: getClientIp(req)
-      });
-      return res.status(401).json({ message: 'Credenciales inválidas.' });
-    }
-
-    if (user.bloqueado_hasta && new Date(user.bloqueado_hasta) > new Date()) {
-      return res.status(423).json({ message: 'Cuenta bloqueada temporalmente. Intente más tarde.' });
-    }
-
-    const validPass = await bcrypt.compare(password, user.password_hash);
-    if (!validPass) {
-      await pool.query(`
-        UPDATE usuarios
-        SET bloqueado_hasta = CASE
-              WHEN intentos_fallidos + 1 >= 5 THEN CURRENT_TIMESTAMP + interval '15 minutes'
-              ELSE NULL
-            END,
-            intentos_fallidos = CASE
-              WHEN intentos_fallidos + 1 >= 5 THEN 0
-              ELSE intentos_fallidos + 1
-            END
-        WHERE id = $1
-      `, [user.id]);
-      await registrarAudit({
-        usuario_id: user.id,
-        usuario_correo: user.correo,
-        accion: 'LOGIN_FALLIDO',
-        detalle: { motivo: 'credenciales_invalidas' },
-        ip: getClientIp(req)
-      });
-      return res.status(401).json({ message: 'Credenciales inválidas.' });
-    }
-
-    const updatedUser = await pool.query(
-      `UPDATE usuarios
-       SET intentos_fallidos = 0, bloqueado_hasta = NULL, ultimo_acceso = CURRENT_TIMESTAMP
-       WHERE id = $1
-       RETURNING id, correo, rol, nombre, cargo, token_version, debe_cambiar_password`,
-      [user.id]
-    );
-    const sessionUser = await attachPermissionProfile(pool, updatedUser.rows[0]);
-    setSessionCookie(res, sessionUser);
-
-    await registrarAudit({
-      usuario_id: sessionUser.id,
-      usuario_correo: sessionUser.correo,
-      accion: 'LOGIN_EXITOSO',
-      ip: getClientIp(req)
-    });
-
-    res.json({ user: toPublicUser(sessionUser) });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Error en el servidor.' });
-  }
-});
-
-app.get('/api/auth/me', verifyToken, async (req, res) => {
-  try {
-    res.json({ user: toPublicUser(req.user) });
-  } catch (err) {
-    res.status(500).json({ message: 'Error en el servidor.' });
-  }
-});
-
-app.post('/api/auth/change-password', verifyToken, async (req, res) => {
-  const { current_password: currentPassword, new_password: newPassword } = req.body;
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ message: 'La contraseña actual y la nueva son obligatorias.' });
-  }
-
-  const passwordError = validatePassword(newPassword);
-  if (passwordError) return res.status(400).json({ message: passwordError });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const userRes = await client.query('SELECT * FROM usuarios WHERE id = $1 FOR UPDATE', [req.user.id]);
-    if (userRes.rows.length === 0 || !userRes.rows[0].activo) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
-    }
-
-    const user = userRes.rows[0];
-    const currentIsValid = await bcrypt.compare(currentPassword, user.password_hash);
-    if (!currentIsValid) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'La contraseña actual no es correcta.' });
-    }
-    if (await bcrypt.compare(newPassword, user.password_hash)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'La nueva contraseña debe ser distinta de la actual.' });
-    }
-
-    const hash = await bcrypt.hash(newPassword, 12);
-    const updated = await client.query(`
-      UPDATE usuarios
-      SET password_hash = $1,
-          debe_cambiar_password = false,
-          password_actualizado_en = CURRENT_TIMESTAMP,
-          token_version = token_version + 1,
-          intentos_fallidos = 0,
-          bloqueado_hasta = NULL
-      WHERE id = $2
-      RETURNING id, correo, rol, nombre, token_version, debe_cambiar_password
-    `, [hash, user.id]);
-
-    await insertarAudit(client, {
-      usuario_id: user.id,
-      usuario_correo: user.correo,
-      accion: 'CAMBIAR_PASSWORD_PROPIA',
-      entidad: 'usuario',
-      entidad_id: user.id,
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-
-    const sessionUser = await attachPermissionProfile(client, updated.rows[0]);
-    setSessionCookie(res, sessionUser);
-    res.json({ message: 'Contraseña actualizada.', user: toPublicUser(sessionUser) });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error(err.message);
-    res.status(500).json({ message: 'No fue posible actualizar la contraseña.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.post('/api/auth/logout', async (req, res) => {
-  const token = req.cookies.token;
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      await registrarAudit({
-        usuario_id: decoded.id,
-        usuario_correo: decoded.correo,
-        accion: 'LOGOUT',
-        entidad: 'usuario',
-        entidad_id: decoded.id,
-        ip: getClientIp(req)
-      });
-    } catch {
-      // La cookie se limpia aunque la sesión haya vencido.
-    }
-  }
-  res.clearCookie('token', cookieOptions);
-  res.json({ message: 'Sesión cerrada exitosamente.' });
-});
-
-// COURSES
-app.get('/api/courses', verifyToken, async (req, res) => {
-  try {
-    const resC = await pool.query('SELECT * FROM curso ORDER BY nombre_curso ASC');
-    res.json(resC.rows);
-  } catch (err) {
-    res.status(500).json({ message: 'Error al obtener cursos.' });
-  }
-});
-
-// SUPERFICIE HEREDADA DE ASISTENCIA
-//
-// El producto vigente controla ingresos y atrasos. Estos endpoints se
-// permanecen bloqueados para que instalaciones antiguas reciban una respuesta
-// inequívoca. La implementación heredada ya no forma parte del servidor activo.
-const legacyAttendanceGone = (req, res) => res.status(410).json({
-  code: 'MODULO_ASISTENCIA_DESCONTINUADO',
-  message: 'Esta función fue retirada. Utiliza el módulo institucional de puntualidad y atrasos.',
-  replacement: '/api/puntualidad'
-});
-
-app.all([
-  '/api/attendance/config',
-  '/api/asistencia/today',
-  '/api/asistencia/today-stats',
-  '/api/asistencia/range-stats',
-  '/api/asistencia/inasistencias',
-  '/api/asistencia/history',
-  '/api/admin/reportes/asistencia',
-  '/api/asistencia/justificar-nueva',
-  '/api/asistencia/registrar-ausencia',
-  '/api/asistencia/justificaciones',
-  '/api/asistencia/alertas-tempranas'
-], verifyToken, legacyAttendanceGone);
-
-app.all('/api/asistencia/:id/justificar', verifyToken, legacyAttendanceGone);
-app.all('/api/asistencia/justificacion/:id', verifyToken, legacyAttendanceGone);
-app.all('/api/asistencia/download/:id', verifyToken, legacyAttendanceGone);
-app.put('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
-app.delete('/api/asistencia/:id', verifyToken, legacyAttendanceGone);
-
-// STUDENTS CRUD
-app.get('/api/students', verifyToken, verifyAnyPermission(['students.view', 'students.manage', 'students.import']), async (req, res) => {
-  try {
-    const query = `
-      SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
-      FROM alumno a
-      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
-      LEFT JOIN curso c ON m.id_curso = c.id_curso
-      ORDER BY a.paterno ASC, a.nombres ASC
-    `;
-    const resStudents = await pool.query(query);
-    res.json(resStudents.rows);
-  } catch (err) {
-    res.status(500).json({ message: 'Error al obtener miembros.' });
-  }
-});
-
-app.get('/api/students/search', verifyToken, verifyAnyPermission(['punctuality.register', 'reports.generate', 'students.view', 'students.manage']), async (req, res) => {
-  const { q } = req.query;
-  const searchTerm = `%${(q || '').toString().trim().toLowerCase()}%`;
-
-  try {
-    const query = `
-      SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, c.nombre_curso
-      FROM alumno a
-      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
-      LEFT JOIN curso c ON m.id_curso = c.id_curso
-      WHERE a.activo = true
-        AND (
-          LOWER(a.nombres || ' ' || a.paterno || ' ' || COALESCE(a.materno, '')) LIKE $1
-          OR LOWER(a.rut || '-' || COALESCE(a.dv, '')) LIKE $1
-          OR LOWER(a.rut || COALESCE(a.dv, '')) LIKE $1
-          OR LOWER(COALESCE(a.codigo_barra, '')) LIKE $1
-          OR LOWER(a.rut) LIKE $1
-          OR LOWER(COALESCE(a.nombre_usuario, '')) LIKE $1
-        )
-      LIMIT 15
-    `;
-    const result = await pool.query(query, [searchTerm]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Error en búsqueda' });
-  }
-});
-
-app.get('/api/students/scan/:barcode', verifyToken, verifyPermission('punctuality.register'), async (req, res) => {
-  const { barcode } = req.params;
-  const { tipo_registro } = req.query; // Entrada / Salida
-  const cleanBarcode = sanitizeText(barcode).toUpperCase().replace(/\./g, '');
-
-  try {
-    // 1. Resolve barcode (RUT, QR, or ERP UUID)
-    const query = `
-      SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, a.activo as alumno_activo, c.nombre_curso
-      FROM alumno a
-      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
-      LEFT JOIN curso c ON m.id_curso = c.id_curso
-      WHERE a.rut = $1
-         OR a.codigo_barra = $1
-         OR LOWER(a.uuid_erp) = LOWER($1)
-         OR LOWER(a.nombre_usuario) = LOWER($1)
-    `;
-
-    // Try finding by RUT directly or raw barcode
-    let result = await pool.query(query, [cleanBarcode]);
-    if (result.rows.length === 0) {
-      // Try resolving barcode from RUT split (e.g. if barcode is 23704570K, check if rut=23704570 and dv=K)
-      const parsed = normalizeRutAndDv(cleanBarcode);
-      if (parsed.rut) {
-        result = await pool.query(query, [parsed.rut]);
-      }
-    }
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Miembro no encontrado.' });
-    }
-
-    const alumno = result.rows[0];
-
-    if (!alumno.alumno_activo) {
-      return res.status(403).json({ message: 'Miembro inactivo en el sistema.' });
-    }
-
-    // 2. Check check-in limit
-    const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
-    const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
-
-    const currentTimeStr = await getInstitutionalClock();
-
-    const { status: calculatedStatus, severidad } = calculateStatusAndSeverity(tipo_registro || 'Entrada', currentTimeStr, config);
-
-    // 3. Check if already registered today
-    const checkQuery = `
-      SELECT id_registro, hora, estado FROM attendance_registrations
-      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2 AND anulado = false
-    `;
-    const checkRes = await pool.query(checkQuery, [alumno.id_alumno, tipo_registro || 'Entrada']);
-    const alreadyRegistered = checkRes.rows.length > 0;
-    const registroPrevio = checkRes.rows[0] || null;
-
-    res.json({
-      alumno,
-      alreadyRegistered,
-      registroPrevio,
-      restricciones: calculatedStatus === 'Atrasado' ? [`Ingreso Atrasado (${severidad})`] : [],
-      statusPropuesto: calculatedStatus,
-      severidad
-    });
-
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Error al procesar escaneo.' });
-  }
-});
-
-app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
-  const { id } = req.params;
-  const { tipo_registro } = req.query; // Entrada / Salida
-
-  try {
-    const query = `
-      SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.rut, a.dv, a.rol, a.activo as alumno_activo, c.nombre_curso
-      FROM alumno a
-      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
-      LEFT JOIN curso c ON m.id_curso = c.id_curso
-      WHERE a.id_alumno = $1
-    `;
-    const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Miembro no encontrado.' });
-    }
-
-    const alumno = result.rows[0];
-
-    // Check check-in limit
-    const configRes = await pool.query('SELECT * FROM configuracion_asistencia LIMIT 1');
-    const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
-
-    const currentTimeStr = await getInstitutionalClock();
-
-    const { status: calculatedStatus, severidad } = calculateStatusAndSeverity(tipo_registro || 'Entrada', currentTimeStr, config);
-
-    // Check if already registered today
-    const checkQuery = `
-      SELECT id_registro, hora, estado FROM attendance_registrations
-      WHERE id_alumno = $1 AND fecha = CURRENT_DATE AND tipo_registro = $2 AND anulado = false
-    `;
-    const checkRes = await pool.query(checkQuery, [alumno.id_alumno, tipo_registro || 'Entrada']);
-    const alreadyRegistered = checkRes.rows.length > 0;
-
-    res.json({
-      alumno,
-      alreadyRegistered,
-      restricciones: calculatedStatus === 'Atrasado' ? [`Ingreso Atrasado (${severidad})`] : [],
-      statusPropuesto: calculatedStatus,
-      severidad
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Error al obtener estado.' });
-  }
-});
-
-// ATTENDANCE REGISTRATIONS
-// Alias transitorio de ingreso: conserva lectores instalados mientras se migra
-// su destino a POST /api/puntualidad/registros. Aplica las mismas reglas.
-app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'), async (req, res) => {
-  const { id_alumno } = req.body;
-  if (!id_alumno) {
-    return res.status(400).json({ message: 'ID del alumno es requerido.' });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const studentRes = await client.query('SELECT id_alumno, activo FROM alumno WHERE id_alumno = $1 FOR SHARE', [id_alumno]);
-    if (studentRes.rows.length === 0 || !studentRes.rows[0].activo) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Alumno activo no encontrado.' });
-    }
-    const configRes = await client.query('SELECT * FROM configuracion_asistencia LIMIT 1');
-    const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
-    const currentTimeStr = await getInstitutionalClock(client);
-    const { status, severidad } = calculateStatusAndSeverity('Entrada', currentTimeStr, config);
-    const origen = 'lector';
-    const insertQuery = `
-      INSERT INTO attendance_registrations
-        (id_alumno, fecha, hora, estado, tipo_registro, severidad, origen, registrado_por, creado_en)
-      VALUES ($1, CURRENT_DATE, LOCALTIME, $2, 'Entrada', $3, $4, $5, CURRENT_TIMESTAMP)
-      ON CONFLICT (id_alumno, fecha, tipo_registro) WHERE anulado = false DO NOTHING
-      RETURNING *
-    `;
-    const result = await client.query(insertQuery, [id_alumno, status, severidad, origen, req.user.id]);
-    if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Registro ya realizado hoy.' });
-    }
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'REGISTRAR_INGRESO',
-      entidad: 'registro_puntualidad',
-      entidad_id: result.rows[0].id_registro,
-      detalle: { id_alumno, estado: status, severidad, origen, endpoint_legacy: true },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-    res.json(result.rows[0]);
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error(err.message);
-    if (err.code === '23505') return res.status(409).json({ message: 'Registro ya realizado hoy.' });
-    res.status(500).json({ message: 'Error al registrar el ingreso.' });
-  } finally {
-    client.release();
-  }
-});
-
-
-// BULK SYNC EXCEL IMPORT
-app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.import'), async (req, res) => {
-  const rows = Array.isArray(req.body?.students) ? req.body.students : [];
-  if (!rows.length) {
-    return res.status(400).json({ message: 'No se recibieron filas para procesar.' });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    const summary = {
-      total: rows.length,
-      inserted: 0,
-      updated: 0,
-      unchanged: 0,
-      warnings: [],
-      errors: []
-    };
-
-    for (let index = 0; index < rows.length; index++) {
-      const excelRowNumber = index + 2;
-      const rowSavepoint = `students_sync_row_${index}`;
-      await client.query(`SAVEPOINT ${rowSavepoint}`);
-
-      try {
-        const rawRow = rows[index];
-
-        // 1. PICK VALUES FROM EXCEL COLUMNS
-        const uuidErp = pickRowValue(rawRow, ['ID de Usuario (no modificar)', 'id usuario', 'id_usuario', 'uuid_erp']);
-        const rutInput = pickRowValue(rawRow, ['RUT', 'run', 'id']);
-        const nombresInput = pickRowValue(rawRow, ['Nombres', 'nombre', 'name']);
-        const apellidosInput = pickRowValue(rawRow, ['Apellidos', 'apellido', 'lastname']);
-        const emailInput = pickRowValue(rawRow, ['Email', 'correo', 'mail']);
-        const telefonoInput = pickRowValue(rawRow, ['Teléfono', 'telefono', 'phone']);
-        const rolInput = pickRowValue(rawRow, ['Rol', 'rol', 'role']);
-        const cursoInput = pickRowValue(rawRow, ['Curso', 'grade']);
-        const seccionInput = pickRowValue(rawRow, ['Sección', 'seccion']);
-        const generoInput = pickRowValue(rawRow, ['Género', 'genero', 'gender']);
-        const nacimientoInput = pickRowValue(rawRow, ['Fecha Nacimiento', 'fecha_nacimiento', 'nacimiento']);
-        const userUsername = pickRowValue(rawRow, ['Nombre Usuario', 'nombre_usuario', 'username']);
-        const rutApoderado = pickRowValue(rawRow, ['RUT Apoderados', 'apoderado_rut', 'rut_apoderado']);
-        const snapshotRow = sanitizeSnapshotRow(rawRow);
-
-        // 2. NORMALIZATIONS
-        const { rut, dv } = normalizeRutAndDv(rutInput);
-        if (!rut) {
-          summary.errors.push({ row: excelRowNumber, message: 'RUT vacío o inválido.' });
-          await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
-          continue;
-        }
-
-        if (!nombresInput) {
-          summary.errors.push({ row: excelRowNumber, message: 'Falta nombre del usuario.' });
-          await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
-          continue;
-        }
-
-        // Split apellidos into paterno / materno
-        const surnameParts = (apellidosInput || '').split(/\s+/).filter(Boolean);
-        const paterno = surnameParts.length > 0 ? surnameParts[0] : 'Sin Apellido';
-        const materno = surnameParts.length > 1 ? surnameParts.slice(1).join(' ') : '';
-
-        const rol = rolInput || 'Estudiante';
-        const email = emailInput || null;
-        const telefono = telefonoInput || null;
-        const seccion = seccionInput || null;
-        const genero = generoInput || null;
-        const fechaNacimiento = normalizeDateInput(nacimientoInput);
-        const username = userUsername || (nombresInput.charAt(0) + paterno).toLowerCase().replace(/\s+/g, '');
-        // Barcode is clean RUT + DV
-        const codigoBarra = (rut + (dv || '')).toUpperCase();
-
-        // 3. RESOLVE COURSE
-        let courseId = null;
-        if (cursoInput) {
-          const courseLookup = await client.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [cursoInput]);
-          if (courseLookup.rows.length > 0) {
-            courseId = courseLookup.rows[0].id_curso;
-          } else {
-            const insertedCourse = await client.query(
-              'INSERT INTO curso (nombre_curso) VALUES ($1) RETURNING id_curso',
-              [cursoInput]
-            );
-            courseId = insertedCourse.rows[0].id_curso;
-          }
-        }
-
-        // 4. CHECK EXISTING BY RUT OR UUID
-        const studentLookup = await client.query(
-          `SELECT a.id_alumno, a.uuid_erp, a.rut,
-                  COALESCE(s.raw_payload = $3::jsonb, false) AS sin_cambios
-           FROM alumno a
-           LEFT JOIN alumno_excel_snapshot s ON s.id_alumno = a.id_alumno
-           WHERE a.rut = $1 OR (a.uuid_erp IS NOT NULL AND a.uuid_erp = $2)
-           LIMIT 1`,
-          [rut, uuidErp, JSON.stringify(snapshotRow)]
-        );
-        const existing = studentLookup.rows[0] || null;
-
-        let idAlumno;
-        if (!existing) {
-          // INSERT
-          const insRes = await client.query(
-            `INSERT INTO alumno (
-              uuid_erp, rut, dv, nombres, paterno, materno, email, telefono, rol,
-              seccion, genero, fecha_nacimiento, nombre_usuario, rut_apoderado, codigo_barra
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-             RETURNING id_alumno`,
-            [
-              uuidErp || null, rut, dv || null, nombresInput, paterno, materno || null,
-              email, telefono, rol, seccion, genero, fechaNacimiento, username, rutApoderado, codigoBarra
-            ]
-          );
-          idAlumno = insRes.rows[0].id_alumno;
-          summary.inserted++;
-        } else if (!existing.sin_cambios) {
-          // UPDATE if different
-          idAlumno = existing.id_alumno;
-
-          const updateQuery = `
-            UPDATE alumno
-            SET uuid_erp = COALESCE($1, uuid_erp),
-                dv = $2,
-                nombres = $3,
-                paterno = $4,
-                materno = $5,
-                email = COALESCE($6, email),
-                telefono = COALESCE($7, telefono),
-                rol = $8,
-                seccion = COALESCE($9, seccion),
-                genero = COALESCE($10, genero),
-                fecha_nacimiento = COALESCE($11, fecha_nacimiento),
-                nombre_usuario = COALESCE($12, nombre_usuario),
-                rut_apoderado = COALESCE($13, rut_apoderado),
-                codigo_barra = $14,
-                fecha_actualizacion = CURRENT_TIMESTAMP
-            WHERE id_alumno = $15
-          `;
-          await client.query(updateQuery, [
-            uuidErp || null, dv || null, nombresInput, paterno, materno || null,
-            email, telefono, rol, seccion, genero, fechaNacimiento, username, rutApoderado, codigoBarra,
-            idAlumno
-          ]);
-          summary.updated++;
-        } else {
-          idAlumno = existing.id_alumno;
-          summary.unchanged++;
-        }
-
-        // 5. UPDATE MATRICULA / CURSO LINK
-        if (courseId) {
-          const matRes = await client.query('SELECT id_matricula, id_curso FROM matricula WHERE id_alumno = $1 LIMIT 1', [idAlumno]);
-          if (matRes.rows.length === 0) {
-            await client.query('INSERT INTO matricula (id_alumno, id_curso) VALUES ($1, $2)', [idAlumno, courseId]);
-          } else if (matRes.rows[0].id_curso !== courseId) {
-            await client.query('UPDATE matricula SET id_curso = $1 WHERE id_matricula = $2', [courseId, matRes.rows[0].id_matricula]);
-          }
-        }
-
-        // 6. Guardar snapshot saneado. La importación nunca crea ni modifica cuentas de acceso.
-        await client.query(
-          `INSERT INTO alumno_excel_snapshot (id_alumno, raw_payload, fecha_importacion)
-           VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
-           ON CONFLICT (id_alumno)
-           DO UPDATE SET raw_payload = EXCLUDED.raw_payload, fecha_importacion = EXCLUDED.fecha_importacion`,
-          [idAlumno, JSON.stringify(snapshotRow)]
-        );
-
-        await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
-      } catch (rowError) {
-        await client.query(`ROLLBACK TO SAVEPOINT ${rowSavepoint}`);
-        await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
-        console.error(`[bulk-sync] Row error at row ${excelRowNumber}:`, rowError.message);
-        summary.errors.push({ row: excelRowNumber, message: rowError.message });
-      }
-    }
-
-    await client.query('COMMIT');
-    await registrarAudit({
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'IMPORTACION_ALUMNOS',
-      detalle: { total: summary.total, insertados: summary.inserted, actualizados: summary.updated, errores: summary.errors.length },
-      ip: getClientIp(req)
-    });
-    res.json(summary);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error(err.message);
-    res.status(500).json({ message: 'Error al sincronizar datos del colegio.' });
-  } finally {
-    client.release();
-  }
-});
-
-// GET SINGLE STUDENT DETAILS
-app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students.view', 'students.manage']), async (req, res) => {
-  const { id } = req.params;
-  try {
-    const query = `
-      SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
-      FROM alumno a
-      LEFT JOIN matricula m ON a.id_alumno = m.id_alumno
-      LEFT JOIN curso c ON m.id_curso = c.id_curso
-      WHERE a.id_alumno = $1
-    `;
-    const resA = await pool.query(query, [id]);
-    if (resA.rows.length === 0) return res.status(404).json({ message: 'Miembro no encontrado.' });
-
-    res.json({
-      alumno: resA.rows[0]
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Error al obtener detalles.' });
-  }
-});
-
-// CREATE STUDENT
-app.post('/api/students', verifyToken, verifyPermission('students.manage'), async (req, res) => {
-  const { rut, dv, nombres, paterno, materno, email, telefono, rol, grade } = req.body;
-  if (!rut || !nombres || !paterno) {
-    return res.status(400).json({ message: 'RUT, nombres y apellido paterno son requeridos.' });
-  }
-  const cleanRut = rut.replace(/\D/g, '');
-  const cleanDv = (dv || '').toUpperCase();
-  const codigoBarra = cleanRut + cleanDv;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const duplicate = await client.query('SELECT id_alumno FROM alumno WHERE rut = $1', [cleanRut]);
-    if (duplicate.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'RUT ya registrado en el sistema.' });
-    }
-
-    const ins = await client.query(
-      `INSERT INTO alumno (rut, dv, nombres, paterno, materno, email, telefono, rol, codigo_barra)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id_alumno`,
-      [cleanRut, cleanDv, nombres, paterno, materno || null, email || null, telefono || null, rol || 'Estudiante', codigoBarra]
-    );
-    const idAlumno = ins.rows[0].id_alumno;
-
-    // Course association
-    if (grade) {
-      let courseId;
-      const courseLookup = await client.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
-      if (courseLookup.rows.length > 0) {
-        courseId = courseLookup.rows[0].id_curso;
-      } else {
-        const insertedCourse = await client.query(
-          'INSERT INTO curso (nombre_curso) VALUES ($1) ON CONFLICT (nombre_curso) DO UPDATE SET nombre_curso = EXCLUDED.nombre_curso RETURNING id_curso',
-          [grade]
-        );
-        courseId = insertedCourse.rows[0].id_curso;
-      }
-      await client.query('INSERT INTO matricula (id_alumno, id_curso) VALUES ($1, $2)', [idAlumno, courseId]);
-    }
-
-    await client.query('COMMIT');
-
-    await registrarAudit({
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'CREAR_ALUMNO',
-      entidad: 'alumno',
-      entidad_id: idAlumno,
-      detalle: { nombres, paterno, rut },
-      ip: getClientIp(req)
-    });
-
-    res.json({ id_alumno: idAlumno, message: 'Miembro creado exitosamente.' });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error(err.message);
-    if (err.code === '23505') return res.status(409).json({ message: 'El RUT, usuario o código de barra ya se encuentra registrado.' });
-    res.status(500).json({ message: 'Error al crear miembro.' });
-  } finally {
-    client.release();
-  }
-});
-
-// UPDATE STUDENT
-app.put('/api/students/:id', verifyToken, verifyPermission('students.manage'), async (req, res) => {
-  const { id } = req.params;
-  const { nombres, paterno, materno, email, telefono, rol, grade } = req.body;
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const updated = await client.query(
-      `UPDATE alumno
-       SET nombres = $1, paterno = $2, materno = $3, email = $4, telefono = $5, rol = $6
-       WHERE id_alumno = $7 RETURNING id_alumno`,
-      [nombres, paterno, materno || null, email || null, telefono || null, rol, id]
-    );
-    if (updated.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Miembro no encontrado.' });
-    }
-
-    if (grade) {
-      let courseId;
-      const courseLookup = await client.query('SELECT id_curso FROM curso WHERE LOWER(nombre_curso) = LOWER($1) LIMIT 1', [grade]);
-      if (courseLookup.rows.length > 0) {
-        courseId = courseLookup.rows[0].id_curso;
-      } else {
-        const insertedCourse = await client.query(
-          'INSERT INTO curso (nombre_curso) VALUES ($1) ON CONFLICT (nombre_curso) DO UPDATE SET nombre_curso = EXCLUDED.nombre_curso RETURNING id_curso',
-          [grade]
-        );
-        courseId = insertedCourse.rows[0].id_curso;
-      }
-      await pool.query(
-        `INSERT INTO matricula (id_alumno, id_curso) VALUES ($1, $2)
-         ON CONFLICT (id_alumno) DO UPDATE SET id_curso = EXCLUDED.id_curso`,
-        [id, courseId]
-      );
-    }
-
-    await registrarAudit({
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'EDITAR_ALUMNO',
-      entidad: 'alumno',
-      entidad_id: id,
-      detalle: { nombres, paterno },
-      ip: getClientIp(req)
-    });
-
-    res.json({ message: 'Miembro actualizado exitosamente.' });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ message: 'Error al actualizar miembro.' });
-  } finally {
-    client.release();
-  }
-});
-
-// DELETE STUDENT
-app.delete('/api/students/:id', verifyToken, verifyPermission('students.manage'), async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query('UPDATE alumno SET activo = false WHERE id_alumno = $1', [id]);
-
-    await registrarAudit({
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'DESACTIVAR_ALUMNO',
-      entidad: 'alumno',
-      entidad_id: id,
-      ip: getClientIp(req)
-    });
-
-    res.json({ message: 'Miembro desactivado exitosamente.' });
-  } catch (err) {
-    res.status(500).json({ message: 'Error al desactivar miembro.' });
-  }
-});
-
-// ACCESS PROFILES AND STAFF ACCOUNTS
-app.get('/api/permissions/catalog', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  try {
-    const [permissions, templates] = await Promise.all([
-      getPermissionCatalog(pool),
-      getAccessProfiles(pool)
-    ]);
-    res.json({ permissions, templates });
-  } catch (err) {
-    console.error('[permissions/catalog]', err.message);
-    res.status(500).json({ message: 'No fue posible obtener el catálogo de permisos.' });
-  }
-});
-
-app.post('/api/access-profiles', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  const name = sanitizeText(req.body?.name).slice(0, 100);
-  const description = sanitizeText(req.body?.description).slice(0, 280);
-  if (name.length < 2) return res.status(400).json({ message: 'El nombre del perfil debe tener al menos 2 caracteres.' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const permissionValidation = await validatePermissionSelection(client, req.body?.permissions || []);
-    if (permissionValidation.error) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: permissionValidation.error });
-    }
-
-    const baseCode = normalizeProfileCode(name) || 'perfil';
-    let code = baseCode;
-    let suffix = 2;
-    while ((await client.query('SELECT 1 FROM perfiles_acceso WHERE codigo = $1', [code])).rows.length) {
-      code = `${baseCode.slice(0, 42)}_${suffix}`;
-      suffix += 1;
-    }
-
-    await client.query(`
-      INSERT INTO perfiles_acceso (codigo, nombre, descripcion, sistema, activo, orden)
-      VALUES ($1, $2, $3, false, true, 70)
-    `, [code, name, description]);
-    await replaceProfilePermissions(client, code, permissionValidation.permissions);
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'CREAR_PERFIL_ACCESO',
-      entidad: 'perfil_acceso',
-      detalle: { codigo: code, nombre: name, permisos: permissionValidation.permissions },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-    res.status(201).json({ message: 'Perfil de usuario creado.', profile: { value: code, label: name } });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe un perfil con ese nombre.' });
-    console.error('[access-profiles:create]', err.message);
-    res.status(500).json({ message: 'No fue posible crear el perfil.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  const code = String(req.params.code || '').trim();
-  const name = sanitizeText(req.body?.name).slice(0, 100);
-  const description = sanitizeText(req.body?.description).slice(0, 280);
-  if (name.length < 2) return res.status(400).json({ message: 'El nombre del perfil debe tener al menos 2 caracteres.' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const current = await getAccessProfile(client, code, { includeInactive: true });
-    if (!current) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Perfil de usuario no encontrado.' });
-    }
-    const permissionValidation = await validatePermissionSelection(client, req.body?.permissions || []);
-    if (permissionValidation.error) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: permissionValidation.error });
-    }
-
-    await client.query(`
-      UPDATE perfiles_acceso
-      SET nombre = $1, descripcion = $2, actualizado_en = CURRENT_TIMESTAMP
-      WHERE codigo = $3
-    `, [name, description, code]);
-    await replaceProfilePermissions(client, code, permissionValidation.permissions);
-
-    if (await countActivePermissionHolders(client, 'users.manage') === 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
-    }
-
-    await client.query('UPDATE usuarios SET token_version = token_version + 1 WHERE rol = $1', [code]);
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'EDITAR_PERFIL_ACCESO',
-      entidad: 'perfil_acceso',
-      detalle: {
-        codigo: code,
-        antes: { nombre: current.nombre, descripcion: current.descripcion },
-        despues: { nombre: name, descripcion, permisos: permissionValidation.permissions }
-      },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-
-    if (req.user.rol === code) {
-      const refreshed = await pool.query('SELECT * FROM usuarios WHERE id = $1', [req.user.id]);
-      const sessionUser = await attachPermissionProfile(pool, refreshed.rows[0]);
-      setSessionCookie(res, sessionUser);
-    }
-    res.json({ message: 'Perfil y permisos recomendados actualizados.' });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') return res.status(409).json({ message: 'Ya existe un perfil con ese nombre.' });
-    console.error('[access-profiles:update]', err.message);
-    res.status(500).json({ message: 'No fue posible actualizar el perfil.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.get('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  try {
-    const resU = await pool.query(`
-      SELECT u.id, u.correo, u.rol, u.nombre, u.cargo,
-             u.fecha_creacion, u.activo, u.debe_cambiar_password,
-             u.ultimo_acceso, u.password_actualizado_en
-      FROM usuarios u
-      WHERE u.eliminado_en IS NULL
-      ORDER BY u.activo DESC, COALESCE(u.nombre, u.correo) ASC
-    `);
-    const users = await Promise.all(resU.rows.map((user) => attachPermissionProfile(pool, user)));
-    res.json(users);
-  } catch (err) {
-    console.error('[users:list]', err.message);
-    res.status(500).json({ message: 'Error al obtener usuarios.' });
-  }
-});
-
-app.post('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  const { correo, password, rol, nombre, cargo } = req.body;
-  if (!correo || !password || !rol || !nombre || !cargo) {
-    return res.status(400).json({ message: 'Faltan campos requeridos.' });
-  }
-  const normalizedEmail = normalizeEmail(correo);
-  const emailError = validateEmail(normalizedEmail);
-  if (emailError) return res.status(400).json({ message: emailError });
-  const passwordError = validatePassword(password);
-  if (passwordError) return res.status(400).json({ message: passwordError });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    if (!await getAccessProfile(client, rol)) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'El perfil de usuario seleccionado no existe o está inactivo.' });
-    }
-    const selectedPermissions = req.body.permissions === undefined
-      ? await getRecommendedPermissions(client, rol)
-      : req.body.permissions;
-    const permissionValidation = await validatePermissionSelection(client, selectedPermissions);
-    if (permissionValidation.error) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: permissionValidation.error });
-    }
-    const hash = await bcrypt.hash(password, 12);
-    const safeName = sanitizeText(nombre).slice(0, 100);
-    const safeCargo = sanitizeText(cargo).slice(0, 100);
-    if (safeName.length < 2 || safeCargo.length < 2) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'El nombre y el cargo del personal son obligatorios.' });
-    }
-    const created = await client.query(
-      `INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password)
-       VALUES ($1, $2, $3, $4, $5, true)
-       RETURNING id, correo, rol, nombre, cargo, fecha_creacion, activo, debe_cambiar_password`,
-      [normalizedEmail, hash, rol, safeName, safeCargo]
-    );
-    await replaceUserPermissionOverrides(client, {
-      userId: created.rows[0].id,
-      role: rol,
-      permissions: permissionValidation.permissions,
-      updatedBy: req.user.id
-    });
-    const createdUser = await attachPermissionProfile(client, created.rows[0]);
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'CREAR_USUARIO',
-      entidad: 'usuario',
-      entidad_id: created.rows[0].id,
-      detalle: {
-        correo: normalizedEmail,
-        rol,
-        nombre: safeName,
-        cargo: safeCargo,
-        permisos: createdUser.permissions
-      },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-    res.status(201).json({ message: 'Cuenta creada con contraseña temporal.', user: createdUser });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') {
-      return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
-    }
-    console.error('[users:create]', err.message);
-    res.status(500).json({ message: 'Error al crear la cuenta.' });
-  } finally {
-    client.release();
-  }
-});
-
-app.put('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  const { id } = req.params;
-  const { correo, password, rol, nombre, cargo } = req.body;
-  const normalizedEmail = normalizeEmail(correo);
-  const emailError = validateEmail(normalizedEmail);
-  if (emailError) return res.status(400).json({ message: emailError });
-  if (password) {
-    const passwordError = validatePassword(password);
-    if (passwordError) return res.status(400).json({ message: passwordError });
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const targetRes = await client.query('SELECT * FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
-    if (targetRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
-    }
-    const target = targetRes.rows[0];
-    if (!await getAccessProfile(client, rol, { includeInactive: target.rol === rol })) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'El perfil de usuario seleccionado no existe o está inactivo.' });
-    }
-
-    const currentProfile = await attachPermissionProfile(client, target);
-    const selectedPermissions = req.body.permissions === undefined
-      ? currentProfile.permissions
-      : req.body.permissions;
-    const permissionValidation = await validatePermissionSelection(client, selectedPermissions);
-    if (permissionValidation.error) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: permissionValidation.error });
-    }
-
-    if (target.activo
-      && currentProfile.permissions.includes('users.manage')
-      && !permissionValidation.permissions.includes('users.manage')
-      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
-    }
-
-    const safeName = sanitizeText(nombre).slice(0, 100);
-    const safeCargo = sanitizeText(cargo).slice(0, 100);
-    if (safeName.length < 2 || safeCargo.length < 2) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'El nombre y el cargo del personal son obligatorios.' });
-    }
-    const permissionsChanged = JSON.stringify([...currentProfile.permissions].sort())
-      !== JSON.stringify([...permissionValidation.permissions].sort());
-    const securityChanged = target.correo !== normalizedEmail || target.rol !== rol || Boolean(password) || permissionsChanged;
-    let hash = null;
-    if (password) {
-      hash = await bcrypt.hash(password, 12);
-    }
-
-    const updated = await client.query(`
-      UPDATE usuarios
-      SET correo = $1,
-          password_hash = COALESCE($2, password_hash),
-          rol = $3,
-          nombre = $4,
-          cargo = $5,
-          debe_cambiar_password = CASE
-            WHEN $2::text IS NOT NULL AND id <> $6 THEN true
-            WHEN $2::text IS NOT NULL THEN false
-            ELSE debe_cambiar_password
-          END,
-          password_actualizado_en = CASE WHEN $2::text IS NOT NULL THEN CURRENT_TIMESTAMP ELSE password_actualizado_en END,
-          token_version = token_version + CASE WHEN $7 THEN 1 ELSE 0 END
-      WHERE id = $8
-      RETURNING id, correo, rol, nombre, cargo, token_version, fecha_creacion, activo,
-                debe_cambiar_password, ultimo_acceso, password_actualizado_en
-    `, [normalizedEmail, hash, rol, safeName, safeCargo, req.user.id, securityChanged, id]);
-
-    await replaceUserPermissionOverrides(client, {
-      userId: target.id,
-      role: rol,
-      permissions: permissionValidation.permissions,
-      updatedBy: req.user.id
-    });
-    const updatedUser = await attachPermissionProfile(client, updated.rows[0]);
-
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'EDITAR_USUARIO',
-      entidad: 'usuario',
-      entidad_id: parseInt(id, 10),
-      detalle: {
-        antes: { correo: target.correo, rol: target.rol, nombre: target.nombre, cargo: target.cargo, permisos: currentProfile.permissions },
-        despues: { correo: normalizedEmail, rol, nombre: safeName, cargo: safeCargo, permisos: updatedUser.permissions },
-        cambio_password: Boolean(password)
-      },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-
-    if (parseInt(id, 10) === req.user.id && securityChanged) setSessionCookie(res, updatedUser);
-    res.json({ message: 'Usuario actualizado.', user: updatedUser });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    if (err.code === '23505') {
-      return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
-    }
-    console.error('[users:update]', err.message);
-    res.status(500).json({ message: 'Error al actualizar usuario.' });
-  } finally {
-    client.release();
-  }
-});
-
-const setUserActiveStatus = async (req, res, forcedStatus = null) => {
-  const { id } = req.params;
-  const requestedStatus = forcedStatus === null ? req.body?.activo : forcedStatus;
-  if (typeof requestedStatus !== 'boolean') {
-    return res.status(400).json({ message: 'El estado activo debe ser verdadero o falso.' });
-  }
-  if (!requestedStatus && parseInt(id, 10) === req.user.id) {
-    return res.status(409).json({ message: 'No puedes desactivar la cuenta con la que tienes la sesión iniciada.' });
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const targetRes = await client.query('SELECT id, correo, rol, nombre, cargo, activo FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
-    if (targetRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
-    }
-    const target = targetRes.rows[0];
-    const targetProfile = await attachPermissionProfile(client, target);
-    if (!requestedStatus
-      && target.activo
-      && targetProfile.permissions.includes('users.manage')
-      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
-    }
-
-    const updated = await client.query(`
-      UPDATE usuarios
-      SET activo = $1,
-          token_version = token_version + CASE WHEN activo IS DISTINCT FROM $1 THEN 1 ELSE 0 END,
-          intentos_fallidos = CASE WHEN $1 THEN 0 ELSE intentos_fallidos END,
-          bloqueado_hasta = CASE WHEN $1 THEN NULL ELSE bloqueado_hasta END
-      WHERE id = $2
-      RETURNING id, correo, rol, nombre, cargo, activo, debe_cambiar_password, fecha_creacion,
-                ultimo_acceso, password_actualizado_en
-    `, [requestedStatus, id]);
-
-    const action = requestedStatus ? 'ACTIVAR_USUARIO' : 'DESACTIVAR_USUARIO';
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: action,
-      entidad: 'usuario',
-      entidad_id: parseInt(id, 10),
-      detalle: { correo: target.correo, rol: target.rol, nombre: target.nombre, activo: requestedStatus },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-    res.json({
-      message: requestedStatus ? 'Usuario activado.' : 'Usuario desactivado.',
-      user: updated.rows[0]
-    });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ message: 'Error al cambiar el estado del usuario.' });
-  } finally {
-    client.release();
-  }
+const routeContext = {
+  app,
+  pool,
+  bcrypt,
+  jwt,
+  fs,
+  path,
+  createHash,
+  loginLimiter,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  JWT_SECRET,
+  normalizeEmail,
+  sanitizeSnapshotRow,
+  validateEmail,
+  validatePassword,
+  calculateDelayMinutes,
+  calculateStatusAndSeverity,
+  isIsoDate,
+  validateDateRange,
+  MANUAL_IDENTITY_TYPES,
+  normalizeManualStudentIdentity,
+  normalizeStudentPayload,
+  sanitizeStudentText,
+  validateManualStudentIdentity,
+  validateStudentPayload,
+  validateStudentRut,
+  normalizeErpStudentIdentity,
+  findCourseMatch,
+  normalizeCourseKey,
+  evaluateStudentReconciliation,
+  compareStudentFields,
+  detectIdentifierCollision,
+  validateImportMode,
+  assignEnrollment,
+  closeEnrollment,
+  recordOperationalEvent,
+  attachPermissionProfile,
+  countActivePermissionHolders,
+  getAccessProfile,
+  getAccessProfiles,
+  getPermissionCatalog,
+  getRecommendedPermissions,
+  normalizeProfileCode,
+  replaceProfilePermissions,
+  replaceUserPermissionOverrides,
+  validatePermissionSelection,
+  cookieOptions,
+  toPublicUser,
+  setSessionCookie,
+  sanitizeText,
+  normalizeHeaderKey,
+  pickRowValue,
+  normalizeRutAndDv,
+  normalizeDateInput,
+  getImportedStudentFields,
+  summarizeStudentImportRows,
+  buildStudentImportPreview,
+  enrichStudentImportPreview,
+  STUDENT_PUBLIC_FIELDS,
+  getInstitutionalClock,
+  insertarAudit,
+  registrarAudit,
+  getClientIp
 };
-
-app.patch('/api/users/:id/status', verifyToken, verifyPermission('users.manage'), (req, res) => setUserActiveStatus(req, res));
-
-app.delete('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (req, res) => {
-  const userId = parseInt(req.params.id, 10);
-  const reason = sanitizeText(req.body?.motivo).slice(0, 280);
-  if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'La cuenta seleccionada no es válida.' });
-  if (userId === req.user.id) return res.status(409).json({ message: 'No puedes eliminar la cuenta con la que tienes la sesión iniciada.' });
-  if (reason.length < 8) return res.status(400).json({ message: 'Indica un motivo de eliminación de al menos 8 caracteres.' });
-
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const targetRes = await client.query(
-      'SELECT id, correo, rol, nombre, cargo, activo FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE',
-      [userId]
-    );
-    if (!targetRes.rows.length) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'La cuenta no existe o ya fue eliminada.' });
-    }
-
-    const target = targetRes.rows[0];
-    const targetProfile = await attachPermissionProfile(client, target);
-    if (target.activo
-      && targetProfile.permissions.includes('users.manage')
-      && await countActivePermissionHolders(client, 'users.manage', target.id) === 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Debe existir al menos una cuenta activa capaz de administrar usuarios.' });
-    }
-
-    await client.query(`
-      UPDATE usuarios
-      SET activo = false,
-          eliminado_en = CURRENT_TIMESTAMP,
-          eliminado_por = $1,
-          motivo_eliminacion = $2,
-          token_version = token_version + 1,
-          bloqueado_hasta = NULL
-      WHERE id = $3
-    `, [req.user.id, reason, userId]);
-
-    await insertarAudit(client, {
-      usuario_id: req.user.id,
-      usuario_correo: req.user.correo,
-      accion: 'ELIMINAR_USUARIO',
-      entidad: 'usuario',
-      entidad_id: userId,
-      detalle: {
-        cuenta_eliminada: { correo: target.correo, nombre: target.nombre, cargo: target.cargo, rol: target.rol },
-        motivo: reason
-      },
-      ip: getClientIp(req)
-    });
-    await client.query('COMMIT');
-    res.json({ message: 'Cuenta eliminada. Su historial institucional se conserva en auditoría.' });
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
-    console.error('[users:delete]', err.message);
-    res.status(500).json({ message: 'No fue posible eliminar la cuenta.' });
-  } finally {
-    client.release();
-  }
-});
-
-// SYSTEM AUDIT
-app.get('/api/audit', verifyToken, verifyPermission('audit.view'), async (req, res) => {
-  const { accion, usuario_correo, cuenta_id, relacion = 'todas', desde, hasta, page = '1', limit = '20' } = req.query;
-
-  if ((desde && !isIsoDate(desde)) || (hasta && !isIsoDate(hasta))) {
-    return res.status(400).json({ message: 'Las fechas de auditoría no son válidas.' });
-  }
-  if (desde && hasta) {
-    const dateRange = validateDateRange(desde, hasta, { maxDays: 3650 });
-    if (dateRange.error) return res.status(400).json({ message: dateRange.error });
-  }
-  if (!['todas', 'realizada', 'sobre_cuenta'].includes(relacion)) {
-    return res.status(400).json({ message: 'El tipo de actividad solicitado no es válido.' });
-  }
-  if (!cuenta_id && relacion !== 'todas') {
-    return res.status(400).json({ message: 'El filtro de relación requiere una cuenta seleccionada.' });
-  }
-
-  const pageNum = Math.max(1, parseInt(page, 10) || 1);
-  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-  const offset = (pageNum - 1) * limitNum;
-
-  const conditions = [];
-  const params = [];
-  let idx = 1;
-  let subject = null;
-  let accountParamIndex = null;
-
-  if (cuenta_id) {
-    const accountId = parseInt(cuenta_id, 10);
-    if (!Number.isInteger(accountId) || accountId <= 0) return res.status(400).json({ message: 'La cuenta indicada no es válida.' });
-    const subjectRes = await pool.query(`
-      SELECT u.id, u.correo, u.nombre, u.cargo, u.rol, u.activo, u.eliminado_en,
-             p.nombre AS profile_name
-      FROM usuarios u
-      LEFT JOIN perfiles_acceso p ON p.codigo = u.rol
-      WHERE u.id = $1
-    `, [accountId]);
-    if (!subjectRes.rows.length) return res.status(404).json({ message: 'La cuenta indicada no existe.' });
-    subject = subjectRes.rows[0];
-    accountParamIndex = idx;
-    if (relacion === 'realizada') {
-      conditions.push(`a.usuario_id = $${idx}`);
-    } else if (relacion === 'sobre_cuenta') {
-      conditions.push(`(a.entidad = 'usuario' AND a.entidad_id = $${idx} AND a.usuario_id IS DISTINCT FROM $${idx})`);
-    } else {
-      conditions.push(`(a.usuario_id = $${idx} OR (a.entidad = 'usuario' AND a.entidad_id = $${idx}))`);
-    }
-    params.push(accountId);
-    idx += 1;
-  }
-
-  if (accion)          { conditions.push(`a.accion = $${idx++}`);                          params.push(accion.trim()); }
-  if (usuario_correo)  { conditions.push(`a.usuario_correo ILIKE $${idx++}`);              params.push(`%${usuario_correo.trim()}%`); }
-  if (desde)           { conditions.push(`a.fecha >= $${idx++}`);                          params.push(desde); }
-  if (hasta)           { conditions.push(`a.fecha < ($${idx++}::date + interval '1 day')`); params.push(hasta); }
-
-  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-  try {
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM audit_log a ${whereClause}`,
-      params
-    );
-    const total = parseInt(countRes.rows[0].count, 10);
-
-    const relationshipSelection = accountParamIndex
-      ? `CASE WHEN a.usuario_id = $${accountParamIndex} THEN 'realizada' ELSE 'sobre_cuenta' END`
-      : 'NULL::text';
-    const dataRes = await pool.query(
-      `SELECT a.id, a.usuario_id, a.usuario_correo, u.nombre AS usuario_nombre,
-              a.accion, a.entidad, a.entidad_id, a.detalle, a.ip, a.fecha,
-              ${relationshipSelection} AS relacion_cuenta
-       FROM audit_log a
-       LEFT JOIN usuarios u ON u.id = a.usuario_id
-       ${whereClause}
-       ORDER BY a.fecha DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      [...params, limitNum, offset]
-    );
-
-    res.json({ total, page: pageNum, pages: Math.ceil(total / limitNum) || 1, rows: dataRes.rows, subject });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ message: 'Error al obtener auditoría.' });
-  }
-});
+registerAuthRoutes(routeContext);
+registerStudentRoutes(routeContext);
+registerUserRoutes(routeContext);
+registerAuditRoutes(routeContext);
 
 const ensureBaseData = async (isNewSchema) => {
   await pool.query(`
@@ -1719,11 +890,11 @@ const ensureBaseData = async (isNewSchema) => {
   if (!isNewSchema) return;
   const hash = await bcrypt.hash(getDefaultUserPassword(), 12);
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password) VALUES ($1, $2, 'lector', 'Lector Puerta', true) ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'lector', 'Lector Puerta', 'Portería', true) ON CONFLICT (correo) DO NOTHING",
     ['lector@ldsm.local', hash]
   );
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre, debe_cambiar_password) VALUES ($1, $2, 'admin', 'Administrador General', true) ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'admin', 'Administrador General', 'Administrador/a del sistema', true) ON CONFLICT (correo) DO NOTHING",
     ['admin@ldsm.local', hash]
   );
 };

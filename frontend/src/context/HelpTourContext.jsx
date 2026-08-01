@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { getTourForPath } from '../help/tours';
