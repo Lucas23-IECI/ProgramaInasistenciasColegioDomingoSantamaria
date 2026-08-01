@@ -68,6 +68,14 @@ Comprobar el resultado con:
 No declarar la instalación lista mientras el diagnóstico muestre controles
 pendientes.
 
+En una instalación nueva, `instalar-windows.ps1` genera los secretos robustos.
+En una instalación que ya conserva datos, no cambiar únicamente `DB_PASSWORD`
+en `.env`: PostgreSQL mantiene la contraseña anterior dentro de su volumen y el
+backend dejaría de conectar. Esa rotación debe hacerse en una ventana de
+mantenimiento, después de un respaldo, actualizando de forma coordinada la
+clave del rol `ldsm_app` y el `.env`, y comprobando la restauración antes de
+cerrar el cambio.
+
 ## 4. Instalar HTTPS confiable
 
 Generar una autoridad y un certificado propios del colegio. No reutilizar ni

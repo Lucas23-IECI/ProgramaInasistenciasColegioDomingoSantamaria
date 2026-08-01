@@ -283,3 +283,5 @@ Deuda técnica residual:
   sección en blanco y limita la recarga automática a un único intento seguro.
 - La aceptación física quedó separada en `docs/ACEPTACION_COLEGIO_ANDRES.md` con matriz,
   responsables y criterio de cierre institucional.
+- La guía distingue instalaciones nuevas de bases persistentes: una contraseña de
+  PostgreSQL existente nunca se rota editando solamente `.env`.
