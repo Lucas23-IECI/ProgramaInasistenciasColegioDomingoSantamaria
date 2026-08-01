@@ -11,6 +11,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report",
+    "test:performance": "node scripts/verify-performance-budget.mjs",
     "test:official-erp-preview": "node scripts/verify-official-erp-preview.mjs",
     "audit:security": "node scripts/audit-security.mjs",
     "preview": "vite preview"
@@ -30,7 +33,9 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
     "@eslint/js": "10.0.1",
+    "@playwright/test": "^1.55.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

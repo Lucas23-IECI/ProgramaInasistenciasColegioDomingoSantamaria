@@ -8,6 +8,8 @@ node_modules/
 dist/
 build/
 coverage/
+frontend/test-results/
+frontend/playwright-report/
 
 .DS_Store
 Thumbs.db

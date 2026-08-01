@@ -58,8 +58,12 @@ jobs:
         run: npm ci
       - name: Ejecutar lint
         run: npm run lint
+      - name: Ejecutar pruebas unitarias
+        run: npm test
       - name: Compilar version de produccion
         run: npm run build
+      - name: Validar presupuesto de rendimiento
+        run: npm run test:performance
       - name: Auditar dependencias
         run: npm run audit:security
 
@@ -99,3 +103,51 @@ jobs:
         run: docker run --rm -v "$PWD/backend:/scripts:ro" postgres:16-alpine sh -c "sh -n /scripts/backup.sh && sh -n /scripts/restore.sh"
       - name: Construir backend y frontend
         run: docker compose build backend frontend
+
+  e2e:
+    name: Flujos críticos en escritorio y móvil
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Preparar entorno efímero
+        run: cp .env.example .env
+      - name: Levantar sistema aislado
+        run: docker compose up -d --build postgres backend frontend
+      - name: Esperar servicios saludables
+        run: |
+          for intento in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then exit 0; fi
+            sleep 3
+          done
+          docker compose ps
+          docker compose logs --tail 120 backend frontend postgres
+          exit 1
+      - name: Preparar cuenta administrativa QA
+        run: docker compose exec -T -e ALLOW_DEMO_DATA=true backend node scripts/seed-visits-demo.js
+      - name: Instalar dependencias E2E
+        working-directory: frontend
+        run: npm ci
+      - name: Ejecutar regresión E2E
+        working-directory: frontend
+        env:
+          E2E_ADMIN_EMAIL: qa.visitas@ldsm.local
+        run: npm run test:e2e
+      - name: Publicar evidencia de fallos
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidencia-playwright
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          retention-days: 14
+      - name: Detener entorno efímero
+        if: always()
+        run: docker compose down -v
