@@ -21,6 +21,11 @@ const {
 } = require('../services/documentService');
 const { recordOperationalEvent } = require('../services/operationalEventService');
 const { protectStudentRecord } = require('../utils/studentPrivacy');
+const {
+  canUseRegistrationMethod,
+  getRegistrationMethodPermission,
+  normalizeRegistrationMethod
+} = require('../utils/registrationMethods');
 
 const ACTIVE_ENTRY_FILTER = "r.tipo_registro = 'Entrada' AND r.anulado = false AND r.estado IN ('Presente', 'Atrasado')";
 
@@ -372,6 +377,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     const studentId = asBoundedInteger(req.body?.id_alumno, 1, 2147483647);
     if (!studentId) return res.status(400).json({ message: 'El identificador del alumno no es válido.' });
 
+    const registrationMethod = normalizeRegistrationMethod(req.body?.metodo_registro, req.body?.origen);
+    if (!canUseRegistrationMethod(req.user, registrationMethod)) {
+      return res.status(403).json({
+        code: 'METODO_REGISTRO_NO_AUTORIZADO',
+        message: 'Tu cuenta no tiene habilitado este método de registro.',
+        permiso_requerido: getRegistrationMethodPermission(registrationMethod)
+      });
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -396,8 +410,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
       const config = await getConfig(client);
       const now = await getInstitutionalNow(client);
-      const requestedOrigin = String(req.body?.origen || 'manual').trim().toLowerCase();
-      const origen = requestedOrigin === 'lector' ? 'lector' : 'manual';
+      const origen = registrationMethod === 'manual' ? 'manual' : 'lector';
       const student = studentResult.rows[0];
       const currentControls = await findCurrentControls(client, {
         date: now.fecha,
@@ -497,7 +510,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           type: 'INGRESO_DUPLICADO',
           entity: 'alumno',
           entityId: studentId,
-          detail: { fecha: now.fecha, origen, control_id: control.id, control_nombre: control.nombre },
+          detail: { fecha: now.fecha, origen, metodo_registro: registrationMethod, control_id: control.id, control_nombre: control.nombre },
           userId: req.user.id
         });
         return res.status(409).json({ message: `Esta persona ya fue registrada en “${control.nombre}”.` });
@@ -517,6 +530,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           estado: status,
           severidad,
           origen,
+          metodo_registro: registrationMethod,
           curso: student.nombre_curso || null,
           jornada: config?.nombre_jornada || 'Jornada principal',
           control_id: control.id,
@@ -535,6 +549,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
       res.status(201).json({
         ...registration,
+        metodo_registro: registrationMethod,
         minutos_atraso: delayMinutes
       });
     } catch (error) {

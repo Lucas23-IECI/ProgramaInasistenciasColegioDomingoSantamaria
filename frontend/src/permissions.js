@@ -1,6 +1,9 @@
 export const PERMISSIONS = {
   PUNCTUALITY_VIEW: 'punctuality.view',
   PUNCTUALITY_REGISTER: 'punctuality.register',
+  PUNCTUALITY_REGISTER_BARCODE: 'punctuality.register.barcode',
+  PUNCTUALITY_REGISTER_CAMERA: 'punctuality.register.camera',
+  PUNCTUALITY_REGISTER_MANUAL: 'punctuality.register.manual',
   PUNCTUALITY_CORRECT: 'punctuality.correct',
   PUNCTUALITY_CANCEL: 'punctuality.cancel',
   PUNCTUALITY_JUSTIFY: 'punctuality.justify',
@@ -69,6 +72,18 @@ export const hasPermission = (user, permission) => Array.isArray(user?.permissio
   && user.permissions.includes(permission);
 
 export const hasAnyPermission = (user, permissions) => permissions.some((permission) => hasPermission(user, permission));
+
+const REGISTRATION_METHOD_PERMISSIONS = [
+  PERMISSIONS.PUNCTUALITY_REGISTER_BARCODE,
+  PERMISSIONS.PUNCTUALITY_REGISTER_CAMERA,
+  PERMISSIONS.PUNCTUALITY_REGISTER_MANUAL,
+];
+
+export const hasRegistrationMethodPermission = (user, permission) => {
+  if (hasPermission(user, permission)) return true;
+  const hasGranularPermissions = REGISTRATION_METHOD_PERMISSIONS.some((candidate) => hasPermission(user, candidate));
+  return !hasGranularPermissions && hasPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER);
+};
 
 export const roleLabel = (role) => ({
   admin: 'Administrador',

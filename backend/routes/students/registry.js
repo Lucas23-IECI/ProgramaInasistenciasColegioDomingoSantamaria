@@ -344,7 +344,7 @@ app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuali
 // ATTENDANCE REGISTRATIONS
 // Alias transitorio de ingreso: conserva lectores instalados mientras se migra
 // su destino a POST /api/puntualidad/registros. Aplica las mismas reglas.
-app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'), async (req, res) => {
+app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'), verifyPermission('punctuality.register.barcode'), async (req, res) => {
   const { id_alumno } = req.body;
   if (!id_alumno) {
     return res.status(400).json({ message: 'ID del alumno es requerido.' });

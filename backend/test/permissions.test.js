@@ -27,6 +27,24 @@ test('las rutas operacionales exigen permisos y no dependen de roles rígidos', 
   assert.doesNotMatch(routerSource, /verifyRole\(/);
 });
 
+test('el terminal separa pistola, cámara y búsqueda manual sin retirar el permiso base', () => {
+  const routerSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'punctuality.js'), 'utf8');
+  const legacySource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'registry.js'), 'utf8');
+  const migrationSource = fs.readFileSync(
+    path.join(__dirname, '..', 'migrations', '028_metodos_registro_terminal.sql'),
+    'utf8'
+  );
+
+  assert.match(routerSource, /normalizeRegistrationMethod/);
+  assert.match(routerSource, /METODO_REGISTRO_NO_AUTORIZADO/);
+  assert.match(routerSource, /metodo_registro: registrationMethod/);
+  assert.match(legacySource, /verifyPermission\('punctuality\.register\.barcode'\)/);
+  assert.match(migrationSource, /'punctuality\.register\.barcode'/);
+  assert.match(migrationSource, /'punctuality\.register\.camera'/);
+  assert.match(migrationSource, /'punctuality\.register\.manual'/);
+  assert.match(migrationSource, /WHERE base\.permiso_codigo = 'punctuality\.register'/);
+});
+
 test('el servidor consulta perfiles configurables en lugar de roles fijos', () => {
   const serverSource = [
     fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'),
