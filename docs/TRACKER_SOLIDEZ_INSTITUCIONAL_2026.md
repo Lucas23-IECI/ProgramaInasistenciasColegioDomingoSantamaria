@@ -265,11 +265,21 @@ Deuda técnica residual:
 ## Ampliación técnica del 1 de agosto de 2026
 
 - Lectura local TD3/MRZ con permiso crítico y auditoría sin imágenes ni texto del documento.
-- 103 pruebas backend y 14 pruebas frontend aprobadas.
-- 9 escenarios E2E aprobados en escritorio y Android emulado; un escenario se omite
+- 103 pruebas backend y 17 pruebas frontend aprobadas.
+- 15 ejecuciones E2E aprobadas en escritorio y Android emulado; una ejecución se omite
   deliberadamente en escritorio por ser una comprobación exclusiva del viewport móvil.
-- Presupuesto aprobado: script mayor 482 KiB, JavaScript total 1.729 KiB y CSS total 284 KiB.
+- Presupuesto aprobado: script mayor 482 KiB, JavaScript total 1.734 KiB y CSS total 294 KiB.
 - Auditoría de dependencias sin alertas altas o críticas aplicables.
 - Restauración aislada aprobada con 391 alumnos, 381 matrículas, 43 visitas, 8 retiros,
   9 usuarios y 29 migraciones; el backend temporal respondió y el entorno fue eliminado.
 - Guía de pruebas locales, procedimiento MRZ y comando único de validación incorporados.
+- Previsualización del ERP oficial aprobada con 392 filas preparadas, cero rechazadas y
+  11 casos sin curso enviados a revisión, sin confirmar una importación destructiva.
+- Changelog verificado en escritorio, móvil y equivalentes de zoom 125 %, 150 % y 200 %;
+  la prueba comprueba que ningún control global intercepte el botón de cierre.
+- Configuración de visitas reorganizada y validada sin desborde horizontal ni barreras
+  críticas de accesibilidad en escritorio y Android emulado.
+- La recuperación de módulos versionados obsoletos evita que una actualización deje una
+  sección en blanco y limita la recarga automática a un único intento seguro.
+- La aceptación física quedó separada en `docs/ACEPTACION_COLEGIO_ANDRES.md` con matriz,
+  responsables y criterio de cierre institucional.
