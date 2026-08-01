@@ -44,6 +44,15 @@ const tasks = [
   ["Aceptación", "Auditoría final, manuales y aprobación escolar", "Lucas + LDSM", "No iniciada", "P0", d("2026-12-01"), d("2026-12-15")],
 ];
 
+const validatorArchitectureTask = tasks.find(
+  (task) => task[0] === "Validadores" && task[1].startsWith("Arquitectura extensible")
+);
+if (validatorArchitectureTask) {
+  validatorArchitectureTask[3] = "Completada";
+  validatorArchitectureTask[5] = d("2026-08-01");
+  validatorArchitectureTask[6] = d("2026-08-01");
+}
+
 sheet.getRange("B2:AD2").values = [["Tracker maestro · Identidad estudiantil y registro móvil LDSM"]];
 sheet.getRange("B4:I4").values = [["PERFIL DEL PROYECTO"]];
 sheet.getRange("K4:AD4").values = [["PULSO DE IMPLEMENTACIÓN"]];
