@@ -28,6 +28,9 @@ const students = [
         estado: 'PRINCIPAL',
         es_principal: true,
         nivel_validacion: 'DV_VERIFICADO',
+        validador_id: 'cl.run.modulo11',
+        validador_version: '1.0.0',
+        resultado_validacion: 'VERIFICADO',
         vigente_desde: '2026-03-01',
         actualizado_en: '2026-07-29T10:00:00.000Z'
       },
@@ -38,6 +41,9 @@ const students = [
         estado: 'VIGENTE',
         es_principal: false,
         nivel_validacion: 'ID_ERP',
+        validador_id: 'sistema.identificador.interno',
+        validador_version: '1.0.0',
+        resultado_validacion: 'SISTEMA',
         vigente_desde: '2026-03-01',
         actualizado_en: '2026-07-29T10:00:00.000Z'
       }
@@ -62,6 +68,9 @@ const students = [
       estado: 'PRINCIPAL',
       es_principal: true,
       nivel_validacion: 'FUENTE_MINEDUC_ERP',
+      validador_id: 'cl.mineduc.ipe.estructura',
+      validador_version: '1.0.0',
+      resultado_validacion: 'ESTRUCTURAL',
       vigente_desde: '2026-07-29',
       actualizado_en: '2026-07-29T10:00:00.000Z'
     }]

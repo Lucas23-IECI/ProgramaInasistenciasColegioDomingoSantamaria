@@ -35,7 +35,8 @@ const qualityLabels = {
   telefono_incompleto: 'Teléfono incompleto',
   matriculas_duplicadas: 'Matrículas duplicadas',
   conflictos_erp: 'Conflictos ERP recientes',
-  inactivos_reaparecidos: 'Fichas inactivas reactivadas'
+  inactivos_reaparecidos: 'Fichas inactivas reactivadas',
+  validacion_documental_pendiente: 'Documentos pendientes de validación'
 };
 
 const studentName = (student) => (

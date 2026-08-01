@@ -266,7 +266,7 @@ const createStudentGovernanceRouter = ({
 
   router.get('/quality', verifyAnyPermission(['students.view', 'students.manage', 'students.import']), async (req, res) => {
     try {
-      const [students, duplicateEnrollments, conflicts, reappeared] = await Promise.all([
+      const [students, duplicateEnrollments, conflicts, reappeared, pendingValidation] = await Promise.all([
         pool.query(
           `SELECT a.id_alumno, a.rut, a.dv, a.documento_erp, a.uuid_erp, a.telefono,
                   a.origen_alta, a.erp_vinculado_en,
@@ -336,6 +336,36 @@ const createStudentGovernanceRouter = ({
              AND COALESCE(c.anterior->>'activo', 'true') = 'false'
              AND COALESCE(c.posterior->>'activo', 'false') = 'true'
            ORDER BY c.id_alumno, c.creado_en DESC`
+        ),
+        pool.query(
+          `SELECT DISTINCT ON (a.id_alumno)
+                  a.id_alumno,
+                  CONCAT_WS(' ', a.nombres, a.paterno, a.materno) AS nombre,
+                  course.nombre_curso AS curso,
+                  CONCAT(
+                    CASE WHEN ai.resultado_validacion IS NULL
+                      THEN 'Sin evidencia de validación versionada'
+                      ELSE CONCAT('Validación ', LOWER(ai.resultado_validacion))
+                    END,
+                    ' · ', ai.tipo,
+                    CASE WHEN ai.pais_emisor IS NULL THEN ' · país pendiente' ELSE '' END
+                  ) AS detalle
+           FROM alumno_identificador ai
+           JOIN alumno a ON a.id_alumno = ai.id_alumno
+           LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+           LEFT JOIN curso course ON course.id_curso = m.id_curso
+           WHERE a.activo = true
+             AND a.rol = 'Estudiante'
+             AND a.fusionado_en_id IS NULL
+             AND ai.estado <> 'REVOCADO'
+             AND ai.tipo IN ('RUN_CHILE', 'IPE_MINEDUC', 'PASAPORTE', 'DNI', 'CEDULA', 'DOCUMENTO_EXTRANJERO')
+             AND (
+               ai.validador_id IS NULL
+               OR ai.validador_version IS NULL
+               OR ai.resultado_validacion IS NULL
+               OR ai.resultado_validacion IN ('PENDIENTE', 'RECHAZADO')
+             )
+           ORDER BY a.id_alumno, ai.es_principal DESC, ai.actualizado_en DESC`
         )
       ]);
       const manualPending = students.rows.filter(
@@ -365,7 +395,8 @@ const createStudentGovernanceRouter = ({
           telefono_incompleto: incompletePhone.length,
           matriculas_duplicadas: duplicateEnrollments.rowCount,
           conflictos_erp: conflicts.rowCount,
-          inactivos_reaparecidos: reappeared.rowCount
+          inactivos_reaparecidos: reappeared.rowCount,
+          validacion_documental_pendiente: pendingValidation.rowCount
         },
         cases: {
           manuales_pendientes: manualPending.slice(0, 100).map(
@@ -391,6 +422,9 @@ const createStudentGovernanceRouter = ({
           ),
           inactivos_reaparecidos: reappeared.rows.slice(0, 100).map(
             (student) => toCase(student, 'La ficha inactiva reapareció en una nómina oficial')
+          ),
+          validacion_documental_pendiente: pendingValidation.rows.slice(0, 100).map(
+            (student) => toCase(student, student.detalle)
           )
         }
       });

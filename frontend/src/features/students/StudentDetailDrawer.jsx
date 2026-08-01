@@ -23,6 +23,15 @@ const supportTypeLabel = {
   OTRO: 'Otro respaldo institucional'
 };
 
+const validationResultLabel = {
+  VERIFICADO: 'Regla oficial comprobada',
+  ESTRUCTURAL: 'Formato comprobado',
+  DECLARADO: 'Antecedente declarado',
+  SISTEMA: 'Identificador interno',
+  PENDIENTE: 'RevisiÃ³n pendiente',
+  RECHAZADO: 'ValidaciÃ³n rechazada'
+};
+
 export function StudentDetailDrawer({
   closeDetails,
   loadingDetails,
@@ -204,6 +213,14 @@ export function StudentDetailDrawer({
                                 {' · '}
                                 Fuente {String(identifier.fuente || 'sistema').toLowerCase()}
                               </small>
+                              {identifier.resultado_validacion && (
+                                <small title={identifier.validador_id
+                                  ? `${identifier.validador_id} v${identifier.validador_version || 'sin versiÃ³n'}`
+                                  : 'Sin regla versionada registrada'}>
+                                  {validationResultLabel[identifier.resultado_validacion]
+                                    || identifier.resultado_validacion}
+                                </small>
+                              )}
                             </article>
                           ))}
                         </div>

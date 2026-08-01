@@ -51,6 +51,11 @@ const getQualityIssues = (student) => {
   if (!student.telefono || String(student.telefono).replace(/\D/g, '').length < 9) issues.push('Teléfono incompleto');
   if (!identifiers.length) issues.push('Sin identificador registrado');
   if (identifiers.some((identifier) => identifier.estado === 'PENDIENTE')) issues.push('Identificador pendiente de revisión');
+  if (identifiers.some((identifier) => (
+    !identifier.validador_id
+    || !identifier.validador_version
+    || ['PENDIENTE', 'RECHAZADO'].includes(identifier.resultado_validacion)
+  ))) issues.push('Documento pendiente de validación versionada');
   if (primary?.tipo === 'ID_ERP') issues.push('Identificado solamente por ERP');
   if (primary?.tipo === 'IPE_MINEDUC') issues.push('IPE pendiente de regularización');
   return issues;
@@ -88,6 +93,10 @@ const fetchStudentExportDataset = async (queryable) => {
           'estado', ai.estado,
           'es_principal', ai.es_principal,
           'nivel_validacion', ai.nivel_validacion,
+          'validador_id', ai.validador_id,
+          'validador_version', ai.validador_version,
+          'resultado_validacion', ai.resultado_validacion,
+          'validado_en', ai.validado_en,
           'vigente_desde', ai.vigente_desde,
           'creado_en', ai.creado_en,
           'actualizado_en', ai.actualizado_en
@@ -266,10 +275,10 @@ const buildStudentWorkbook = async ({ scope, students }) => {
     },
     {
       ...buildSheet(
-        ['ID interno', 'Estudiante', 'Tipo', 'Valor completo', 'País', 'Estado', 'Principal', 'Fuente', 'Nivel de validación', 'Vigente desde', 'Actualizado'],
+        ['ID interno', 'Estudiante', 'Tipo', 'Valor completo', 'País', 'Estado', 'Principal', 'Fuente', 'Nivel de validación', 'Validador', 'Versión', 'Resultado', 'Validado en', 'Vigente desde', 'Actualizado'],
         identifierRows,
-        [14, 34, 24, 26, 12, 16, 12, 18, 25, 18, 22],
-        ({ student, identifier }) => [student.id_alumno, student.nombre, identifierLabel(identifier.tipo), identifier.valor_original, identifier.pais_emisor || '', identifier.estado, identifier.es_principal ? 'Sí' : 'No', identifier.fuente, identifier.nivel_validacion || '', identifier.vigente_desde || '', identifier.actualizado_en ? new Date(identifier.actualizado_en) : '']
+        [14, 34, 24, 26, 12, 16, 12, 18, 25, 31, 13, 18, 22, 18, 22],
+        ({ student, identifier }) => [student.id_alumno, student.nombre, identifierLabel(identifier.tipo), identifier.valor_original, identifier.pais_emisor || '', identifier.estado, identifier.es_principal ? 'Sí' : 'No', identifier.fuente, identifier.nivel_validacion || '', identifier.validador_id || '', identifier.validador_version || '', identifier.resultado_validacion || '', identifier.validado_en ? new Date(identifier.validado_en) : '', identifier.vigente_desde || '', identifier.actualizado_en ? new Date(identifier.actualizado_en) : '']
       ),
       sheet: 'Identificadores'
     },
