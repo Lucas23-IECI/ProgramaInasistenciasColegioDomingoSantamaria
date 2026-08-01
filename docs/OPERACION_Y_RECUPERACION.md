@@ -42,6 +42,14 @@ La carpeta `backups` está en el PC servidor y no basta como única copia. Se re
 
 La restauración debe ensayarse al menos una vez por semestre en una copia aislada, nunca directamente sobre producción como primera prueba.
 
+El procedimiento automatizado recomendado es:
+
+```powershell
+.\scripts\probar-restauracion.ps1
+```
+
+El script crea una red, volumen, base y backend temporales; compara cantidades y elimina el entorno al finalizar. No apunta a `ldsm_db`.
+
 1. Seleccionar los tres archivos del mismo timestamp.
 2. Verificar que el manifiesto, el `.dump` y el `.tar.gz` estén juntos.
 3. Crear una base y un volumen de documentos desechables.

@@ -7,10 +7,9 @@ defendible: los datos históricos no cambian de significado, los errores de carg
 detienen antes de afectar el padrón, la jornada operativa puede cerrarse y la
 recuperación desde respaldos se demuestra en un entorno aislado.
 
-Este tracker es también el contrato de aceptación de la implementación. No incluye:
+Este tracker es también el contrato de aceptación de la implementación. La suite E2E permanente fue incorporada posteriormente por instrucción del propietario. No incluye:
 
-- Punto 8: creación de una suite E2E permanente.
-- Punto 11: commits, integración de ramas, push o publicación en GitHub.
+- Integración a `main` ni publicación productiva sin una orden expresa.
 - Cálculo de asistencia, ausencias inferidas o cierre de asistencia.
 
 ## Principios que no se pueden romper
@@ -260,5 +259,17 @@ Deuda técnica residual:
   archivos heredados grandes. Los dominios nuevos ya se separaron en rutas, servicios,
   utilidades y componentes propios, pero conviene continuar la extracción antes de una
   nueva expansión funcional.
-- La suite E2E permanente y la integración Git se mantienen excluidas por decisión del
-  propietario.
+- La suite E2E permanente cubre acceso, administración, alta manual/MRZ, Portería,
+  terminal, navegación y desborde móvil. Se ejecuta localmente y en GitHub Actions.
+
+## Ampliación técnica del 1 de agosto de 2026
+
+- Lectura local TD3/MRZ con permiso crítico y auditoría sin imágenes ni texto del documento.
+- 103 pruebas backend y 14 pruebas frontend aprobadas.
+- 9 escenarios E2E aprobados en escritorio y Android emulado; un escenario se omite
+  deliberadamente en escritorio por ser una comprobación exclusiva del viewport móvil.
+- Presupuesto aprobado: script mayor 482 KiB, JavaScript total 1.729 KiB y CSS total 284 KiB.
+- Auditoría de dependencias sin alertas altas o críticas aplicables.
+- Restauración aislada aprobada con 391 alumnos, 381 matrículas, 43 visitas, 8 retiros,
+  9 usuarios y 29 migraciones; el backend temporal respondió y el entorno fue eliminado.
+- Guía de pruebas locales, procedimiento MRZ y comando único de validación incorporados.
