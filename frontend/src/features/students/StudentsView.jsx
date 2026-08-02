@@ -17,8 +17,6 @@ export function StudentsView(controller) {
     canRegularizeIdentity,
     canReadPassportMrz,
     canExportStudents,
-    canExportSensitiveStudents,
-    canViewSensitiveIdentifiers,
     canImportGuardians,
     canManageFamilies,
     activeSection,
@@ -449,7 +447,6 @@ export function StudentsView(controller) {
               onOpenStudent={openDetails}
               canManage={canManage}
               canExport={canExportStudents}
-              canExportSensitive={canExportSensitiveStudents}
             />
           </div>
         ) : activeSection === 'carga' ? (
@@ -888,8 +885,6 @@ export function StudentsView(controller) {
           studentDetails={studentDetails}
           canManage={canManage}
           canRegularizeIdentity={canRegularizeIdentity}
-          canViewSensitiveIdentifiers={canViewSensitiveIdentifiers}
-          onToggleSensitiveIdentifiers={(reveal) => openDetails(selectedStudentId, reveal)}
           openIdentityRegularization={openIdentityRegularization}
           openManualEditor={openManualEditor}
           formatNullable={formatNullable}

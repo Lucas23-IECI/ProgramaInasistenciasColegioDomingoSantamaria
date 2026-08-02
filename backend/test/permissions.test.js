@@ -108,14 +108,15 @@ test('la lectura MRZ exige permiso y no envía imágenes ni texto al servidor', 
   assert.doesNotMatch(frontendSource, /FormData|type="file"|getUserMedia/);
 });
 
-test('las exportaciones del padrón separan la salida operativa de la restringida', () => {
+test('las exportaciones del padrón exigen permiso y mantienen trazabilidad', () => {
   const routeSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'studentGovernance.js'), 'utf8');
   const migrationSource = fs.readFileSync(
     path.join(__dirname, '..', 'migrations', '025_exportaciones_padron_seguras.sql'),
     'utf8'
   );
 
-  assert.match(routeSource, /students\.export_sensitive/);
+  assert.match(routeSource, /verifyPermission\('students\.export'\)/);
+  assert.doesNotMatch(routeSource, /students\.export_sensitive/);
   assert.match(routeSource, /EXPORTAR_PADRON_ADMINISTRATIVO/);
   assert.match(routeSource, /Cache-Control', 'no-store, private/);
   assert.match(migrationSource, /'students\.export'/);
@@ -123,17 +124,11 @@ test('las exportaciones del padrón separan la salida operativa de la restringid
   assert.match(migrationSource, /WHERE codigo = 'admin'/);
 });
 
-test('la revelación de identificadores exige permiso crítico y queda auditada', () => {
+test('la ficha entrega identificadores completos sin un flujo de revelación', () => {
   const routeSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'management.js'), 'utf8');
-  const migrationSource = fs.readFileSync(
-    path.join(__dirname, '..', 'migrations', '026_proteccion_identificadores_estudiantiles.sql'),
-    'utf8'
-  );
 
-  assert.match(routeSource, /SENSITIVE_IDENTIFIER_PERMISSION/);
-  assert.match(routeSource, /REVELAR_IDENTIFICADORES_ESTUDIANTE/);
+  assert.doesNotMatch(routeSource, /SENSITIVE_IDENTIFIER_PERMISSION/);
+  assert.doesNotMatch(routeSource, /REVELAR_IDENTIFICADORES_ESTUDIANTE/);
   assert.match(routeSource, /Cache-Control', 'no-store, private/);
-  assert.match(migrationSource, /'students\.identifiers\.view_sensitive'/);
-  assert.match(migrationSource, /true\s*\)/);
-  assert.match(migrationSource, /WHERE codigo = 'admin'/);
+  assert.match(routeSource, /protectStudentIdentifier\(identifier\)/);
 });

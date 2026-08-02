@@ -47,15 +47,6 @@ export const getStudentIdentifierLabel = (student) => {
 };
 
 export const getStudentMaskedRut = (student) => {
-  if (student?.documento_mostrado) return String(student.documento_mostrado);
-  const rut = String(student?.rut || '');
-  if (!rut) {
-    const alternative = String(student?.documento_erp || student?.uuid_erp || '');
-    if (!alternative) return 'Identificador no informado';
-    if (alternative.length <= 6) return `${alternative.slice(0, 2)}***`;
-    return `${alternative.slice(0, 3)}***${alternative.slice(-2)}`;
-  }
-  if (rut.length <= 4) return `${rut.slice(0, 1)}***${student?.dv ? `-${student.dv}` : ''}`;
-  return `${rut.slice(0, 2)}.${rut.slice(2, 5)}.***${student?.dv ? `-${student.dv}` : ''}`;
+  return getStudentIdentifier(student);
 };
 

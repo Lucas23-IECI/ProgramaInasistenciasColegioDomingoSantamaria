@@ -48,14 +48,9 @@ const run = async () => {
     ORDER BY id
   `);
   const users = await Promise.all(usersResult.rows.map((user) => attachPermissionProfile(pool, user)));
-  const admin = users.find((user) => user.permissions.includes('students.export_sensitive'));
-  const operational = users.find((user) => (
-    user.permissions.includes('students.export')
-      && !user.permissions.includes('students.export_sensitive')
-  ));
+  const exporter = users.find((user) => user.permissions.includes('students.export'));
   const blocked = users.find((user) => !user.permissions.includes('students.export'));
-  assert.ok(admin, 'Se requiere una cuenta activa autorizada para la exportación restringida');
-  assert.ok(operational, 'Se requiere una cuenta activa autorizada solamente para exportación operativa');
+  assert.ok(exporter, 'Se requiere una cuenta activa autorizada para exportar el padrón');
   assert.ok(blocked, 'Se requiere una cuenta activa sin permiso de exportación');
 
   const actionNames = [
@@ -65,21 +60,13 @@ const run = async () => {
   ];
   const before = await pool.query(
     'SELECT count(*)::int AS total FROM audit_log WHERE usuario_id = $1 AND accion = ANY($2::varchar[])',
-    [admin.id, actionNames]
+    [exporter.id, actionNames]
   );
 
-  const adminToken = tokenFor(admin);
-  assertWorkbook(await requestBinary('/api/padron/export?scope=operational', adminToken), 'Padrón operativo');
-  assertWorkbook(await requestBinary('/api/padron/export?scope=quality', adminToken), 'Calidad del padrón');
-  assertWorkbook(await requestBinary('/api/padron/export?scope=administrative', adminToken), 'Padrón restringido');
-
-  const operationalToken = tokenFor(operational);
-  assertWorkbook(await requestBinary('/api/padron/export?scope=operational', operationalToken), 'Padrón operativo no administrativo');
-  assert.equal(
-    (await requestBinary('/api/padron/export?scope=administrative', operationalToken)).status,
-    403,
-    'Una cuenta operativa no debe descargar identificadores completos'
-  );
+  const exporterToken = tokenFor(exporter);
+  assertWorkbook(await requestBinary('/api/padron/export?scope=operational', exporterToken), 'Padrón operativo');
+  assertWorkbook(await requestBinary('/api/padron/export?scope=quality', exporterToken), 'Calidad del padrón');
+  assertWorkbook(await requestBinary('/api/padron/export?scope=administrative', exporterToken), 'Padrón administrativo');
   assert.equal(
     (await requestBinary('/api/padron/export?scope=operational', tokenFor(blocked))).status,
     403,
@@ -88,14 +75,13 @@ const run = async () => {
 
   const after = await pool.query(
     'SELECT count(*)::int AS total FROM audit_log WHERE usuario_id = $1 AND accion = ANY($2::varchar[])',
-    [admin.id, actionNames]
+    [exporter.id, actionNames]
   );
   assert.equal(after.rows[0].total - before.rows[0].total, 3, 'Las tres descargas administrativas deben quedar auditadas');
 
   console.log(JSON.stringify({
     status: 'OK',
-    exports_verified: 4,
-    restricted_access_blocked: true,
+    exports_verified: 3,
     unauthorized_access_blocked: true,
     audit_events_verified: 3
   }));

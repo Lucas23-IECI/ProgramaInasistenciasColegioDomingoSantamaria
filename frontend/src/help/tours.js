@@ -153,7 +153,7 @@ const tours = {
         element: '[data-tour="student-governance"]',
         popover: {
           title: 'Control del padrón',
-          description: 'Revisa calidad, altas manuales, historial y duplicados. Desde el encabezado puedes exportar datos operativos protegidos; los identificadores completos requieren un permiso restringido.',
+          description: 'Revisa calidad, altas manuales, historial y duplicados. Desde el encabezado puedes exportar el padrón operativo, administrativo o sus casos de calidad.',
           side: 'top',
         },
       },

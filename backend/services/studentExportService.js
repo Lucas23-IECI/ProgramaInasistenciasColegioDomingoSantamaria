@@ -7,19 +7,7 @@ const normalizeIdentifier = (value) => String(value || '').trim();
 const maskIdentifier = (type, value) => {
   const raw = normalizeIdentifier(value);
   if (!raw) return 'Sin documento';
-
-  const compact = raw.replace(/\s+/g, '');
-  if (type === 'RUN_CHILE') {
-    const [body, verifier = '*'] = compact.split('-');
-    const visible = body.slice(0, Math.min(4, body.length));
-    return `${visible}${'*'.repeat(Math.max(3, body.length - visible.length))}-${verifier ? '*' : '*'}`;
-  }
-  if (type === 'IPE_MINEDUC') {
-    if (compact.length <= 4) return '*'.repeat(compact.length);
-    return `${compact.slice(0, 3)}${'*'.repeat(Math.max(3, compact.length - 5))}${compact.slice(-2)}`;
-  }
-  if (compact.length <= 4) return '*'.repeat(compact.length);
-  return `${compact.slice(0, 2)}${'*'.repeat(Math.max(3, compact.length - 4))}${compact.slice(-2)}`;
+  return raw;
 };
 
 const identifierLabel = (type) => ({
@@ -179,7 +167,7 @@ const buildSummarySheet = (scope, students, qualityRows) => {
       [{ value: `Generada: ${new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Santiago' }).format(new Date())}`, columnSpan: 4, textColor: '#5c6e79', height: 24 }, null, null, null],
       [null, null, null, null],
       [excelHeaderCell('Métrica'), excelHeaderCell('Resultado'), excelHeaderCell('Privacidad'), excelHeaderCell('Uso previsto')],
-      [excelDataCell('Estudiantes incluidos', 0, { emphasis: true }), excelDataCell(students.length, 0), excelDataCell(scope === 'administrativa restringida' ? 'Identificadores completos' : 'Identificadores protegidos', 0), excelDataCell('Gestión institucional interna', 0)],
+      [excelDataCell('Estudiantes incluidos', 0, { emphasis: true }), excelDataCell(students.length, 0), excelDataCell(scope === 'de calidad' ? 'Sin identificadores' : 'Identificadores completos', 0), excelDataCell('Gestión institucional interna', 0)],
       [excelDataCell('Matrícula activa', 1, { emphasis: true }), excelDataCell(active, 1), excelDataCell('No reenviar sin autorización', 1), excelDataCell('Revisión y conciliación', 1)],
       [excelDataCell('Estudiantes con incidencias', 2, { emphasis: true }), excelDataCell(pendingStudents, 2, { warning: pendingStudents > 0 }), excelDataCell('Acceso registrado', 2), excelDataCell('Seguimiento de calidad', 2)]
     ],
@@ -226,7 +214,7 @@ const buildStudentWorkbook = async ({ scope, students }) => {
   });
   const operationalSheet = {
     ...buildSheet(
-      ['Estudiante', 'Curso', 'Tipo de documento', 'Documento protegido', 'Origen', 'Matrícula', 'Estado de validación', 'Alertas de calidad', 'Última actualización'],
+      ['Estudiante', 'Curso', 'Tipo de documento', 'Documento', 'Origen', 'Matrícula', 'Estado de validación', 'Alertas de calidad', 'Última actualización'],
       operationalRows,
       [34, 20, 22, 22, 16, 18, 27, 48, 22],
       (row) => [row.nombre, row.curso, row.tipo, row.documento, row.origen, row.estado_matricula, row.estado_validacion, row.alertas, row.actualizado_en ? new Date(row.actualizado_en) : '']
@@ -263,7 +251,7 @@ const buildStudentWorkbook = async ({ scope, students }) => {
     (student.identifiers || []).map((identifier) => ({ student, identifier }))
   ));
   return writeExcelFile([
-    buildSummarySheet('administrativa restringida', students, qualityRows),
+    buildSummarySheet('administrativa', students, qualityRows),
     {
       ...buildSheet(
         ['ID interno', 'Estudiante', 'Curso', 'Identificador principal', 'Documento completo', 'País', 'Fuente', 'Origen de ficha', 'Matrícula', 'Validación', 'Última actualización'],

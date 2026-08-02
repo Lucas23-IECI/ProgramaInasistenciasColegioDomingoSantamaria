@@ -77,11 +77,10 @@ const students = [
   }
 ];
 
-test('protege RUN, IPE y documentos generales sin devolver el valor completo', () => {
-  assert.equal(maskIdentifier('RUN_CHILE', '12.345.678-5').includes('12.345.678-5'), false);
-  assert.equal(maskIdentifier('IPE_MINEDUC', '100123456').includes('100123456'), false);
-  assert.equal(maskIdentifier('PASAPORTE', 'AB123456').includes('AB123456'), false);
-  assert.match(maskIdentifier('RUN_CHILE', '12.345.678-5'), /\*/);
+test('exporta completos RUN, IPE y documentos generales', () => {
+  assert.equal(maskIdentifier('RUN_CHILE', '12.345.678-5'), '12.345.678-5');
+  assert.equal(maskIdentifier('IPE_MINEDUC', '100123456'), '100123456');
+  assert.equal(maskIdentifier('PASAPORTE', 'AB123456'), 'AB123456');
 });
 
 test('elige el identificador principal y calcula incidencias operativas', () => {
@@ -92,7 +91,7 @@ test('elige el identificador principal y calcula incidencias operativas', () => 
   assert.equal(rows.some((row) => row.id_alumno === 11 && row.incidencia === 'IPE pendiente de regularización'), true);
 });
 
-test('genera los tres libros XLSX y mantiene separada la salida restringida', async () => {
+test('genera los tres libros XLSX institucionales', async () => {
   for (const scope of ['operational', 'administrative', 'quality']) {
     const buffer = await buildStudentWorkbook({ scope, students });
     assert.ok(Buffer.isBuffer(buffer));

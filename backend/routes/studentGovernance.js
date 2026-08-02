@@ -144,10 +144,7 @@ const createStudentGovernanceRouter = ({
     if (!['operational', 'administrative', 'quality'].includes(scope)) {
       return res.status(400).json({ message: 'El tipo de exportación no es válido.' });
     }
-    const requiredPermission = scope === 'administrative'
-      ? 'students.export_sensitive'
-      : 'students.export';
-    return verifyPermission(requiredPermission)(req, res, next);
+    return verifyPermission('students.export')(req, res, next);
   }, async (req, res) => {
     const scope = String(req.query.scope || 'operational').toLowerCase();
     const action = {
@@ -161,7 +158,7 @@ const createStudentGovernanceRouter = ({
       const date = new Date().toISOString().slice(0, 10);
       const suffix = {
         operational: 'operativo',
-        administrative: 'administrativo-restringido',
+        administrative: 'administrativo',
         quality: 'calidad'
       }[scope];
 
@@ -175,7 +172,7 @@ const createStudentGovernanceRouter = ({
           alcance: scope,
           formato: 'xlsx',
           estudiantes: students.length,
-          contiene_identificadores_completos: scope === 'administrative'
+          contiene_identificadores_completos: scope !== 'quality'
         },
         ip: getClientIp(req)
       });

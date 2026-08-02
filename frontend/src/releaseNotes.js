@@ -41,7 +41,7 @@ export const CURRENT_RELEASE = {
     {
       icon: FileText,
       title: 'Reportes institucionales',
-      description: 'Exporta visitas y retiros por período, además del padrón operativo y sus casos de calidad con documentos protegidos. La descarga administrativa completa exige autorización y queda auditada.',
+      description: 'Exporta visitas y retiros por período, además del padrón operativo, administrativo y sus casos de calidad. Los identificadores estudiantiles se incluyen completos.',
     },
   ],
 };

@@ -1,4 +1,4 @@
-import { X, User, GraduationCap, Activity, Clock, Pencil, Archive, RotateCcw, Fingerprint, FileDown, History, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { X, User, GraduationCap, Activity, Clock, Pencil, Archive, RotateCcw, Fingerprint, FileDown, History } from 'lucide-react';
 import { StudentOriginBadge } from './StudentOriginBadge';
 import { getStudentIdentifier, getStudentIdentifierLabel } from '../../utils/studentFormat';
 import { API_URL } from '../../config';
@@ -38,8 +38,6 @@ export function StudentDetailDrawer({
   studentDetails,
   canManage,
   canRegularizeIdentity,
-  canViewSensitiveIdentifiers,
-  onToggleSensitiveIdentifiers,
   openIdentityRegularization,
   openManualEditor,
   formatNullable
@@ -101,25 +99,6 @@ export function StudentDetailDrawer({
                           </span>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="student-privacy-bar" data-revealed={studentDetails.proteccion_identidad?.identificadores_completos || undefined}>
-                      <span>
-                        <ShieldCheck size={18} />
-                        <span>
-                          <strong>{studentDetails.proteccion_identidad?.identificadores_completos ? 'Datos completos visibles' : 'Identificadores protegidos'}</strong>
-                          <small>{studentDetails.proteccion_identidad?.identificadores_completos ? 'Esta revelación quedó registrada en auditoría.' : 'RUN, IPE y códigos internos se muestran parcialmente.'}</small>
-                        </span>
-                      </span>
-                      {canViewSensitiveIdentifiers && (
-                        <button
-                          type="button"
-                          onClick={() => onToggleSensitiveIdentifiers(!studentDetails.proteccion_identidad?.identificadores_completos)}
-                        >
-                          {studentDetails.proteccion_identidad?.identificadores_completos ? <EyeOff size={16} /> : <Eye size={16} />}
-                          {studentDetails.proteccion_identidad?.identificadores_completos ? 'Ocultar datos' : 'Ver datos completos'}
-                        </button>
-                      )}
                     </div>
 
                     {/* Datos Personales Panel */}

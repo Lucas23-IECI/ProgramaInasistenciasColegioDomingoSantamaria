@@ -2,9 +2,9 @@ const assert = require('node:assert/strict');
 const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
+const { attachPermissionProfile } = require('../utils/permissions');
 
 const API_URL = process.env.PRIVACY_API_URL || 'http://127.0.0.1:5000/api';
-const PERMISSION = 'students.identifiers.view_sensitive';
 
 const tokenFor = (user) => jwt.sign({
   id: user.id,
@@ -13,73 +13,38 @@ const tokenFor = (user) => jwt.sign({
   token_version: user.token_version || 1
 }, process.env.JWT_SECRET, { expiresIn: '5m' });
 
-const request = (path, user) => fetch(`${API_URL}${path}`, {
-  headers: { Cookie: `token=${tokenFor(user)}` }
-});
-
-const findUser = async (granted) => {
-  const result = await pool.query(`
-    SELECT u.id, u.correo, u.rol, u.token_version
-    FROM usuarios u
-    WHERE u.activo = true AND u.eliminado_en IS NULL
-      AND COALESCE(
-        (SELECT pu.concedido FROM permisos_usuario pu
-         WHERE pu.usuario_id = u.id AND pu.permiso_codigo = $1),
-        EXISTS (SELECT 1 FROM permisos_rol pr
-                WHERE pr.rol = u.rol AND pr.permiso_codigo = $1)
-      ) = $2
-    ORDER BY u.id
-    LIMIT 1
-  `, [PERMISSION, granted]);
-  return result.rows[0] || null;
-};
-
 const main = async () => {
   assert.ok(process.env.JWT_SECRET, 'JWT_SECRET debe existir en el entorno de prueba.');
-  const studentResult = await pool.query(`
-    SELECT id_alumno FROM alumno
-    WHERE activo = true AND fusionado_en_id IS NULL AND rut IS NOT NULL
-    ORDER BY id_alumno LIMIT 1
-  `);
+  const [studentResult, usersResult] = await Promise.all([
+    pool.query(`
+      SELECT id_alumno FROM alumno
+      WHERE activo = true AND fusionado_en_id IS NULL AND rut IS NOT NULL
+      ORDER BY id_alumno LIMIT 1
+    `),
+    pool.query(`
+      SELECT id, correo, rol, nombre, token_version
+      FROM usuarios WHERE activo = true AND eliminado_en IS NULL ORDER BY id
+    `)
+  ]);
+  const users = await Promise.all(usersResult.rows.map((user) => attachPermissionProfile(pool, user)));
+  const user = users.find((candidate) => candidate.permissions.includes('students.view'));
   const student = studentResult.rows[0];
-  const privileged = await findUser(true);
-  const restricted = await findUser(false);
   assert.ok(student, 'Se necesita una ficha con RUN para la prueba.');
-  assert.ok(privileged, 'Se necesita una cuenta con permiso de revelación.');
-  assert.ok(restricted, 'Se necesita una cuenta sin permiso de revelación.');
+  assert.ok(user, 'Se necesita una cuenta con permiso para consultar estudiantes.');
 
-  const maskedResponse = await request(`/students/${student.id_alumno}/details`, privileged);
-  assert.equal(maskedResponse.status, 200);
-  assert.match(maskedResponse.headers.get('cache-control') || '', /no-store/);
-  const masked = await maskedResponse.json();
-  assert.equal(masked.proteccion_identidad.identificadores_completos, false);
-  assert.equal('rut' in masked.alumno, false);
-  assert.equal('codigo_barra' in masked.alumno, false);
-  assert.equal(masked.identificadores.every((identifier) => !('valor_original' in identifier)), true);
+  const response = await fetch(`${API_URL}/students/${student.id_alumno}/details`, {
+    headers: { Cookie: `token=${tokenFor(user)}` }
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('cache-control') || '', /no-store/);
+  const body = await response.json();
+  assert.ok(body.alumno.rut);
+  assert.equal(body.alumno.identificadores_protegidos, false);
+  assert.equal(body.identificadores.every((identifier) => identifier.protegido === false), true);
+  assert.equal(body.identificadores.every((identifier) => Boolean(identifier.valor_original)), true);
+  assert.equal(body.identificadores.some((identifier) => /\*/.test(identifier.valor_mostrado)), false);
 
-  const deniedResponse = await request(`/students/${student.id_alumno}/details?include_sensitive=true`, restricted);
-  assert.equal(deniedResponse.status, 403);
-
-  const auditBefore = await pool.query(`
-    SELECT count(*)::int AS total FROM audit_log
-    WHERE accion = 'REVELAR_IDENTIFICADORES_ESTUDIANTE'
-      AND usuario_id = $1 AND entidad_id = $2
-  `, [privileged.id, String(student.id_alumno)]);
-  const revealedResponse = await request(`/students/${student.id_alumno}/details?include_sensitive=true`, privileged);
-  assert.equal(revealedResponse.status, 200);
-  const revealed = await revealedResponse.json();
-  assert.equal(revealed.proteccion_identidad.identificadores_completos, true);
-  assert.ok(revealed.alumno.rut);
-  assert.equal(revealed.identificadores.some((identifier) => identifier.valor_original), true);
-
-  const auditAfter = await pool.query(`
-    SELECT count(*)::int AS total FROM audit_log
-    WHERE accion = 'REVELAR_IDENTIFICADORES_ESTUDIANTE'
-      AND usuario_id = $1 AND entidad_id = $2
-  `, [privileged.id, String(student.id_alumno)]);
-  assert.equal(auditAfter.rows[0].total, auditBefore.rows[0].total + 1);
-
-  console.log('Protección API verificada: máscara por defecto, rechazo 403, revelación autorizada y auditoría.');
+  console.log('Identificadores estudiantiles verificados: valores completos en ficha y listado de identificadores.');
 };
 
 main()

@@ -13,12 +13,18 @@ const normalizeProfileCode = (name) => String(name || '')
   .replace(/^_+|_+$/g, '')
   .slice(0, 42);
 
+const LEGACY_STUDENT_PRIVACY_PERMISSIONS = [
+  'students.export_sensitive',
+  'students.identifiers.view_sensitive'
+];
+
 const getPermissionCatalog = async (queryable) => {
   const result = await queryable.query(`
     SELECT codigo, grupo, etiqueta, descripcion, orden, critico
     FROM permisos_sistema
+    WHERE codigo <> ALL($1::varchar[])
     ORDER BY orden, codigo
-  `);
+  `, [LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
   return result.rows;
 };
 
@@ -26,9 +32,9 @@ const getRecommendedPermissions = async (queryable, role) => {
   const result = await queryable.query(`
     SELECT permiso_codigo
     FROM permisos_rol
-    WHERE rol = $1
+    WHERE rol = $1 AND permiso_codigo <> ALL($2::varchar[])
     ORDER BY permiso_codigo
-  `, [role]);
+  `, [role, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
   return result.rows.map((row) => row.permiso_codigo);
 };
 
@@ -43,8 +49,8 @@ const getAccessProfiles = async (queryable, { includeInactive = true } = {}) => 
            COUNT(DISTINCT u.id)::int AS account_count,
            COUNT(DISTINCT u.id) FILTER (WHERE u.activo)::int AS active_account_count,
            COALESCE(
-             ARRAY_AGG(DISTINCT pr.permiso_codigo ORDER BY pr.permiso_codigo)
-               FILTER (WHERE pr.permiso_codigo IS NOT NULL),
+               ARRAY_AGG(DISTINCT pr.permiso_codigo ORDER BY pr.permiso_codigo)
+               FILTER (WHERE pr.permiso_codigo IS NOT NULL AND pr.permiso_codigo <> ALL($2::varchar[])),
              ARRAY[]::varchar[]
            ) AS recommended_permissions
     FROM perfiles_acceso p
@@ -53,7 +59,7 @@ const getAccessProfiles = async (queryable, { includeInactive = true } = {}) => 
     WHERE ($1::boolean = true OR p.activo = true)
     GROUP BY p.codigo, p.nombre, p.descripcion, p.sistema, p.activo, p.orden
     ORDER BY p.activo DESC, p.orden, LOWER(p.nombre)
-  `, [includeInactive]);
+  `, [includeInactive, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
   return result.rows;
 };
 
@@ -77,8 +83,9 @@ const getEffectivePermissionProfile = async (queryable, userId, role) => {
       ON pr.permiso_codigo = p.codigo AND pr.rol = $2
     LEFT JOIN permisos_usuario pu
       ON pu.permiso_codigo = p.codigo AND pu.usuario_id = $1
+    WHERE p.codigo <> ALL($3::varchar[])
     ORDER BY p.orden, p.codigo
-  `, [userId, role]);
+  `, [userId, role, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
 
   return {
     permissions: result.rows.filter((row) => row.concedido).map((row) => row.codigo),

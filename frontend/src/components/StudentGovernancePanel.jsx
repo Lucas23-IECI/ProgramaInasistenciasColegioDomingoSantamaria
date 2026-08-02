@@ -9,7 +9,6 @@ import {
   Download,
   FileSpreadsheet,
   FileClock,
-  LockKeyhole,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -46,8 +45,7 @@ const studentName = (student) => (
 const StudentGovernancePanel = ({
   onOpenStudent,
   canManage = false,
-  canExport = false,
-  canExportSensitive = false
+  canExport = false
 }) => {
   const [view, setView] = useState('quality');
   const [quality, setQuality] = useState(null);
@@ -194,9 +192,7 @@ const StudentGovernancePanel = ({
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-      setExportNotice(scope === 'administrative'
-        ? 'Exportación restringida generada. La descarga quedó registrada en auditoría.'
-        : 'Exportación generada con identificadores personales protegidos.');
+      setExportNotice('Exportación generada con identificadores estudiantiles completos. La descarga quedó registrada en auditoría.');
     } catch (requestError) {
       setError(requestError.response?.data?.message || 'No fue posible generar la exportación.');
     } finally {
@@ -227,10 +223,10 @@ const StudentGovernancePanel = ({
               Casos de calidad
             </button>
           )}
-          {canExportSensitive && (
-            <button type="button" className="student-governance__restricted" disabled={Boolean(exporting)} onClick={() => downloadExport('administrative')}>
-              {exporting === 'administrative' ? <RefreshCw className="spin" size={17} /> : <LockKeyhole size={17} />}
-              Datos restringidos
+          {canExport && (
+            <button type="button" disabled={Boolean(exporting)} onClick={() => downloadExport('administrative')}>
+              {exporting === 'administrative' ? <RefreshCw className="spin" size={17} /> : <Download size={17} />}
+              Padrón administrativo
             </button>
           )}
           <button type="button" disabled={Boolean(exporting)} onClick={load}><RefreshCw size={17} /> Actualizar</button>

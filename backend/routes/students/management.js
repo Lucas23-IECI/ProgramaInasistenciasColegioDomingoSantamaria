@@ -11,8 +11,6 @@ const {
   resolveDocumentPath
 } = require('../../services/documentService');
 const {
-  SENSITIVE_IDENTIFIER_PERMISSION,
-  canRevealStudentIdentifiers,
   protectIdentityRegularization,
   protectStudentIdentifier,
   protectStudentRecord
@@ -129,11 +127,6 @@ app.post('/api/students/identity/mrz-events', verifyToken, verifyPermission('stu
 // GET SINGLE STUDENT DETAILS
 app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students.view', 'students.manage', 'students.identity.regularize']), async (req, res) => {
   const { id } = req.params;
-  const revealRequested = String(req.query.include_sensitive || '').toLowerCase() === 'true';
-  const reveal = revealRequested && canRevealStudentIdentifiers(req.user);
-  if (revealRequested && !reveal) {
-    return res.status(403).json({ message: 'Tu cuenta no puede revelar identificadores completos.' });
-  }
   try {
     const query = `
       SELECT ${STUDENT_PUBLIC_FIELDS}, c.nombre_curso as grade
@@ -174,29 +167,13 @@ app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students
     ]);
     if (resA.rows.length === 0) return res.status(404).json({ message: 'Miembro no encontrado.' });
 
-    if (reveal) {
-      await registrarAudit({
-        usuario_id: req.user.id,
-        usuario_correo: req.user.correo,
-        accion: 'REVELAR_IDENTIFICADORES_ESTUDIANTE',
-        entidad: 'alumno',
-        entidad_id: String(id),
-        detalle: { permiso: SENSITIVE_IDENTIFIER_PERMISSION },
-        ip: getClientIp(req)
-      });
-    }
-
     res.setHeader('Cache-Control', 'no-store, private');
     res.json({
-      alumno: protectStudentRecord(resA.rows[0], { reveal }),
+      alumno: protectStudentRecord(resA.rows[0]),
       historial_matricula: enrollmentHistory.rows,
-      identificadores: identifiers.map((identifier) => protectStudentIdentifier(identifier, { reveal })),
+      identificadores: identifiers.map((identifier) => protectStudentIdentifier(identifier)),
       regularizaciones_identidad: identityRegularizations.rows
-        .map((regularization) => protectIdentityRegularization(regularization, { reveal })),
-      proteccion_identidad: {
-        identificadores_completos: reveal,
-        puede_revelar: canRevealStudentIdentifiers(req.user)
-      }
+        .map((regularization) => protectIdentityRegularization(regularization))
     });
   } catch (err) {
     res.status(500).json({ message: 'Error al obtener detalles.' });
