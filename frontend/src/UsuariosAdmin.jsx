@@ -397,6 +397,20 @@ const UsuariosAdmin = () => {
     } finally { setSaving(false); }
   };
 
+  const deleteProfile = async (profileCode) => {
+    setSaving(true);
+    setFormError('');
+    try {
+      await axios.delete(`${API_URL}/access-profiles/${profileCode}`);
+      notify('Perfil de usuario eliminado.', 'success');
+      closeEditor();
+      navigate('/admin/usuarios');
+      await loadData();
+    } catch (requestError) {
+      setFormError(requestError.response?.data?.message || 'No fue posible eliminar el perfil.');
+    } finally { setSaving(false); }
+  };
+
   const openAccountAudit = (account) => {
     if (!canViewAudit) return;
     const params = new URLSearchParams({ cuenta_id: String(account.id), perfil: account.rol });
@@ -523,7 +537,7 @@ const UsuariosAdmin = () => {
             <section className="profile-detail" data-tour="profile-summary">
               <div className="profile-detail__hero">
                 <div className="profile-detail__identity"><span className="access-profile-card__icon"><ShieldCheck size={24} /></span><div><span className="section-kicker">Perfil de usuario</span><h2>{activeProfile.label}</h2><p>{activeProfile.description || 'Sin descripción institucional.'}</p></div></div>
-                <div className="profile-detail__actions" data-tour="profile-actions">{activeProfile.value !== 'lector' && <button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button>}<button type="button" className="primary-action" onClick={openCreateUser}><Plus size={18} /> Crear cuenta</button></div>
+                <div className="profile-detail__actions" data-tour="profile-actions">{activeProfile.value !== 'lector' && <button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button>}{!activeProfile.sistema && activeProfile.value !== 'lector' && usuarios.filter((a) => a.rol === activeProfile.value && !a.eliminado_en).length === 0 && <button type="button" className="danger-action" onClick={() => deleteProfile(activeProfile.value)} disabled={saving}><Trash2 size={17} /> Eliminar perfil</button>}<button type="button" className="primary-action" onClick={openCreateUser}><Plus size={18} /> Crear cuenta</button></div>
               </div>
               <div className="profile-detail__summary">
                 <div><strong>{usuarios.filter((account) => account.rol === activeProfile.value && account.activo).length}</strong><span>Cuentas activas</span></div>

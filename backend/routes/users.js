@@ -191,6 +191,52 @@ app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manag
   }
 });
 
+app.delete('/api/access-profiles/:code', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const code = String(req.params.code || '').trim();
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await getAccessProfile(client, code, { includeInactive: true });
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Perfil de usuario no encontrado.' });
+    }
+    if (current.sistema) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ message: 'Los perfiles institucionales no se pueden eliminar.' });
+    }
+    const holders = await client.query(
+      'SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = $1 AND eliminado_en IS NULL',
+      [code]
+    );
+    if (holders.rows[0].total > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        message: `El perfil tiene ${holders.rows[0].total} cuenta(s) asociada(s). Reasígnalas a otro perfil antes de eliminarlo.`
+      });
+    }
+    await client.query('DELETE FROM permisos_rol WHERE rol = $1', [code]);
+    await client.query('DELETE FROM perfiles_acceso WHERE codigo = $1', [code]);
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'ELIMINAR_PERFIL_ACCESO',
+      entidad: 'perfil_acceso',
+      detalle: { codigo: code, nombre: current.nombre },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+    res.json({ message: 'Perfil de usuario eliminado.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[access-profiles:delete]', err.message);
+    res.status(500).json({ message: 'No fue posible eliminar el perfil.' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   try {
     const resU = await pool.query(`
