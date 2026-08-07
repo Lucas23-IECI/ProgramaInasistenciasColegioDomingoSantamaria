@@ -9,19 +9,30 @@ docker compose ps
 if ($LASTEXITCODE -ne 0) { throw 'No fue posible consultar Docker Compose.' }
 
 # ── Detectar si HTTPS está disponible (puerto 443) o usar HTTP (puerto 80) ──
-$scheme   = 'https'
-$webStatus = & curl.exe --ssl-no-revoke --insecure --silent --show-error --max-time 5 --output NUL --write-out '%{http_code}' 'https://127.0.0.1/healthz' 2>$null
-if ($LASTEXITCODE -ne 0 -or $webStatus -ne '200') {
-  # HTTPS no responde, intentar HTTP
-  $scheme   = 'http'
-  $webStatus = & curl.exe --silent --show-error --max-time 5 --output NUL --write-out '%{http_code}' 'http://127.0.0.1/healthz' 2>$null
-  if ($LASTEXITCODE -ne 0 -or $webStatus -ne '200') {
-    throw "El frontend no respondió correctamente ni por HTTPS ni por HTTP (HTTP $webStatus)."
-  }
+$scheme    = $null
+$webStatus = $null
+
+# Intentar HTTPS primero (silenciosamente, sin romper si falla)
+try {
+  $ErrorActionPreference = 'Continue'
+  $webStatus = & curl.exe --ssl-no-revoke --insecure --silent --max-time 5 --output NUL --write-out '%{http_code}' 'https://127.0.0.1/healthz' 2>&1 | Where-Object { $_ -match '^\d+$' }
+  $ErrorActionPreference = 'Stop'
+  if ($webStatus -eq '200') { $scheme = 'https' }
+} catch {
+  $ErrorActionPreference = 'Stop'
 }
 
-$apiRaw = & curl.exe --ssl-no-revoke --insecure --silent --show-error "${scheme}://127.0.0.1/api/health/ready"
-if ($LASTEXITCODE -ne 0) { throw "El backend no respondió por ${scheme}." }
+# Si HTTPS no funcionó, intentar HTTP
+if (-not $scheme) {
+  $webStatus = & curl.exe --silent --max-time 5 --output NUL --write-out '%{http_code}' 'http://127.0.0.1/healthz'
+  if ($LASTEXITCODE -ne 0 -or $webStatus -ne '200') {
+    throw "El frontend no respondio correctamente ni por HTTPS ni por HTTP (HTTP $webStatus)."
+  }
+  $scheme = 'http'
+}
+
+$apiRaw = & curl.exe --ssl-no-revoke --insecure --silent "${scheme}://127.0.0.1/api/health/ready"
+if ($LASTEXITCODE -ne 0) { throw "El backend no respondio por ${scheme}." }
 $api = $apiRaw | ConvertFrom-Json
 
 Write-Host "Frontend ($($scheme.ToUpper())): $webStatus"
