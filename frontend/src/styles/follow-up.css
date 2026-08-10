@@ -1,0 +1,87 @@
+.follow-page { min-height: 100vh; padding: clamp(5rem, 8vw, 7rem) clamp(1rem, 4vw, 4rem) 3rem; color: var(--text, #12263a); background: var(--bg, #eef3f6); }
+.follow-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; max-width: 1680px; margin: 0 auto 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border, #ccd7df); }
+.follow-page__header h1 { margin: .35rem 0; font-size: clamp(2rem, 4vw, 3.5rem); line-height: 1; letter-spacing: -.04em; }
+.follow-page__header p { max-width: 700px; margin: 0; color: var(--text-muted, #5b6e7e); font-size: 1.05rem; }
+.follow-page__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; }
+.follow-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 1680px; margin: 0 auto 1.5rem; border: 1px solid var(--border, #ccd7df); border-radius: 18px; overflow: hidden; background: var(--surface, #fff); }
+.follow-summary button { display: flex; align-items: center; gap: 1rem; min-height: 112px; padding: 1.25rem 1.5rem; text-align: left; color: inherit; background: transparent; border: 0; border-right: 1px solid var(--border, #ccd7df); cursor: pointer; }
+.follow-summary button:last-child { border-right: 0; }
+.follow-summary button:hover { background: color-mix(in srgb, var(--primary, #17628c) 6%, transparent); }
+.follow-summary svg { color: var(--primary, #17628c); }
+.follow-summary span { display: grid; gap: .1rem; color: var(--text-muted, #5b6e7e); }
+.follow-summary strong { color: var(--text, #12263a); font-size: 2rem; line-height: 1; }
+.follow-workspace { max-width: 1680px; margin: auto; }
+.follow-filters { display: grid; grid-template-columns: minmax(260px, 1fr) 210px 180px; gap: .75rem; margin-bottom: 1rem; }
+.follow-filters label { display: flex; align-items: center; gap: .7rem; padding: 0 .9rem; border: 1px solid var(--border, #ccd7df); border-radius: 10px; background: var(--surface, #fff); }
+.follow-filters input, .follow-filters select, .follow-form-grid input, .follow-form-grid select, .follow-dialog input, .follow-dialog select, .follow-dialog textarea, .follow-quick input, .follow-quick textarea { width: 100%; min-height: 48px; padding: .75rem; color: inherit; background: var(--surface, #fff); border: 1px solid var(--border, #ccd7df); border-radius: 9px; font: inherit; }
+.follow-filters label input { padding-inline: 0; border: 0; outline: 0; }
+.follow-list { display: grid; gap: .65rem; }
+.follow-list > button { display: grid; grid-template-columns: 6px 1fr auto; gap: 1.2rem; align-items: stretch; width: 100%; padding: 0; overflow: hidden; text-align: left; color: inherit; background: var(--surface, #fff); border: 1px solid var(--border, #ccd7df); border-radius: 13px; cursor: pointer; }
+.follow-list > button:hover { transform: translateY(-1px); border-color: var(--primary, #17628c); box-shadow: 0 12px 28px rgba(18, 38, 58, .08); }
+.follow-list > button > div { padding: 1.15rem 0; }
+.follow-list > button > svg { align-self: center; margin-right: 1.2rem; }
+.follow-list h2 { margin: .35rem 0; font-size: 1.15rem; }
+.follow-list p { margin: 0; color: var(--text-muted, #5b6e7e); }
+.follow-list footer, .follow-list__top { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+.follow-list footer { margin-top: .85rem; color: var(--text-muted, #5b6e7e); font-size: .86rem; }
+.follow-list footer span { display: inline-flex; gap: .35rem; align-items: center; }
+.follow-pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-top: 1.25rem; color: var(--text-muted, #5b6e7e); }
+.follow-pagination span { text-align: center; font-size: .9rem; }
+.follow-list__top { justify-content: space-between; }
+.follow-priority.priority-baja { background: #5a7b8c; }.follow-priority.priority-media { background: #c18a16; }.follow-priority.priority-alta { background: #d55e3c; }.follow-priority.priority-urgente { background: #b9283b; }
+.follow-badge { display: inline-flex; align-items: center; width: max-content; padding: .32rem .65rem; border-radius: 999px; color: #124365; background: #dceaf2; font-size: .76rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.follow-badge.priority-urgente, .follow-badge.priority-alta { color: #a21d30; background: #fde9ec; }
+[data-theme="dark"] .follow-badge { color: #d8efff; background: #173b54; }
+[data-theme="dark"] .follow-badge.priority-urgente, [data-theme="dark"] .follow-badge.priority-alta { color: #ffdce2; background: #6e2330; }
+.follow-state { display: grid; justify-items: center; gap: .6rem; padding: 5rem 1rem; color: var(--text-muted, #5b6e7e); text-align: center; background: var(--surface, #fff); border: 1px solid var(--border, #ccd7df); border-radius: 14px; }
+.follow-state h2, .follow-state p { margin: 0; }
+.follow-detail { max-width: 1680px; margin: auto; }
+.follow-detail__header { display: grid; grid-template-columns: auto 1fr auto; gap: 1.25rem; align-items: center; margin-bottom: 1.25rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--border, #ccd7df); }
+.follow-detail__header h2 { margin: .3rem 0; font-size: clamp(1.7rem, 3vw, 2.5rem); }
+.follow-detail__header p { margin: 0; color: var(--text-muted, #5b6e7e); }
+.follow-detail__layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 1rem; align-items: start; }
+.follow-detail__main, .follow-detail__aside { display: grid; gap: 1rem; }
+.follow-panel { padding: 1.35rem; background: var(--surface, #fff); border: 1px solid var(--border, #ccd7df); border-radius: 14px; }
+.follow-panel h3 { margin: 0 0 1rem; font-size: 1.05rem; }
+.follow-reason { padding: 1rem; color: var(--text-muted, #5b6e7e); background: var(--surface-muted, #f3f6f8); border-left: 3px solid var(--primary, #17628c); }
+.follow-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.follow-form-grid label, .follow-dialog label { display: grid; gap: .4rem; font-size: .82rem; font-weight: 800; }
+.follow-form-grid .app-action { align-self: end; }
+.follow-tabs { display: flex; gap: .35rem; margin-bottom: .8rem; overflow-x: auto; }
+.follow-tabs button { display: inline-flex; align-items: center; gap: .35rem; padding: .55rem .8rem; white-space: nowrap; color: var(--text-muted, #5b6e7e); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
+.follow-tabs button.active { color: var(--primary, #17628c); background: color-mix(in srgb, var(--primary, #17628c) 10%, transparent); font-weight: 800; }
+.follow-quick textarea { min-height: 100px; resize: vertical; }
+.follow-quick > div:last-child { display: grid; grid-template-columns: 1fr auto; gap: .6rem; margin-top: .6rem; }
+.follow-timeline { display: grid; gap: 0; }
+.follow-timeline article { display: grid; grid-template-columns: 14px 1fr; gap: .8rem; min-height: 74px; }
+.follow-timeline article i { position: relative; width: 9px; height: 9px; margin-top: .35rem; border-radius: 50%; background: var(--primary, #17628c); }
+.follow-timeline article i::after { content: ''; position: absolute; top: 13px; left: 4px; width: 1px; height: calc(100% + 10px); background: var(--border, #ccd7df); }
+.follow-timeline article:last-child i::after { display: none; }
+.follow-timeline p { margin: .25rem 0; color: var(--text-muted, #5b6e7e); }
+.follow-timeline span { font-size: .78rem; color: var(--text-muted, #5b6e7e); }
+.follow-panel dl { display: grid; gap: .8rem; margin: 0; }
+.follow-panel dl div { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: .7rem; border-bottom: 1px solid var(--border, #ccd7df); }
+.follow-panel dt { color: var(--text-muted, #5b6e7e); }.follow-panel dd { margin: 0; text-align: right; font-weight: 800; }
+.follow-task { display: flex; gap: .6rem; align-items: flex-start; padding: .65rem 0; border-top: 1px solid var(--border, #ccd7df); }
+.follow-task span { display: grid; gap: .2rem; }.follow-task small { color: var(--text-muted, #5b6e7e); }
+.follow-task > span { flex: 1; }
+.follow-task > button, .follow-icon-action { min-height: 34px; padding: .4rem .65rem; color: var(--primary, #17628c); background: transparent; border: 1px solid var(--border, #ccd7df); border-radius: 8px; cursor: pointer; }
+.follow-panel__heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .8rem; }
+.follow-panel__heading h3 { margin: 0; }
+.follow-documents { display: grid; gap: .45rem; }
+.follow-documents a { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .65rem .7rem; color: inherit; text-decoration: none; background: var(--surface-muted, #f3f6f8); border: 1px solid transparent; border-radius: 8px; }
+.follow-documents a:hover { color: var(--primary, #17628c); border-color: var(--primary, #17628c); }
+.follow-documents span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.follow-actions button { display: flex; align-items: center; gap: .55rem; width: 100%; padding: .75rem; color: inherit; background: transparent; border: 1px solid var(--border, #ccd7df); border-radius: 9px; cursor: pointer; }
+.follow-actions h3:not(:first-child) { margin-top: 1.25rem; }
+.follow-actions button + button { margin-top: .55rem; }
+.follow-dialog-backdrop { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 1rem; background: rgba(8, 24, 37, .7); backdrop-filter: blur(6px); }
+.follow-dialog { width: min(780px, 100%); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.5rem; color: var(--text, #12263a); background: var(--surface, #fff); border-radius: 18px; box-shadow: 0 28px 90px rgba(0,0,0,.28); }
+.follow-dialog > header { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border, #ccd7df); }
+.follow-dialog h2, .follow-dialog p { margin: .25rem 0; }.follow-dialog > header button { align-self: start; padding: .4rem; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.follow-dialog > label { margin-top: .85rem; }.follow-dialog textarea { min-height: 110px; resize: vertical; }
+.follow-dialog footer { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.25rem; }
+.follow-search-results { display: grid; max-height: 190px; overflow: auto; margin-top: .4rem; border: 1px solid var(--border, #ccd7df); border-radius: 9px; }
+.follow-search-results button { display: grid; gap: .2rem; padding: .7rem; text-align: left; color: inherit; background: var(--surface, #fff); border: 0; border-bottom: 1px solid var(--border, #ccd7df); cursor: pointer; }.follow-search-results button.selected, .follow-search-results button:hover { background: color-mix(in srgb, var(--primary, #17628c) 8%, transparent); }.follow-search-results span { color: var(--text-muted, #5b6e7e); font-size: .8rem; }
+@media (max-width: 900px) { .follow-page { padding: 5rem 1rem 2rem; }.follow-page__header { align-items: flex-start; flex-direction: column; }.follow-page__actions { justify-content: flex-start; }.follow-summary { grid-template-columns: repeat(2, 1fr); }.follow-summary button:nth-child(2) { border-right: 0; }.follow-summary button:nth-child(-n+2) { border-bottom: 1px solid var(--border, #ccd7df); }.follow-filters { grid-template-columns: 1fr 1fr; }.follow-filters label { grid-column: 1 / -1; }.follow-detail__layout { grid-template-columns: 1fr; }.follow-detail__aside { grid-row: 1; }.follow-detail__header { grid-template-columns: 1fr auto; }.follow-detail__header .app-action { grid-column: 1 / -1; width: max-content; } }
+@media (max-width: 560px) { .follow-summary { grid-template-columns: 1fr; }.follow-summary button { min-height: 88px; border-right: 0; border-bottom: 1px solid var(--border, #ccd7df); }.follow-filters, .follow-form-grid { grid-template-columns: 1fr; }.follow-list > button { grid-template-columns: 5px 1fr; }.follow-list > button > svg { display: none; }.follow-list footer { display: grid; gap: .35rem; }.follow-dialog { padding: 1rem; border-radius: 14px; }.follow-quick > div:last-child { grid-template-columns: 1fr; }.follow-pagination { display: grid; grid-template-columns: 1fr 1fr; }.follow-pagination span { grid-column: 1 / -1; grid-row: 1; } }
