@@ -15,4 +15,3 @@ WHERE a.usuario_id = u.id
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_perfil_fecha
   ON audit_log (perfil_codigo_snapshot, fecha DESC);
-

@@ -10,4 +10,3 @@ ALTER TABLE archivos_perfil
 CREATE UNIQUE INDEX IF NOT EXISTS uq_archivos_perfil_nombre_fuente
   ON archivos_perfil(nombre_fuente)
   WHERE nombre_fuente IS NOT NULL;
-

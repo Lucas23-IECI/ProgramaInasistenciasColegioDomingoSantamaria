@@ -115,4 +115,3 @@ No modifica documentos reales del establecimiento.
 - Probar incorporación y descarga desde los computadores autorizados del colegio.
 - Definir el valor institucional y jurídico que se dará a cada tipo de firma.
 - Acordar retención, archivado y revisión periódica de vencimientos.
-
