@@ -5,11 +5,14 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
+  ContactRound,
   ChevronRight,
   Eye,
   EyeOff,
   History,
   KeyRound,
+  Power,
+  PowerOff,
   Pencil,
   Plus,
   RotateCcw,
@@ -27,6 +30,7 @@ import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
 import AppSelect from './components/AppSelect';
+import StaffAvatar from './components/StaffAvatar';
 import { PERMISSIONS, hasPermission } from './permissions';
 import './styles/users-permissions.css';
 
@@ -218,7 +222,7 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
   );
 };
 
-const ProfileEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClose }) => {
+const ProfileEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClose, protectedProfile = false }) => {
   const baseProfile = mode === 'create'
     ? (catalog.templates || []).find((profile) => JSON.stringify([...(profile.recommended_permissions || [])].sort()) === JSON.stringify([...form.permissions].sort()))?.value || ''
     : '';
@@ -239,8 +243,8 @@ const ProfileEditor = ({ form, setForm, catalog, mode, saving, error, onSave, on
         <label><span className="field-label">Descripción</span><input value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="Qué responsabilidad representa este perfil" /></label>
         {mode === 'create' && <label><span className="field-label">Partir desde</span><AppSelect ariaLabel="Copiar permisos de un perfil" value={baseProfile} onChange={(code) => { const source = (catalog.templates || []).find((profile) => profile.value === code); setForm((current) => ({ ...current, permissions: [...(source?.recommended_permissions || [])] })); }} options={[{ value: '', label: 'Sin permisos iniciales' }, ...(catalog.templates || []).filter((profile) => profile.activo).map((profile) => ({ value: profile.value, label: profile.label }))]} /></label>}
       </div>
-      <div className="profile-editor__summary"><UsersRound size={18} /><div><strong>{form.permissions.length} funciones recomendadas</strong><span>Se marcarán automáticamente al crear una cuenta con este perfil; luego pueden ajustarse individualmente.</span></div></div>
-      <PermissionGrid permissions={catalog.permissions || []} selected={form.permissions} recommended={form.permissions} onToggle={togglePermission} />
+      <div className="profile-editor__summary"><UsersRound size={18} /><div><strong>{form.permissions.length} funciones recomendadas</strong><span>{protectedProfile ? 'Las funciones del perfil Administrador están protegidas. Solo puedes actualizar su nombre y descripción.' : 'Se marcarán automáticamente al crear una cuenta con este perfil; luego pueden ajustarse individualmente.'}</span></div></div>
+      <PermissionGrid permissions={catalog.permissions || []} selected={form.permissions} recommended={form.permissions} onToggle={togglePermission} disabled={protectedProfile} />
       {error && <div className="permission-editor__error" role="alert">{error}</div>}
       <div className="permission-editor__footer"><span><ShieldCheck size={17} /> Los cambios del perfil se aplican a las cuentas que heredan su recomendación.</span><div><button type="button" className="secondary-action" onClick={onClose} disabled={saving}>Cancelar</button><button type="button" className="primary-action" onClick={onSave} disabled={saving}><Check size={17} /> {saving ? 'Guardando…' : 'Guardar perfil'}</button></div></div>
     </section>
@@ -263,6 +267,29 @@ const DeleteAccountDialog = ({ account, reason, setReason, saving, error, onDele
   </section>
 );
 
+const ProfileActionDialog = ({ profile, action, confirmation, setConfirmation, saving, error, onConfirm, onClose }) => {
+  const deleting = action === 'delete';
+  const deactivating = action === 'deactivate';
+  const associated = profile.account_count || 0;
+  const blocked = deleting && associated > 0;
+  const title = deleting ? `Eliminar ${profile.label}` : deactivating ? `Desactivar ${profile.label}` : `Reactivar ${profile.label}`;
+  return (
+    <section className="permission-editor profile-action-dialog" aria-label={title}>
+      <div className="permission-editor__heading">
+        <div><span className="section-kicker">Administración del perfil</span><h2>{title}</h2><p>{deleting ? 'Esta acción elimina el perfil reutilizable, pero conserva toda la auditoría histórica.' : deactivating ? 'Las cuentas vinculadas seguirán existiendo y podrán iniciar sesión; el perfil no se podrá asignar a cuentas nuevas.' : 'El perfil volverá a estar disponible para crear y reasignar cuentas.'}</p></div>
+        <button type="button" className="permission-editor__close" onClick={onClose} aria-label="Cerrar confirmación"><X size={20} /></button>
+      </div>
+      <div className="profile-action-dialog__body">
+        <div className="profile-action-dialog__profile"><ShieldCheck size={22} /><div><strong>{profile.label}</strong><span>{associated} cuenta{associated !== 1 ? 's' : ''} asociada{associated !== 1 ? 's' : ''} · {profile.recommended_permissions?.length || 0} funciones</span></div></div>
+        {blocked && <div className="profile-action-dialog__blocked" role="alert"><strong>No se puede eliminar este perfil.</strong><span>Reasigna sus {associated} cuenta{associated !== 1 ? 's' : ''} a otro perfil antes de eliminarlo. Ninguna cuenta se borrará automáticamente.</span></div>}
+        {deleting && !blocked && <label><span className="field-label">Escribe {profile.label} para confirmar</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" /></label>}
+      </div>
+      {error && <div className="permission-editor__error" role="alert">{error}</div>}
+      <div className="permission-editor__footer"><span><History size={17} /> Las cuentas y eventos históricos no se eliminan.</span><div><button type="button" className="secondary-action" onClick={onClose} disabled={saving}>{blocked ? 'Entendido' : 'Cancelar'}</button>{!blocked && <button type="button" className={deleting || deactivating ? 'danger-action' : 'primary-action'} onClick={onConfirm} disabled={saving || (deleting && confirmation.trim() !== profile.label)}>{deleting ? <Trash2 size={17} /> : deactivating ? <PowerOff size={17} /> : <Power size={17} />}{saving ? 'Procesando…' : deleting ? 'Eliminar perfil' : deactivating ? 'Desactivar perfil' : 'Reactivar perfil'}</button>}</div></div>
+    </section>
+  );
+};
+
 const UsuariosAdmin = () => {
   const { user, logout, refreshUser } = useContext(AuthContext);
   const { notify } = useFeedback();
@@ -276,6 +303,7 @@ const UsuariosAdmin = () => {
   const [userForm, setUserForm] = useState(emptyUserForm);
   const [profileForm, setProfileForm] = useState(emptyProfileForm);
   const [deleteReason, setDeleteReason] = useState('');
+  const [profileConfirmation, setProfileConfirmation] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmStatus, setConfirmStatus] = useState(null);
@@ -331,6 +359,11 @@ const UsuariosAdmin = () => {
     setDeleteReason('');
     setFormError('');
     setEditor({ type: 'delete', account });
+  };
+  const openProfileAction = (action, profile) => {
+    setProfileConfirmation('');
+    setFormError('');
+    setEditor({ type: 'profile-action', action, profile });
   };
   const closeEditor = () => { setEditor(null); setFormError(''); };
 
@@ -397,12 +430,30 @@ const UsuariosAdmin = () => {
     } finally { setSaving(false); }
   };
 
-  const deleteProfile = async (profileCode) => {
+  const changeProfileStatus = async () => {
+    const profile = editor?.profile;
+    if (!profile) return;
+    const active = editor.action === 'reactivate';
     setSaving(true);
     setFormError('');
     try {
-      await axios.delete(`${API_URL}/access-profiles/${profileCode}`);
-      notify('Perfil de usuario eliminado.', 'success');
+      await axios.patch(`${API_URL}/access-profiles/${encodeURIComponent(profile.value)}/status`, { activo: active });
+      notify(active ? 'Perfil reactivado y disponible para nuevas cuentas.' : 'Perfil desactivado. Sus cuentas se conservaron.', 'success');
+      closeEditor();
+      await loadData();
+    } catch (requestError) {
+      setFormError(requestError.response?.data?.message || 'No fue posible cambiar el estado del perfil.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteProfile = async () => {
+    const profile = editor?.profile;
+    if (!profile) return;
+    setSaving(true);
+    setFormError('');
+    try {
+      await axios.delete(`${API_URL}/access-profiles/${encodeURIComponent(profile.value)}`);
+      notify('Perfil eliminado. Su actividad histórica permanece en auditoría.', 'success');
       closeEditor();
       navigate('/admin/usuarios');
       await loadData();
@@ -415,6 +466,10 @@ const UsuariosAdmin = () => {
     if (!canViewAudit) return;
     const params = new URLSearchParams({ cuenta_id: String(account.id), perfil: account.rol });
     navigate(`/admin/auditoria?${params.toString()}`);
+  };
+  const openProfileAudit = (profile) => {
+    if (!canViewAudit) return;
+    navigate(`/admin/auditoria?perfil_codigo=${encodeURIComponent(profile.value)}`);
   };
 
   const permissionName = (code) => catalog.permissions.find((permission) => permission.codigo === code)?.etiqueta || code;
@@ -438,6 +493,8 @@ const UsuariosAdmin = () => {
 
   const editorTitle = editor?.type === 'delete'
     ? 'Eliminar cuenta del personal'
+    : editor?.type === 'profile-action'
+    ? 'Administrar perfil de usuario'
     : editor?.type === 'profile'
     ? (editor.mode === 'create' ? 'Crear perfil de usuario' : 'Editar perfil de usuario')
     : (editor?.mode === 'create' ? 'Crear cuenta del personal' : 'Editar cuenta del personal');
@@ -445,9 +502,11 @@ const UsuariosAdmin = () => {
     <ModalShell title={editorTitle} saving={saving} onClose={closeEditor}>
       {editor.type === 'delete'
         ? <DeleteAccountDialog account={editor.account} reason={deleteReason} setReason={setDeleteReason} saving={saving} error={formError} onDelete={deleteUser} onClose={closeEditor} />
+        : editor.type === 'profile-action'
+        ? <ProfileActionDialog profile={editor.profile} action={editor.action} confirmation={profileConfirmation} setConfirmation={setProfileConfirmation} saving={saving} error={formError} onConfirm={editor.action === 'delete' ? deleteProfile : changeProfileStatus} onClose={closeEditor} />
         : editor.type === 'user'
         ? <UserEditor form={userForm} setForm={setUserForm} catalog={catalog} mode={editor.mode} saving={saving} error={formError} onSave={saveUser} onClose={closeEditor} lockedProfile={activeProfile} />
-        : <ProfileEditor form={profileForm} setForm={setProfileForm} catalog={catalog} mode={editor.mode} saving={saving} error={formError} onSave={saveProfile} onClose={closeEditor} />}
+        : <ProfileEditor form={profileForm} setForm={setProfileForm} catalog={catalog} mode={editor.mode} saving={saving} error={formError} onSave={saveProfile} onClose={closeEditor} protectedProfile={editor.code === 'admin'} />}
     </ModalShell>
   );
 
@@ -460,13 +519,13 @@ const UsuariosAdmin = () => {
         return (
           <article key={account.id} className="user-account" data-inactive={!account.activo || undefined}>
             {canViewAudit
-              ? <button type="button" className="user-account__identity user-account__identity--link" onClick={() => openAccountAudit(account)} title="Ver actividad de esta cuenta"><span className="user-account__avatar">{initials(account.nombre || account.correo)}</span><span><strong>{account.nombre || account.correo}{isCurrent && <em>Tu cuenta</em>}</strong><span>{account.correo}</span><small>Ver actividad</small></span></button>
-              : <div className="user-account__identity"><span className="user-account__avatar">{initials(account.nombre || account.correo)}</span><div><strong>{account.nombre || account.correo}{isCurrent && <em>Tu cuenta</em>}</strong><span>{account.correo}</span></div></div>}
+              ? <button type="button" className="user-account__identity user-account__identity--link" onClick={() => openAccountAudit(account)} title="Ver actividad de esta cuenta"><StaffAvatar profile={account.personal_profile} name={account.nombre || account.correo} size="md" /><span><strong>{account.personal_profile?.nombre_mostrado || account.nombre || account.correo}{isCurrent && <em>Tu cuenta</em>}</strong><span>{account.correo}</span><small>Ver actividad</small></span></button>
+              : <div className="user-account__identity"><StaffAvatar profile={account.personal_profile} name={account.nombre || account.correo} size="md" /><div><strong>{account.personal_profile?.nombre_mostrado || account.nombre || account.correo}{isCurrent && <em>Tu cuenta</em>}</strong><span>{account.correo}</span></div></div>}
             <div className="user-account__job"><Briefcase size={16} /><div><span>Cargo</span><strong>{account.cargo || 'Sin cargo informado'}</strong></div></div>
             <div className="user-account__profile"><span>Perfil</span><strong>{account.profile_name || account.rol}</strong><small>{account.permissions?.length || 0} funciones</small></div>
             <div className="user-account__permissions">{(account.permissions || []).slice(0, 3).map((permission) => <span key={permission}><CheckCircle2 size={13} /> {permissionName(permission)}</span>)}{(account.permissions?.length || 0) > 3 && <span>+{account.permissions.length - 3} funciones</span>}{!account.permissions?.length && <span>Sin funciones</span>}</div>
             <div className="user-account__status"><span data-active={account.activo || undefined}><i /> {account.activo ? 'Activa' : 'Inactiva'}</span>{account.debe_cambiar_password && <small><KeyRound size={13} /> Clave temporal</small>}</div>
-            <div className="user-account__actions">{canViewAudit && <button type="button" className="account-audit" data-tour="account-history" onClick={() => openAccountAudit(account)}><History size={16} /> Actividad</button>}<button type="button" className="account-edit" onClick={() => openEditUser(account)}><Pencil size={16} /> Editar</button>{!isCurrent && (asking ? <div className="account-confirm"><span>{account.activo ? '¿Desactivar?' : '¿Activar?'}</span><button type="button" onClick={() => changeStatus(account.id, !account.activo)}>Sí</button><button type="button" onClick={() => setConfirmStatus(null)}>No</button></div> : <><button type="button" className="account-status" data-active={!account.activo || undefined} onClick={() => setConfirmStatus(account.id)}>{account.activo ? <UserX size={16} /> : <UserCheck size={16} />}{account.activo ? 'Desactivar' : 'Activar'}</button><button type="button" className="account-delete" onClick={() => openDeleteUser(account)}><Trash2 size={16} /> Eliminar</button></>)}</div>
+            <div className="user-account__actions"><button type="button" className="account-profile" onClick={() => navigate(`/directorio/${account.id}`)}><ContactRound size={16} /> Perfil</button>{canViewAudit && <button type="button" className="account-audit" data-tour="account-history" onClick={() => openAccountAudit(account)}><History size={16} /> Actividad</button>}<button type="button" className="account-edit" onClick={() => openEditUser(account)}><Pencil size={16} /> Editar</button>{!isCurrent && (asking ? <div className="account-confirm"><span>{account.activo ? '¿Desactivar?' : '¿Activar?'}</span><button type="button" onClick={() => changeStatus(account.id, !account.activo)}>Sí</button><button type="button" onClick={() => setConfirmStatus(null)}>No</button></div> : <><button type="button" className="account-status" data-active={!account.activo || undefined} onClick={() => setConfirmStatus(account.id)}>{account.activo ? <UserX size={16} /> : <UserCheck size={16} />}{account.activo ? 'Desactivar' : 'Activar'}</button><button type="button" className="account-delete" onClick={() => openDeleteUser(account)}><Trash2 size={16} /> Eliminar</button></>)}</div>
           </article>
         );
       })}
@@ -519,10 +578,11 @@ const UsuariosAdmin = () => {
                 return (
                   <button type="button" className="access-profile-card" key={profile.value} data-inactive={!profile.activo || undefined} onClick={() => navigate(`/admin/usuarios/${encodeURIComponent(profile.value)}`)}>
                     <span className="access-profile-card__top"><span className="access-profile-card__icon"><ShieldCheck size={20} /></span><span><strong>{profile.label}</strong><small>{profile.sistema ? 'Perfil institucional' : 'Perfil creado por el establecimiento'}</small></span><span className="access-profile-card__arrow"><ChevronRight size={20} /></span></span>
+                    <span className="access-profile-card__state" data-active={profile.activo || undefined}><i /> {profile.activo ? 'Activo' : 'Desactivado'}</span>
                     <span className="access-profile-card__description">{profile.description || 'Sin descripción institucional.'}</span>
                     <span className="access-profile-card__permissions"><strong>{profile.recommended_permissions?.length || 0}</strong><span>funciones recomendadas</span></span>
                     <span className="access-profile-card__members">
-                      <span><UsersRound size={15} /> {members.length} {members.length === 1 ? 'cuenta activa' : 'cuentas activas'}</span>
+                      <span><UsersRound size={15} /> {profile.active_account_count ?? members.length} {(profile.active_account_count ?? members.length) === 1 ? 'cuenta activa' : 'cuentas activas'}</span>
                       <span>{members.slice(0, 3).map((member) => <span className="profile-member" key={member.id} title={`${member.nombre || member.correo}${member.cargo ? ` · ${member.cargo}` : ''}`}>{initials(member.nombre || member.correo)}</span>)}{members.length > 3 && <span className="profile-member profile-member--more">+{members.length - 3}</span>}</span>
                     </span>
                     <span className="profile-view-accounts">Abrir perfil <ChevronRight size={16} /></span>
@@ -536,11 +596,20 @@ const UsuariosAdmin = () => {
           <>
             <section className="profile-detail" data-tour="profile-summary">
               <div className="profile-detail__hero">
-                <div className="profile-detail__identity"><span className="access-profile-card__icon"><ShieldCheck size={24} /></span><div><span className="section-kicker">Perfil de usuario</span><h2>{activeProfile.label}</h2><p>{activeProfile.description || 'Sin descripción institucional.'}</p></div></div>
-                <div className="profile-detail__actions" data-tour="profile-actions">{activeProfile.value !== 'lector' && <button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button>}{!activeProfile.sistema && activeProfile.value !== 'lector' && usuarios.filter((a) => a.rol === activeProfile.value && !a.eliminado_en).length === 0 && <button type="button" className="danger-action" onClick={() => deleteProfile(activeProfile.value)} disabled={saving}><Trash2 size={17} /> Eliminar perfil</button>}<button type="button" className="primary-action" onClick={openCreateUser}><Plus size={18} /> Crear cuenta</button></div>
+                <div className="profile-detail__identity"><span className="access-profile-card__icon"><ShieldCheck size={24} /></span><div><span className="section-kicker">Perfil de usuario</span><div className="profile-detail__title"><h2>{activeProfile.label}</h2><span className="profile-state-badge" data-active={activeProfile.activo || undefined}><i /> {activeProfile.activo ? 'Activo' : 'Desactivado'}</span></div><p>{activeProfile.description || 'Sin descripción institucional.'}</p></div></div>
+                <div className="profile-detail__actions" data-tour="profile-actions">
+                  <button type="button" className="secondary-action" onClick={() => openEditProfile(activeProfile)}><Pencil size={17} /> Editar perfil</button>
+                  {canViewAudit && <button type="button" className="secondary-action" onClick={() => openProfileAudit(activeProfile)}><History size={17} /> Actividad</button>}
+                  {activeProfile.value !== 'admin' && (activeProfile.activo
+                    ? <button type="button" className="danger-action" onClick={() => openProfileAction('deactivate', activeProfile)}><PowerOff size={17} /> Desactivar</button>
+                    : <button type="button" className="secondary-action" onClick={() => openProfileAction('reactivate', activeProfile)}><Power size={17} /> Reactivar</button>)}
+                  {activeProfile.value !== 'admin' && <button type="button" className="danger-action" onClick={() => openProfileAction('delete', activeProfile)}><Trash2 size={17} /> Eliminar</button>}
+                  <button type="button" className="primary-action" onClick={openCreateUser} disabled={!activeProfile.activo} title={!activeProfile.activo ? 'Reactiva este perfil para crear cuentas nuevas.' : undefined}><Plus size={18} /> Crear cuenta</button>
+                </div>
               </div>
               <div className="profile-detail__summary">
-                <div><strong>{usuarios.filter((account) => account.rol === activeProfile.value && account.activo).length}</strong><span>Cuentas activas</span></div>
+                <div><strong>{activeProfile.active_account_count ?? usuarios.filter((account) => account.rol === activeProfile.value && account.activo).length}</strong><span>Cuentas activas</span></div>
+                <div><strong>{activeProfile.account_count ?? usuarios.filter((account) => account.rol === activeProfile.value).length}</strong><span>Cuentas asociadas</span></div>
                 <div><strong>{activeProfile.recommended_permissions?.length || 0}</strong><span>Funciones recomendadas</span></div>
                 <div className="profile-detail__permission-preview">{(activeProfile.recommended_permissions || []).slice(0, 5).map((permission) => <span key={permission}><CheckCircle2 size={13} /> {permissionName(permission)}</span>)}{(activeProfile.recommended_permissions?.length || 0) > 5 && <span>+{activeProfile.recommended_permissions.length - 5} más</span>}</div>
               </div>

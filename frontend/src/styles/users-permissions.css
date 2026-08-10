@@ -180,10 +180,30 @@ body:has(.access-modal-backdrop) .global-tools { visibility: hidden; opacity: 0;
 .profile-detail__identity p { max-width: 700px; margin: 0; color: var(--text-light); line-height: 1.5; }
 .profile-detail__actions { display: flex; gap: 0.65rem; flex: 0 0 auto; }
 .profile-detail__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 0.42rem; }
-.profile-detail__summary { display: grid; grid-template-columns: 150px 190px 1fr; align-items: center; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border); }
+.profile-detail__summary { display: grid; grid-template-columns: 145px 145px 190px minmax(260px, 1fr); align-items: center; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .profile-detail__summary > div:not(.profile-detail__permission-preview) { display: grid; gap: 0.15rem; padding-right: 1rem; border-right: 1px solid var(--border); }
 .profile-detail__summary strong { color: var(--navy); font-size: 1.35rem; }
 .profile-detail__summary span { color: var(--text-light); font-size: 0.72rem; }
+.profile-detail__title { display: flex; align-items: center; flex-wrap: wrap; gap: 0.65rem; }
+.profile-detail__title h2 { margin: 0; }
+.profile-state-badge,
+.access-profile-card__state { display: inline-flex; align-items: center; width: fit-content; gap: 0.4rem; color: #9b2c3c; font-size: 0.72rem; font-weight: 800; }
+.profile-state-badge i,
+.access-profile-card__state i { width: 0.48rem; height: 0.48rem; border-radius: 50%; background: currentColor; }
+.profile-state-badge[data-active],
+.access-profile-card__state[data-active] { color: var(--success); }
+.access-profile-card__state { margin-top: 0.7rem; }
+.access-profile-card[data-inactive] { border-style: dashed; background: color-mix(in srgb, var(--surface) 88%, var(--canvas)); }
+.access-profile-card[data-inactive] .access-profile-card__icon { color: var(--text-light); }
+.profile-detail__actions { flex-wrap: wrap; }
+.profile-action-dialog__body { display: grid; gap: 1rem; padding: 1.35rem 1.7rem; }
+.profile-action-dialog__profile { display: flex; align-items: center; gap: 0.8rem; padding: 1rem; border: 1px solid var(--border); background: var(--canvas); border-radius: var(--radius-sm); color: var(--navy); }
+.profile-action-dialog__profile > div { display: grid; gap: 0.2rem; }
+.profile-action-dialog__profile span { color: var(--text-light); font-size: 0.82rem; }
+.profile-action-dialog__blocked { display: grid; gap: 0.35rem; padding: 1rem; border-left: 3px solid var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); color: var(--danger); }
+.profile-action-dialog__blocked span { color: var(--text); line-height: 1.5; }
+.profile-action-dialog__body label { display: grid; gap: 0.45rem; }
+.profile-action-dialog__body input { min-height: 2.9rem; padding: 0 0.85rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .profile-detail__permission-preview { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .profile-detail__permission-preview span { display: inline-flex; align-items: center; gap: 0.28rem; padding: 0.34rem 0.5rem; border-radius: 0.42rem; background: color-mix(in srgb, var(--navy) 7%, var(--surface)); font-weight: 720; }
 .users-directory--profile { padding-top: 1.7rem; }
@@ -235,6 +255,7 @@ body:has(.access-modal-backdrop) .global-tools { visibility: hidden; opacity: 0;
 .user-account__actions { display: grid; gap: 0.35rem; }
 .user-account__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 0.32rem; min-height: 37px; padding: 0.5rem 0.62rem; border: 1px solid var(--border); border-radius: 0.58rem; background: var(--surface); color: var(--text-dark); font-size: 0.72rem; font-weight: 750; cursor: pointer; white-space: nowrap; }
 .user-account__actions .account-edit { color: var(--navy); }
+.user-account__actions .account-profile { color: var(--green); }
 .user-account__actions .account-audit { color: #3f5f78; }
 .user-account__actions .account-status { color: var(--danger); }
 .user-account__actions .account-status[data-active] { color: #157154; }

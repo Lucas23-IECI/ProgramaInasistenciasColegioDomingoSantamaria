@@ -1,3 +1,5 @@
+const PROTECTED_ADMIN_PROFILE = 'admin';
+
 const registerUserRoutes = (context) => {
   const {
     app,
@@ -89,7 +91,6 @@ app.post('/api/access-profiles', verifyToken, verifyPermission('users.manage'), 
       await client.query('ROLLBACK');
       return res.status(400).json({ message: permissionValidation.error });
     }
-
     const baseCode = normalizeProfileCode(name) || 'perfil';
     let code = baseCode;
     let suffix = 2;
@@ -125,11 +126,6 @@ app.post('/api/access-profiles', verifyToken, verifyPermission('users.manage'), 
 
 app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   const code = String(req.params.code || '').trim();
-  if (code === 'lector') {
-    return res.status(409).json({
-      message: 'El perfil Portería / lector es operativo y mantiene funciones fijas.'
-    });
-  }
   const name = sanitizeText(req.body?.name).slice(0, 100);
   const description = sanitizeText(req.body?.description).slice(0, 280);
   if (name.length < 2) return res.status(400).json({ message: 'El nombre del perfil debe tener al menos 2 caracteres.' });
@@ -146,6 +142,15 @@ app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manag
     if (permissionValidation.error) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: permissionValidation.error });
+    }
+    const previousPermissions = await getRecommendedPermissions(client, code);
+    if (code === PROTECTED_ADMIN_PROFILE) {
+      const desired = JSON.stringify([...permissionValidation.permissions].sort());
+      const existing = JSON.stringify([...previousPermissions].sort());
+      if (desired !== existing) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'Las funciones del perfil Administrador están protegidas y no se pueden modificar.' });
+      }
     }
 
     await client.query(`
@@ -169,7 +174,9 @@ app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manag
       detalle: {
         codigo: code,
         antes: { nombre: current.nombre, descripcion: current.descripcion },
-        despues: { nombre: name, descripcion, permisos: permissionValidation.permissions }
+        despues: { nombre: name, descripcion, permisos: permissionValidation.permissions },
+        permisos_agregados: permissionValidation.permissions.filter((permission) => !previousPermissions.includes(permission)),
+        permisos_retirados: previousPermissions.filter((permission) => !permissionValidation.permissions.includes(permission))
       },
       ip: getClientIp(req)
     });
@@ -191,29 +198,76 @@ app.put('/api/access-profiles/:code', verifyToken, verifyPermission('users.manag
   }
 });
 
+app.patch('/api/access-profiles/:code/status', verifyToken, verifyPermission('users.manage'), async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  const active = req.body?.activo;
+  if (typeof active !== 'boolean') return res.status(400).json({ message: 'El estado solicitado no es válido.' });
+  if (code === PROTECTED_ADMIN_PROFILE) {
+    return res.status(409).json({ message: 'El perfil Administrador es obligatorio y no se puede desactivar.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 FOR UPDATE', [code]);
+    const current = locked.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Perfil de usuario no encontrado.' });
+    }
+    if (current.activo === active) {
+      await client.query('COMMIT');
+      return res.json({ message: active ? 'El perfil ya estaba activo.' : 'El perfil ya estaba desactivado.' });
+    }
+    await client.query(`
+      UPDATE perfiles_acceso
+      SET activo = $1, actualizado_en = CURRENT_TIMESTAMP
+      WHERE codigo = $2
+    `, [active, code]);
+    await insertarAudit(client, {
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: active ? 'REACTIVAR_PERFIL_ACCESO' : 'DESACTIVAR_PERFIL_ACCESO',
+      entidad: 'perfil_acceso',
+      detalle: { codigo: code, nombre: current.nombre, cuentas_conservadas: true },
+      ip: getClientIp(req)
+    });
+    await client.query('COMMIT');
+    res.json({ message: active ? 'Perfil reactivado.' : 'Perfil desactivado. Las cuentas asociadas se conservaron.' });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[access-profiles:status]', err.message);
+    res.status(500).json({ message: 'No fue posible cambiar el estado del perfil.' });
+  } finally {
+    client.release();
+  }
+});
+
 app.delete('/api/access-profiles/:code', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   const code = String(req.params.code || '').trim();
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const current = await getAccessProfile(client, code, { includeInactive: true });
+    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 FOR UPDATE', [code]);
+    const current = locked.rows[0];
     if (!current) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Perfil de usuario no encontrado.' });
     }
-    if (current.sistema) {
+    if (code === PROTECTED_ADMIN_PROFILE) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'Los perfiles institucionales no se pueden eliminar.' });
+      return res.status(409).json({ message: 'El perfil Administrador es obligatorio y no se puede eliminar.' });
     }
     const holders = await client.query(
-      'SELECT COUNT(*)::int AS total FROM usuarios WHERE rol = $1 AND eliminado_en IS NULL',
+      'SELECT id, nombre, correo FROM usuarios WHERE rol = $1 AND eliminado_en IS NULL FOR UPDATE',
       [code]
     );
-    if (holders.rows[0].total > 0) {
+    if (holders.rowCount > 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({
-        message: `El perfil tiene ${holders.rows[0].total} cuenta(s) asociada(s). Reasígnalas a otro perfil antes de eliminarlo.`
+        message: `No puedes eliminar ${current.nombre} porque actualmente está asignado a ${holders.rowCount} cuenta(s). Reasigna esas cuentas a otro perfil antes de eliminarlo.`,
+        associated_accounts: holders.rowCount
       });
     }
     await client.query('DELETE FROM permisos_rol WHERE rol = $1', [code]);
@@ -296,6 +350,11 @@ app.post('/api/users', verifyToken, verifyPermission('users.manage'), async (req
        RETURNING id, correo, rol, nombre, cargo, fecha_creacion, activo, debe_cambiar_password`,
       [normalizedEmail, hash, rol, safeName, safeCargo]
     );
+    await client.query(`
+      INSERT INTO perfiles_personales (usuario_id, nombre_mostrado, actualizado_por)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (usuario_id) DO NOTHING
+    `, [created.rows[0].id, safeName, req.user.id]);
     await replaceUserPermissionOverrides(client, {
       userId: created.rows[0].id,
       role: rol,

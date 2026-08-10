@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
 const pool = require('../db');
-const { getEffectivePermissionProfile } = require('../utils/permissions');
+const { attachPermissionProfile } = require('../utils/permissions');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -41,19 +41,7 @@ const verifyToken = async (req, res, next) => {
       return res.status(401).json({ message: 'Sesión invalidada por cambio de contraseña. Por favor, inicie sesión de nuevo.' });
     }
 
-    const permissionProfile = await getEffectivePermissionProfile(pool, currentUser.id, currentUser.rol);
-    req.user = {
-      id: currentUser.id,
-      correo: currentUser.correo,
-      rol: currentUser.rol,
-      nombre: currentUser.nombre,
-      cargo: currentUser.cargo,
-      profile_name: currentUser.profile_name || currentUser.rol,
-      token_version: currentUser.token_version,
-      debe_cambiar_password: currentUser.debe_cambiar_password,
-      permissions: permissionProfile.permissions,
-      recommended_permissions: permissionProfile.recommended_permissions
-    };
+    req.user = await attachPermissionProfile(pool, currentUser);
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Token de Cookie inválido o expirado' });

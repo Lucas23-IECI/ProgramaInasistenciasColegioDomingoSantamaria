@@ -75,6 +75,33 @@ test('la auditoría permite consultar actividad y cambios de una cuenta específ
   assert.match(serverSource, /a\.entidad = 'usuario'/);
 });
 
+test('los perfiles reutilizables tienen ciclo de vida auditado y Administrador queda protegido en API', () => {
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'routes', 'users.js'), 'utf8');
+  assert.match(routes, /PROTECTED_ADMIN_PROFILE = 'admin'/);
+  assert.match(routes, /\/api\/access-profiles\/:code\/status/);
+  assert.match(routes, /DESACTIVAR_PERFIL_ACCESO/);
+  assert.match(routes, /REACTIVAR_PERFIL_ACCESO/);
+  assert.match(routes, /ELIMINAR_PERFIL_ACCESO/);
+  assert.match(routes, /Reasigna esas cuentas a otro perfil antes de eliminarlo/);
+  assert.match(routes, /El perfil Administrador es obligatorio y no se puede desactivar/);
+  assert.match(routes, /El perfil Administrador es obligatorio y no se puede eliminar/);
+  assert.match(routes, /permisos_agregados/);
+  assert.match(routes, /permisos_retirados/);
+});
+
+test('la actividad de un perfil consolida cuentas, conserva snapshots y permite exportación exacta', () => {
+  const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'audit.js'), 'utf8');
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'migrations', '031_auditoria_perfiles_acceso.sql'), 'utf8');
+  assert.match(route, /perfil_codigo/);
+  assert.match(route, /cuenta_perfil_id/);
+  assert.match(route, /perfil_codigo_snapshot/);
+  assert.match(route, /profile_accounts/);
+  assert.match(route, /exportar = '0'/);
+  assert.match(route, /Math\.min\(10000/);
+  assert.match(migration, /perfil_nombre_snapshot/);
+  assert.doesNotMatch(migration, /REFERENCES perfiles_acceso/);
+});
+
 test('la regularizacion IPE a RUN exige permiso, respaldo y auditoria', () => {
   const routeSource = fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'management.js'), 'utf8');
   const migrationSource = fs.readFileSync(

@@ -5,6 +5,8 @@ const normalizePermissions = (permissions) => [...new Set(
     .filter(Boolean)
 )].sort();
 
+const { getPersonalProfileSummary } = require('../services/personalProfileService');
+
 const normalizeProfileCode = (name) => String(name || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -54,7 +56,7 @@ const getAccessProfiles = async (queryable, { includeInactive = true } = {}) => 
              ARRAY[]::varchar[]
            ) AS recommended_permissions
     FROM perfiles_acceso p
-    LEFT JOIN usuarios u ON u.rol = p.codigo
+    LEFT JOIN usuarios u ON u.rol = p.codigo AND u.eliminado_en IS NULL
     LEFT JOIN permisos_rol pr ON pr.rol = p.codigo
     WHERE ($1::boolean = true OR p.activo = true)
     GROUP BY p.codigo, p.nombre, p.descripcion, p.sistema, p.activo, p.orden
@@ -95,15 +97,17 @@ const getEffectivePermissionProfile = async (queryable, userId, role) => {
 
 const attachPermissionProfile = async (queryable, user) => {
   if (!user) return user;
-  const [permissions, profile] = await Promise.all([
+  const [permissions, profile, personalProfile] = await Promise.all([
     getEffectivePermissionProfile(queryable, user.id, user.rol),
-    getAccessProfile(queryable, user.rol, { includeInactive: true })
+    getAccessProfile(queryable, user.rol, { includeInactive: true }),
+    getPersonalProfileSummary(queryable, user.id)
   ]);
   return {
     ...user,
     ...permissions,
     profile_name: profile?.nombre || user.rol,
-    profile_description: profile?.descripcion || ''
+    profile_description: profile?.descripcion || '',
+    personal_profile: personalProfile
   };
 };
 
