@@ -28,8 +28,8 @@ const validationResultLabel = {
   ESTRUCTURAL: 'Formato comprobado',
   DECLARADO: 'Antecedente declarado',
   SISTEMA: 'Identificador interno',
-  PENDIENTE: 'RevisiÃ³n pendiente',
-  RECHAZADO: 'ValidaciÃ³n rechazada'
+  PENDIENTE: 'Revisión pendiente',
+  RECHAZADO: 'Validación rechazada'
 };
 
 export function StudentDetailDrawer({
@@ -194,7 +194,7 @@ export function StudentDetailDrawer({
                               </small>
                               {identifier.resultado_validacion && (
                                 <small title={identifier.validador_id
-                                  ? `${identifier.validador_id} v${identifier.validador_version || 'sin versiÃ³n'}`
+                                  ? `${identifier.validador_id} v${identifier.validador_version || 'sin versión'}`
                                   : 'Sin regla versionada registrada'}>
                                   {validationResultLabel[identifier.resultado_validacion]
                                     || identifier.resultado_validacion}

@@ -31,7 +31,7 @@ const profileDetailTour = {
     element: '[data-tour="profile-actions"]',
     popover: {
       title: 'Administrar el perfil',
-      description: 'Edita la recomendación general o crea una cuenta personal asociada a este perfil.',
+      description: 'Edita su recomendación, revisa la actividad consolidada y administra su estado. La eliminación solo está disponible cuando no tiene cuentas asociadas.',
       side: 'left',
     },
   }, {
@@ -52,6 +52,42 @@ const profileDetailTour = {
 };
 
 const tours = {
+  '/mi-perfil': {
+    title: 'Recorrido de mi perfil',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="staff-profile-hero"]',
+      popover: {
+        title: 'Tu presentacion interna',
+        description: 'Aqui se muestran tu foto, cargo, area y disponibilidad. Puedes cambiar o volver a encuadrar la foto y la portada; si no subes una imagen se utiliza una silueta neutra.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="staff-profile-editor"]',
+      popover: {
+        title: 'Información que puedes editar',
+        description: 'Actualiza tu presentacion, disponibilidad y contacto interno. El cargo y los permisos siguen bajo control administrativo.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/directorio': {
+    title: 'Recorrido del directorio interno',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="staff-directory-search"]',
+      popover: {
+        title: 'Encontrar a una persona',
+        description: 'Busca por nombre, cargo o area institucional. Solo se muestran cuentas activas y perfiles visibles.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="staff-directory-list"]',
+      popover: {
+        title: 'Equipo institucional',
+        description: 'Abre una fila para consultar el perfil, la ubicacion y los datos internos que la persona decidio compartir.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
   '/admin': {
     title: 'Recorrido del panel principal',
     steps: [
@@ -271,6 +307,49 @@ const tours = {
       },
     }, commonToolsStep],
   },
+  '/admin/convivencia': {
+    title: 'Recorrido de convivencia escolar',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="coexistence-summary"]',
+      popover: {
+        title: 'Situacion protegida de los casos',
+        description: 'Los indicadores abren los casos activos, urgentes o con revisión pendiente sin exponer antecedentes a perfiles no autorizados.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="coexistence-cases"]',
+      popover: {
+        title: 'Bandeja institucional',
+        description: 'Busca y filtra casos por estado o prioridad. Solo las cuentas con permisos explícitos pueden consultar esta información.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/documentos': {
+    title: 'Recorrido de gestión documental',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="documents-summary"]',
+      popover: {
+        title: 'Estado de los expedientes',
+        description: 'Revisa documentos activos, vencimientos, propuestas OCR pendientes y versiones que todavía no tienen firma interna.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="documents-student-search"]',
+      popover: {
+        title: 'Expediente por estudiante',
+        description: 'Busca a una persona para consultar, incorporar o generar documentos dentro de su expediente protegido.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="documents-list"]',
+      popover: {
+        title: 'Consulta transversal',
+        description: 'Filtra los documentos registrados por estudiante, título, categoría, estado o vencimiento.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
   '/admin/operacion': {
     title: 'Recorrido de tareas operativas',
     steps: [commonHeaderStep, {
@@ -336,6 +415,42 @@ const tours = {
       },
     }, commonToolsStep],
   },
+  '/admin/seguimiento': {
+    title: 'Recorrido de seguimiento institucional',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="follow-summary"]',
+      popover: {
+        title: 'Prioridades operativas',
+        description: 'Abre directamente los casos activos, prioritarios, vencidos o todavía sin responsable.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="follow-list"]',
+      popover: {
+        title: 'Casos y tareas coordinadas',
+        description: 'Cada fila resume el estudiante, el responsable, el plazo y las tareas pendientes. Abre un caso para registrar contactos, acuerdos, documentos y su conversación vinculada.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/chat': {
+    title: 'Recorrido del chat interno',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="chat-sidebar"]',
+      popover: {
+        title: 'Conversaciones institucionales',
+        description: 'Busca conversaciones o mensajes y crea comunicaciones directas, grupales o vinculadas al trabajo según tus permisos.',
+        side: 'right',
+      },
+    }, {
+      element: '[data-tour="chat-thread"]',
+      popover: {
+        title: 'Coordinación con trazabilidad',
+        description: 'Envía mensajes, menciona integrantes, fija antecedentes relevantes y ajusta tus notificaciones sin usar cuentas personales.',
+        side: 'left',
+      },
+    }, commonToolsStep],
+  },
   '/scanner': {
     title: 'Recorrido del lector',
     steps: [{
@@ -390,6 +505,83 @@ const tours = {
 
 export const getTourForPath = (pathname) => {
   if (/^\/admin\/usuarios\/[^/]+$/.test(pathname)) return profileDetailTour;
+  if (/^\/admin\/convivencia\/\d+$/.test(pathname)) return {
+    title: 'Recorrido del caso de convivencia',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="coexistence-actions"]',
+      popover: {
+        title: 'Acciones controladas',
+        description: 'Edita, cierra o reabre el caso según tus permisos. Cada cambio queda trazado sin copiar relatos sensibles en la auditoría general.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="coexistence-timeline"]',
+      popover: {
+        title: 'Historial del caso',
+        description: 'Registra medidas, entrevistas, mediaciones, acuerdos, seguimientos, derivaciones y revisiones en orden cronologico.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  };
+  if (/^\/admin\/documentos\/estudiante\/\d+$/.test(pathname)) return {
+    title: 'Recorrido del expediente documental',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="documents-student-file"]',
+      popover: {
+        title: 'Ficha documental del estudiante',
+        description: 'Consulta la identidad, incorpora archivos protegidos o genera un PDF desde una plantilla institucional.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="documents-file-summary"]',
+      popover: {
+        title: 'Resumen del expediente',
+        description: 'Muestra documentos, vigencias y todas las versiones conservadas sin sobrescribir archivos anteriores.',
+        side: 'bottom',
+      },
+    }, commonToolsStep],
+  };
+  if (/^\/admin\/documentos\/ficha\/\d+$/.test(pathname)) return {
+    title: 'Recorrido de la ficha documental',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="documents-detail"]',
+      popover: {
+        title: 'Metadatos y vigencia',
+        description: 'Revisa la categoría, el nivel de acceso, la vigencia y el estado institucional del documento.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="documents-versions"]',
+      popover: {
+        title: 'Versiones, OCR y firmas',
+        description: 'Cada archivo conserva su huella digital. El OCR requiere revisión humana y las firmas internas quedan asociadas a una versión exacta.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  };
+  if (/^\/admin\/seguimiento\/\d+$/.test(pathname)) return {
+    title: 'Recorrido del caso de seguimiento',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="follow-detail"]',
+      popover: {
+        title: 'Historia completa del caso',
+        description: 'Consulta el motivo, la prioridad y la línea de tiempo; registra notas, tareas, contactos y acuerdos antes de cerrar o escalar el seguimiento.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  };
+  if (/^\/chat\/\d+$/.test(pathname)) return tours['/chat'];
+  if (/^\/directorio\/\d+$/.test(pathname)) return {
+    title: 'Recorrido del perfil institucional',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="staff-profile-hero"]',
+      popover: {
+        title: 'Ficha del equipo',
+        description: 'Consulta cargo, area, disponibilidad y contacto interno sin ver configuraciones tecnicas de permisos.',
+        side: 'bottom',
+      },
+    }, commonToolsStep],
+  };
   return tours[pathname] || {
     title: 'Ayuda de esta página',
     steps: [commonHeaderStep, commonToolsStep],

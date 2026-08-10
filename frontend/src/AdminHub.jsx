@@ -9,13 +9,19 @@ import {
   Settings2,
   ScanLine,
   ContactRound,
+  BookUser,
   ListChecks,
   DatabaseZap,
   UserCog,
   Users,
+  ShieldCheck,
+  FolderArchive,
+  BriefcaseBusiness,
+  MessagesSquare,
 } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
+import DevelopmentBadge from './components/DevelopmentBadge';
 import { PERMISSIONS, hasAnyPermission, roleLabel } from './permissions';
 
 const ALL_MODULES = [
@@ -85,6 +91,83 @@ const ALL_MODULES = [
     path: '/admin/estudiantes',
     tone: 'navy',
     permissions: [PERMISSIONS.STUDENTS_VIEW, PERMISSIONS.STUDENTS_MANAGE, PERMISSIONS.STUDENTS_IMPORT, PERMISSIONS.STUDENTS_IDENTITY_REGULARIZE, PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS],
+  },
+  {
+    key: 'directorio',
+    icon: BookUser,
+    section: 'comunidad',
+    category: 'Equipo institucional',
+    title: 'Directorio interno',
+    description: 'Perfiles, cargos, ubicaciones y disponibilidad del personal autorizado.',
+    path: '/directorio',
+    tone: 'navy',
+    permissions: [PERMISSIONS.PROFILES_DIRECTORY_VIEW],
+  },
+  {
+    key: 'seguimiento',
+    development: true,
+    icon: BriefcaseBusiness,
+    section: 'bienestar',
+    category: 'Gestión preventiva',
+    title: 'Seguimiento institucional',
+    description: 'Casos, responsables, contactos, acuerdos, tareas y derivaciones coordinadas.',
+    path: '/admin/seguimiento',
+    tone: 'blue',
+    permissions: [
+      PERMISSIONS.FOLLOW_UP_VIEW,
+      PERMISSIONS.FOLLOW_UP_CREATE,
+      PERMISSIONS.FOLLOW_UP_MANAGE,
+      PERMISSIONS.FOLLOW_UP_CONTACTS,
+    ],
+  },
+  {
+    key: 'convivencia',
+    development: true,
+    icon: ShieldCheck,
+    section: 'bienestar',
+    category: 'Proteccion y bienestar',
+    title: 'Convivencia escolar',
+    description: 'Gestión reservada de situaciones, medidas, acuerdos y seguimientos.',
+    path: '/admin/convivencia',
+    tone: 'red',
+    permissions: [
+      PERMISSIONS.COEXISTENCE_VIEW,
+      PERMISSIONS.COEXISTENCE_CREATE,
+      PERMISSIONS.COEXISTENCE_MANAGE,
+      PERMISSIONS.COEXISTENCE_DOCUMENTS,
+      PERMISSIONS.COEXISTENCE_CLOSE,
+    ],
+  },
+  {
+    key: 'chat',
+    development: true,
+    icon: MessagesSquare,
+    section: 'comunicacion',
+    category: 'Comunicación segura',
+    title: 'Chat interno',
+    description: 'Conversaciones directas, grupos y canales vinculados al trabajo institucional.',
+    path: '/chat',
+    tone: 'green',
+    permissions: [PERMISSIONS.CHAT_ACCESS],
+  },
+  {
+    key: 'documentos',
+    development: true,
+    icon: FolderArchive,
+    section: 'documentacion',
+    category: 'Expediente estudiantil',
+    title: 'Gestión documental',
+    description: 'Certificados, autorizaciones, vigencias, versiones, firmas internas y OCR revisable.',
+    path: '/admin/documentos',
+    tone: 'purple',
+    permissions: [
+      PERMISSIONS.DOCUMENTS_VIEW,
+      PERMISSIONS.DOCUMENTS_UPLOAD,
+      PERMISSIONS.DOCUMENTS_MANAGE,
+      PERMISSIONS.DOCUMENTS_SIGN,
+      PERMISSIONS.DOCUMENTS_TEMPLATES,
+      PERMISSIONS.DOCUMENTS_OCR,
+    ],
   },
   {
     key: 'usuarios',
@@ -158,6 +241,21 @@ const MODULE_SECTIONS = [
     key: 'comunidad',
     title: 'Comunidad educativa',
     description: 'Nómina escolar, cursos, matrículas y fichas de apoderados.'
+  },
+  {
+    key: 'bienestar',
+    title: 'Proteccion y bienestar',
+    description: 'Casos reservados, medidas institucionales y seguimiento de convivencia escolar.'
+  },
+  {
+    key: 'comunicacion',
+    title: 'Coordinación interna',
+    description: 'Comunicación institucional conectada con las tareas y los casos del establecimiento.'
+  },
+  {
+    key: 'documentacion',
+    title: 'Documentación estudiantil',
+    description: 'Expedientes protegidos, vigencias, versiones y documentos institucionales.'
   },
   {
     key: 'administracion',
@@ -251,7 +349,10 @@ const AdminHub = () => {
                       onClick={() => navigate(module.path)}
                     >
                       <div className="hub-module-icon"><module.icon size={22} /></div>
-                      <span className="hub-module-category">{module.category}</span>
+                      <span className="hub-module-category-row">
+                        <span className="hub-module-category">{module.category}</span>
+                        {module.development && <DevelopmentBadge compact />}
+                      </span>
                       <h3 className="hub-module-title">{module.title}</h3>
                       <p className="hub-module-desc">{module.description}</p>
                       <span className="hub-module-go">Ingresar <ArrowRight size={16} /></span>

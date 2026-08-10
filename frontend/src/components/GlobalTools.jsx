@@ -1,11 +1,13 @@
 import { useContext, useEffect, useRef, useState } from 'react';
-import { CircleHelp, KeyRound, LogOut, Moon, Newspaper, Sun, UserRound } from 'lucide-react';
+import { CircleHelp, ContactRound, Download, KeyRound, LogOut, MessageCircle, Moon, Newspaper, RefreshCw, Smartphone, Sun, UserRound } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
 import { useHelpTour } from '../context/HelpTourContext';
-import { roleLabel } from '../permissions';
+import { PERMISSIONS, hasPermission, roleLabel } from '../permissions';
 import { useReleaseNotes } from '../context/ReleaseNotesContext';
+import StaffAvatar from './StaffAvatar';
+import { PwaContext } from '../context/PwaContext';
 
 const initialsFrom = (value) => String(value || 'Usuario')
   .split(/\s+/)
@@ -20,7 +22,9 @@ const GlobalTools = () => {
   const { theme, toggleTheme } = useContext(ThemeContext);
   const { available, startTour, title } = useHelpTour();
   const { openReleaseNotes } = useReleaseNotes();
+  const pwa = useContext(PwaContext);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadChat, setUnreadChat] = useState(0);
   const menuRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,6 +49,18 @@ const GlobalTools = () => {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!user || !hasPermission(user, PERMISSIONS.CHAT_ACCESS)) return undefined;
+    let active = true;
+    const refresh = () => fetch('/api/chat/resumen', { credentials: 'include', cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (active && data) setUnreadChat(Number(data.no_leidos) || 0); })
+      .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    return () => { active = false; clearInterval(timer); };
+  }, [user]);
 
   if (!user) return null;
 
@@ -75,6 +91,30 @@ const GlobalTools = () => {
       >
         {theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}
       </button>
+      {hasPermission(user, PERMISSIONS.CHAT_ACCESS) && (
+        <button
+          type="button"
+          className="global-tool-button global-tool-button--chat"
+          onClick={() => navigate('/chat')}
+          title="Abrir chat interno"
+          aria-label={`Abrir chat interno${unreadChat ? `, ${unreadChat} mensajes sin leer` : ''}`}
+        >
+          <MessageCircle size={19} />
+          {unreadChat > 0 && <span className="global-tool-badge">{unreadChat > 99 ? '99+' : unreadChat}</span>}
+        </button>
+      )}
+      {(pwa.updateAvailable || !pwa.installed) && (
+        <button
+          type="button"
+          className={`global-tool-button global-tool-button--pwa${pwa.updateAvailable ? ' has-update' : ''}`}
+          onClick={pwa.updateAvailable ? pwa.openPwaDetails : pwa.install}
+          disabled={pwa.installing || pwa.updating}
+          title={pwa.updateAvailable ? 'Actualizar aplicación' : 'Instalar aplicación'}
+          aria-label={pwa.updateAvailable ? 'Actualizar aplicación' : 'Instalar aplicación'}
+        >
+          {pwa.updateAvailable ? <RefreshCw size={19} className={pwa.updating ? 'is-spinning' : ''} /> : <Download size={19} />}
+        </button>
+      )}
       <div className="global-user" ref={menuRef}>
         <button
           type="button"
@@ -83,22 +123,36 @@ const GlobalTools = () => {
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
         >
-          <span>{initialsFrom(user.nombre || user.correo)}</span>
+          {user.personal_profile?.avatar_url || user.personal_profile?.cuenta_compartida ? (
+            <StaffAvatar profile={user.personal_profile} name={user.nombre || user.correo} size="sm" />
+          ) : <span>{initialsFrom(user.nombre || user.correo)}</span>}
         </button>
         {menuOpen && (
           <div className="global-user-menu" role="menu">
             <div className="global-user-menu__identity">
-              <UserRound size={18} />
+              <StaffAvatar profile={user.personal_profile} name={user.nombre || user.correo} size="md" />
               <div>
-                <strong>{user.nombre || user.correo}</strong>
+                <strong>{user.personal_profile?.nombre_mostrado || user.nombre || user.correo}</strong>
                 <span>{user.profile_name || roleLabel(user.rol)}</span>
               </div>
             </div>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate('/mi-perfil'); }}>
+              <UserRound size={17} /> Mi perfil
+            </button>
+            {hasPermission(user, PERMISSIONS.PROFILES_DIRECTORY_VIEW) && (
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate('/directorio'); }}>
+                <ContactRound size={17} /> Directorio interno
+              </button>
+            )}
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); navigate('/cambiar-clave'); }}>
               <KeyRound size={17} /> Cambiar contraseña
             </button>
             <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); openReleaseNotes(); }}>
               <Newspaper size={17} /> Novedades de la versión
+            </button>
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); pwa.openPwaDetails(); }}>
+              {pwa.installed ? <Smartphone size={17} /> : <Download size={17} />}
+              {pwa.installed ? 'Aplicación instalada' : 'Instalar aplicación'}
             </button>
             <button type="button" role="menuitem" onClick={handleLogout}>
               <LogOut size={17} /> Cerrar sesión
