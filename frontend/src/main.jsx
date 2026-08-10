@@ -8,6 +8,13 @@ import './styles/punctuality.css'
 import './styles/release-notes.css'
 import './styles/visits.css'
 import './styles/operations.css'
+import './styles/staff-profiles.css'
+import './styles/coexistence.css'
+import './styles/student-documents.css'
+import './styles/institutional-analytics.css'
+import './styles/pwa-experience.css'
+import './styles/follow-up.css'
+import './styles/internal-chat.css'
 import { AuthProvider, AuthContext } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import App from './App.jsx'
@@ -22,8 +29,11 @@ import { HelpTourProvider } from './context/HelpTourContext.jsx'
 import { ADMIN_MODULE_PERMISSIONS, PERMISSIONS, hasAnyPermission, hasPermission } from './permissions'
 import { ReleaseNotesProvider } from './context/ReleaseNotesContext.jsx'
 import { installChunkRecovery, recoverFromStaleChunk } from './utils/chunkRecovery.js'
+import { registerServiceWorker } from './pwa/registerServiceWorker.js'
+import { PwaProvider } from './context/PwaContext.jsx'
 
 installChunkRecovery()
+registerServiceWorker()
 
 const lazyRoute = (importer) => lazy(async () => {
   try {
@@ -46,6 +56,12 @@ const OperationalInbox = lazyRoute(() => import('./OperationalInbox.jsx'))
 const VisitSettingsAdmin = lazyRoute(() => import('./VisitSettingsAdmin.jsx'))
 const FamilyDirectory = lazyRoute(() => import('./FamilyDirectory.jsx'))
 const DataGovernanceAdmin = lazyRoute(() => import('./DataGovernanceAdmin.jsx'))
+const StaffProfile = lazyRoute(() => import('./StaffProfile.jsx'))
+const StaffDirectory = lazyRoute(() => import('./StaffDirectory.jsx'))
+const SchoolCoexistence = lazyRoute(() => import('./SchoolCoexistence.jsx'))
+const StudentDocuments = lazyRoute(() => import('./StudentDocuments.jsx'))
+const InstitutionalFollowUp = lazyRoute(() => import('./InstitutionalFollowUp.jsx'))
+const InternalChat = lazyRoute(() => import('./InternalChat.jsx'))
 
 const ProtectedRoute = ({ children, permission, anyPermissions }) => {
   const { user, loading } = useContext(AuthContext);
@@ -88,6 +104,7 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <FeedbackProvider>
             <BrowserRouter>
+          <PwaProvider>
           <HelpTourProvider>
           <ReleaseNotesProvider>
           <ScrollToTop />
@@ -96,6 +113,11 @@ createRoot(document.getElementById('root')).render(
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/cambiar-clave" element={<ProtectedPasswordRoute><ChangePassword /></ProtectedPasswordRoute>} />
+            <Route path="/mi-perfil" element={<ProtectedRoute><StaffProfile /></ProtectedRoute>} />
+            <Route path="/directorio" element={<ProtectedRoute permission={PERMISSIONS.PROFILES_DIRECTORY_VIEW}><StaffDirectory /></ProtectedRoute>} />
+            <Route path="/directorio/:userId" element={<ProtectedRoute permission={PERMISSIONS.PROFILES_DIRECTORY_VIEW}><StaffProfile directoryMode /></ProtectedRoute>} />
+            <Route path="/chat" element={<ProtectedRoute permission={PERMISSIONS.CHAT_ACCESS}><InternalChat /></ProtectedRoute>} />
+            <Route path="/chat/:conversationId" element={<ProtectedRoute permission={PERMISSIONS.CHAT_ACCESS}><InternalChat /></ProtectedRoute>} />
             <Route path="/" element={<RoleBasedHome />} />
 
             {/* Lector Only (Opcional admin test) */}
@@ -109,7 +131,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/usuarios" element={<ProtectedRoute permission={PERMISSIONS.USERS_MANAGE}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/usuarios/:profileCode" element={<ProtectedRoute permission={PERMISSIONS.USERS_MANAGE}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute permission={PERMISSIONS.AUDIT_VIEW}><AuditoriaAdmin /></ProtectedRoute>} />
-            <Route path="/admin/analiticas" element={<ProtectedRoute permission={PERMISSIONS.ANALYTICS_VIEW}><AnaliticasAdmin /></ProtectedRoute>} />
+            <Route path="/admin/analiticas" element={<ProtectedRoute anyPermissions={[PERMISSIONS.ANALYTICS_VIEW, PERMISSIONS.ANALYTICS_INSTITUTIONAL_VIEW]}><AnaliticasAdmin /></ProtectedRoute>} />
             <Route path="/admin/configuracion" element={<ProtectedRoute anyPermissions={[PERMISSIONS.SETTINGS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE]}><PunctualitySettings /></ProtectedRoute>} />
             <Route path="/admin/visitas" element={<ProtectedRoute anyPermissions={[
               PERMISSIONS.VISITS_VIEW,
@@ -125,11 +147,19 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/visitas/configuracion" element={<ProtectedRoute permission={PERMISSIONS.VISITS_SETTINGS}><VisitSettingsAdmin /></ProtectedRoute>} />
             <Route path="/admin/familias" element={<ProtectedRoute permission={PERMISSIONS.FAMILY_MANAGE}><FamilyDirectory /></ProtectedRoute>} />
             <Route path="/admin/gobierno-datos" element={<ProtectedRoute permission={PERMISSIONS.SETTINGS_MANAGE}><DataGovernanceAdmin /></ProtectedRoute>} />
+            <Route path="/admin/convivencia" element={<ProtectedRoute permission={PERMISSIONS.COEXISTENCE_VIEW}><SchoolCoexistence /></ProtectedRoute>} />
+            <Route path="/admin/convivencia/:caseId" element={<ProtectedRoute permission={PERMISSIONS.COEXISTENCE_VIEW}><SchoolCoexistence /></ProtectedRoute>} />
+            <Route path="/admin/documentos" element={<ProtectedRoute permission={PERMISSIONS.DOCUMENTS_VIEW}><StudentDocuments /></ProtectedRoute>} />
+            <Route path="/admin/documentos/estudiante/:studentId" element={<ProtectedRoute permission={PERMISSIONS.DOCUMENTS_VIEW}><StudentDocuments /></ProtectedRoute>} />
+            <Route path="/admin/documentos/ficha/:documentId" element={<ProtectedRoute permission={PERMISSIONS.DOCUMENTS_VIEW}><StudentDocuments /></ProtectedRoute>} />
+            <Route path="/admin/seguimiento" element={<ProtectedRoute permission={PERMISSIONS.FOLLOW_UP_VIEW}><InstitutionalFollowUp /></ProtectedRoute>} />
+            <Route path="/admin/seguimiento/:caseId" element={<ProtectedRoute permission={PERMISSIONS.FOLLOW_UP_VIEW}><InstitutionalFollowUp /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           </Suspense>
           </ReleaseNotesProvider>
           </HelpTourProvider>
+          </PwaProvider>
             </BrowserRouter>
           </FeedbackProvider>
         </AuthProvider>

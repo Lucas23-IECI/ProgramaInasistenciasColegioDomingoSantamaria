@@ -44,10 +44,18 @@ const { createOperationsRouter } = require('./routes/operations');
 const { createVisitSettingsRouter } = require('./routes/visitSettings');
 const { createFamiliesRouter } = require('./routes/families');
 const { createStudentGovernanceRouter } = require('./routes/studentGovernance');
+const { createCoexistenceRouter } = require('./routes/coexistence');
+const { createStudentDocumentsRouter } = require('./routes/studentDocuments');
+const { createAnalyticsRouter } = require('./routes/analytics');
+const { createFollowUpRouter } = require('./routes/followUp');
+const { createInternalChatRouter } = require('./routes/internalChat');
+const { startInstitutionalReportScheduler } = require('./services/institutionalReportScheduler');
+const { startInstitutionalFollowUpScheduler } = require('./services/institutionalFollowUpService');
 const { registerAuthRoutes } = require('./routes/auth');
 const { registerStudentRoutes } = require('./routes/students');
 const { registerUserRoutes } = require('./routes/users');
 const { registerAuditRoutes } = require('./routes/audit');
+const { registerProfileRoutes } = require('./routes/profiles');
 const { assignEnrollment, closeEnrollment } = require('./services/enrollmentService');
 const { recordOperationalEvent } = require('./services/operationalEventService');
 const {
@@ -170,6 +178,7 @@ const toPublicUser = (user) => ({
   profile_name: user.profile_name || user.rol,
   nombre: user.nombre,
   cargo: user.cargo || null,
+  personal_profile: user.personal_profile || null,
   debe_cambiar_password: Boolean(user.debe_cambiar_password),
   permissions: Array.isArray(user.permissions) ? user.permissions : [],
   recommended_permissions: Array.isArray(user.recommended_permissions) ? user.recommended_permissions : []
@@ -676,8 +685,17 @@ const getInstitutionalClock = async (queryable = pool) => {
 // AUDIT HELPER
 const insertarAudit = async (queryable, { usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip }) => {
   await queryable.query(
-    `INSERT INTO audit_log (usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO audit_log
+       (usuario_id, usuario_correo, accion, entidad, entidad_id, detalle, ip,
+        perfil_codigo_snapshot, perfil_nombre_snapshot)
+     VALUES (
+       $1, $2, $3, $4, $5, $6, $7,
+       (SELECT u.rol FROM usuarios u WHERE u.id = $1),
+       (SELECT COALESCE(p.nombre, u.rol)
+        FROM usuarios u
+        LEFT JOIN perfiles_acceso p ON p.codigo = u.rol
+        WHERE u.id = $1)
+     )`,
     [usuario_id, usuario_correo, accion, entidad, entidad_id, detalle ? JSON.stringify(detalle) : null, ip]
   );
 };
@@ -742,6 +760,47 @@ app.use('/api/padron', createStudentGovernanceRouter({
   verifyToken,
   verifyPermission,
   verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/convivencia', createCoexistenceRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/documentos-estudiantes', createStudentDocumentsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit
+}));
+
+app.use('/api/analitica', createAnalyticsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/seguimiento', createFollowUpRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/chat', createInternalChatRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
   insertarAudit,
   getClientIp
 }));
@@ -867,6 +926,7 @@ registerAuthRoutes(routeContext);
 registerStudentRoutes(routeContext);
 registerUserRoutes(routeContext);
 registerAuditRoutes(routeContext);
+registerProfileRoutes(routeContext);
 
 const ensureBaseData = async (isNewSchema) => {
   await pool.query(`
@@ -906,6 +966,8 @@ const startServer = async () => {
 
   return app.listen(PORT, () => {
     console.log(`Servidor listo en el puerto ${PORT}`);
+    startInstitutionalReportScheduler(pool);
+    startInstitutionalFollowUpScheduler(pool);
   });
 };
 
@@ -919,10 +981,10 @@ const registerShutdownHandlers = (server, options = {}) => {
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info(`[OPERACION] ${signal}: cerrando conexiones de forma segura.`);
+    logger.info(`[OPERACIÓN] ${signal}: cerrando conexiones de forma segura.`);
 
     const forcedExit = setTimeout(() => {
-      logger.error('[OPERACION] El cierre seguro excedio el tiempo maximo.');
+      logger.error('[OPERACIÓN] El cierre seguro excedió el tiempo máximo.');
       processReference.exit(1);
     }, timeoutMs);
     forcedExit.unref?.();
@@ -931,17 +993,17 @@ const registerShutdownHandlers = (server, options = {}) => {
       try {
         await databasePool.end();
       } catch (databaseError) {
-        logger.error(`[OPERACION] Error cerrando PostgreSQL: ${databaseError.message}`);
+        logger.error(`[OPERACIÓN] Error cerrando PostgreSQL: ${databaseError.message}`);
         processReference.exitCode = 1;
       } finally {
         clearTimeout(forcedExit);
       }
 
       if (serverError) {
-        logger.error(`[OPERACION] Error cerrando HTTP: ${serverError.message}`);
+        logger.error(`[OPERACIÓN] Error cerrando HTTP: ${serverError.message}`);
         processReference.exitCode = 1;
       } else {
-        logger.info('[OPERACION] Servicio detenido correctamente.');
+        logger.info('[OPERACIÓN] Servicio detenido correctamente.');
       }
     });
   };

@@ -50,7 +50,7 @@ const validateEnvironment = (environment = process.env) => {
       errors.push('CORS_ORIGIN es obligatorio en produccion.');
     }
     if (allowedOrigins.some((origin) => origin === '*' || !/^https?:\/\//.test(origin))) {
-      errors.push('CORS_ORIGIN solo puede contener origenes HTTP o HTTPS explicitos.');
+      errors.push('CORS_ORIGIN solo puede contener orígenes HTTP o HTTPS explícitos.');
     }
 
     if (String(environment.COOKIE_SECURE).toLowerCase() === 'false'
@@ -68,11 +68,11 @@ const assertEnvironment = (environment = process.env, logger = console) => {
   const failures = strict ? [...result.errors, ...result.warnings] : result.errors;
 
   for (const warning of result.warnings) {
-    logger.warn(`[CONFIGURACION] ${warning}`);
+    logger.warn(`[CONFIGURACIÓN] ${warning}`);
   }
 
   if (failures.length > 0) {
-    throw new Error(`Configuracion de entorno invalida: ${failures.join(' ')}`);
+    throw new Error(`Configuración de entorno inválida: ${failures.join(' ')}`);
   }
 
   return result;

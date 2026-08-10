@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "check": "npm run check:core && npm run check:routes && npm run check:scripts",
-    "check:core": "node --check server.js && node --check seed.js && node --check migrations.js && node --check utils/identityValidatorRegistry.js && node --check utils/studentImportGovernance.js && node --check utils/studentErpIdentity.js && node --check utils/studentPrivacy.js && node --check services/studentIdentifierService.js",
-    "check:routes": "node --check routes/auth.js && node --check routes/audit.js && node --check routes/users.js && node --check routes/students.js && node --check routes/students/registry.js && node --check routes/students/imports.js && node --check routes/students/management.js && node --check routes/punctuality.js && node --check routes/operations.js && node --check routes/families.js && node --check routes/visits.js && node --check routes/visits/authorizations.js && node --check routes/visits/withdrawals.js && node --check routes/studentGovernance.js && node --check services/visitReportService.js && node --check services/studentExportService.js && node --check utils/registrationMethods.js",
-    "check:scripts": "node --check scripts/seed-visits-demo.js && node --check scripts/verify-manual-student-flow.js && node --check scripts/verify-manual-identities-api.js && node --check scripts/verify-student-governance.js && node --check scripts/verify-student-identifiers.js && node --check scripts/verify-identity-regularization.js && node --check scripts/verify-identity-regularization-api.js && node --check scripts/verify-student-exports-api.js && node --check scripts/verify-student-privacy-api.js",
+    "check:core": "node --check server.js && node --check seed.js && node --check migrations.js && node --check utils/identityValidatorRegistry.js && node --check utils/studentImportGovernance.js && node --check utils/studentErpIdentity.js && node --check utils/studentPrivacy.js && node --check services/studentIdentifierService.js && node --check services/personalProfileService.js && node --check services/profileMediaService.js && node --check services/documentService.js && node --check services/documentPdfService.js && node --check services/documentOcrService.js && node --check services/institutionalAnalyticsService.js && node --check services/institutionalReportService.js && node --check services/institutionalReportScheduler.js && node --check services/institutionalFollowUpService.js",
+    "check:routes": "node --check routes/auth.js && node --check routes/audit.js && node --check routes/users.js && node --check routes/profiles.js && node --check routes/students.js && node --check routes/students/registry.js && node --check routes/students/imports.js && node --check routes/students/management.js && node --check routes/punctuality.js && node --check routes/operations.js && node --check routes/families.js && node --check routes/visits.js && node --check routes/visits/authorizations.js && node --check routes/visits/withdrawals.js && node --check routes/studentGovernance.js && node --check routes/coexistence.js && node --check routes/studentDocuments.js && node --check routes/analytics.js && node --check routes/followUp.js && node --check routes/internalChat.js && node --check services/visitReportService.js && node --check services/studentExportService.js && node --check utils/registrationMethods.js",
+    "check:scripts": "node --check scripts/seed-visits-demo.js && node --check scripts/verify-manual-student-flow.js && node --check scripts/verify-manual-identities-api.js && node --check scripts/verify-student-governance.js && node --check scripts/verify-student-identifiers.js && node --check scripts/verify-identity-regularization.js && node --check scripts/verify-identity-regularization-api.js && node --check scripts/verify-student-exports-api.js && node --check scripts/verify-student-privacy-api.js && node --check scripts/verify-coexistence-api.js && node --check scripts/verify-student-documents-api.js",
     "test": "node --test",
     "test:manual-students": "node scripts/verify-manual-student-flow.js",
     "test:manual-identities-api": "node scripts/verify-manual-identities-api.js",
@@ -18,6 +18,8 @@
     "test:identity-regularization-api": "node scripts/verify-identity-regularization-api.js",
     "test:student-exports-api": "node scripts/verify-student-exports-api.js",
     "test:student-privacy-api": "node scripts/verify-student-privacy-api.js",
+    "test:coexistence-api": "node scripts/verify-coexistence-api.js",
+    "test:student-documents-api": "node scripts/verify-student-documents-api.js",
     "seed:visits-demo": "node scripts/seed-visits-demo.js"
   },
   "keywords": [],
@@ -25,6 +27,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@tesseract.js-data/spa": "^1.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -35,6 +38,8 @@
     "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.17.2",
     "pg": "^8.20.0",
+    "sharp": "0.35.3",
+    "tesseract.js": "^7.0.0",
     "write-excel-file": "^4.1.1"
   }
 }
