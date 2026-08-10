@@ -1,0 +1,19 @@
+{
+  "name": "Gestión escolar · Liceo Domingo Santa María",
+  "short_name": "Gestión LDSM",
+  "description": "Control interno de puntualidad, portería y gestión escolar.",
+  "lang": "es-CL",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f2f6f8",
+  "theme_color": "#005e63",
+  "icons": [
+    { "src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

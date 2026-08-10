@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import axios from 'axios';
-import { Search, CheckCircle, AlertCircle, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard, Camera } from 'lucide-react';
+import { Search, CheckCircle, AlertCircle, Bell, LogOut, User, ChevronRight, Columns, AlignCenter, Sparkles, ShieldCheck, GraduationCap, Clock, Filter, X, ScanLine, Keyboard, Camera } from 'lucide-react';
 import { playBeep } from '../utils/audioNotifier';
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
@@ -9,6 +9,8 @@ import { AuthContext } from '../context/AuthContext';
 import { hasPermission, hasRegistrationMethodPermission, PERMISSIONS } from '../permissions';
 import { getStudentIdentifier } from '../utils/studentFormat';
 import { REGISTRATION_METHODS, vibrateForRegistration } from '../utils/cameraScanner';
+import { countOfflineRegistrations, findOfflineStudent, flushOfflineRegistrations, queueOfflineRegistration, saveOfflineRoster } from '../pwa/offlineStore';
+import { notifyPwaSync, requestPwaNotifications } from '../pwa/registerServiceWorker';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
   const { user } = useContext(AuthContext);
@@ -22,6 +24,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const [restricciones, setRestricciones] = useState([]);
   const [isOffline, setIsOffline] = useState(false);
   const [showReconnectedBanner, setShowReconnectedBanner] = useState(false);
+  const [offlinePending, setOfflinePending] = useState(0);
+  const [notificationPermission, setNotificationPermission] = useState(() => ('Notification' in window ? Notification.permission : 'unsupported'));
   const [todayStats, setTodayStats] = useState({ total: 0, presentes: 0, atrasados: 0 }); // Presentes y Atrasados
 
   // Settings/Config
@@ -83,6 +87,35 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       .then(res => setPunctualityConfig(res.data))
       .catch(() => {});
   }, []);
+
+  const refreshOfflineRoster = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/puntualidad/offline-roster`);
+      await saveOfflineRoster(response.data?.estudiantes || []);
+      setOfflinePending(await countOfflineRegistrations());
+    } catch { /* conserva la última copia operativa válida */ }
+  }, []);
+
+  const syncOfflineQueue = useCallback(async () => {
+    const result = await flushOfflineRegistrations((payload) => axios.post(`${API_URL}/puntualidad/registros`, payload));
+    setOfflinePending(result.pending);
+    if (result.synced > 0) {
+      setShowReconnectedBanner(true);
+      setTimeout(() => setShowReconnectedBanner(false), 5000);
+      notifyPwaSync(result.synced).catch(() => {});
+    }
+  }, []);
+
+  const enableSyncNotifications = async () => {
+    const permission = await requestPwaNotifications();
+    setNotificationPermission(permission);
+  };
+
+  useEffect(() => { refreshOfflineRoster(); }, [refreshOfflineRoster]);
+
+  useEffect(() => {
+    if (!isOffline) syncOfflineQueue().catch(() => {});
+  }, [isOffline, syncOfflineQueue]);
 
   const fetchControlState = useCallback(async () => {
     try {
@@ -280,11 +313,38 @@ const BarcodeScanner = ({ tipoRegistro }) => {
     }
   };
 
+  const queueOfflineValue = async (value, method) => {
+    const matches = await findOfflineStudent(value);
+    if (matches.length !== 1) {
+      setError(matches.length ? 'La búsqueda sin conexión tiene más de una coincidencia. Conéctate o utiliza un identificador más preciso.' : 'Esta persona no está disponible en el padrón operativo guardado.');
+      return;
+    }
+    const found = matches[0];
+    const payload = {
+      offline_operation_id: crypto.randomUUID(), capturado_en: new Date().toISOString(),
+      dispositivo: `${navigator.platform || 'dispositivo'} · PWA`, id_alumno: found.id_alumno,
+      origen: method === REGISTRATION_METHODS.MANUAL ? 'manual' : 'lector', metodo_registro: method,
+      control_id: selectedControlId ? Number(selectedControlId) : undefined
+    };
+    await queueOfflineRegistration(payload);
+    setOfflinePending(await countOfflineRegistrations());
+    setStudent(found);
+    setAlreadyRegistered(true);
+    setStatusRegistrado('Pendiente de sincronización');
+    setSuccessMsg(`${found.nombres} ${found.paterno || ''} — guardado de forma segura`);
+    playBeep('success');
+    vibrateForRegistration('success');
+  };
+
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (isOffline) return;
     const value = inputValue.trim();
     if (!value) return;
+    if (isOffline) {
+      setInputValue('');
+      await queueOfflineValue(value, activeInputMode);
+      return;
+    }
 
     // Commit pending registration immediately when a new scan/submission is detected
     if (pendingRegistration) {
@@ -339,7 +399,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
   // Flujo escáner: buscar → mostrar confirmación 1.5s → registrar automáticamente
   const scanByBarcode = async (barcode, method = REGISTRATION_METHODS.BARCODE) => {
-    if (isOffline) return;
+    if (isOffline) { await queueOfflineValue(barcode, method); return; }
     if (isProcessing.current) return;
     isProcessing.current = true;
 
@@ -612,27 +672,27 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         <span className="scanner-mode-selector__label">Método de registro</span>
         <div className="scanner-mode-selector__options">
           {canUseBarcode && (
-            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.BARCODE || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.BARCODE)} disabled={isOffline}>
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.BARCODE || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.BARCODE)}>
               <ScanLine size={18} /><span><strong>Pistola de códigos</strong><small>Lector conectado al equipo</small></span>
             </button>
           )}
           {canUseCamera && (
-            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.CAMERA || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.CAMERA)} disabled={isOffline}>
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.CAMERA || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.CAMERA)}>
               <Camera size={18} /><span><strong>Cámara del dispositivo</strong><small>Celular, tablet o notebook</small></span>
             </button>
           )}
           {canUseManual && (
-            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.MANUAL || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.MANUAL)} disabled={isOffline}>
+            <button type="button" className="scanner-mode-option" data-active={activeInputMode === REGISTRATION_METHODS.MANUAL || undefined} onClick={() => selectInputMode(REGISTRATION_METHODS.MANUAL)}>
               <Keyboard size={18} /><span><strong>Búsqueda manual</strong><small>Nombre o identificador</small></span>
             </button>
           )}
         </div>
-        {isOffline && <span className="scanner-mode-selector__offline">Sistema temporalmente fuera de línea</span>}
+        {isOffline && <span className="scanner-mode-selector__offline">Sin conexión · {offlinePending} ingresos pendientes protegidos</span>}
       </div>
 
       <CameraBarcodeScanner
         active={activeInputMode === REGISTRATION_METHODS.CAMERA}
-        disabled={isOffline}
+        disabled={false}
         onDetected={(value) => scanByBarcode(value, REGISTRATION_METHODS.CAMERA)}
         onManualFallback={() => selectInputMode(REGISTRATION_METHODS.MANUAL)}
       />
@@ -645,13 +705,11 @@ const BarcodeScanner = ({ tipoRegistro }) => {
               ref={inputRef}
               type="text"
               className="kiosk-input"
-              style={isOffline ? { backgroundColor: 'rgba(30,41,59,0.3)', cursor: 'not-allowed', color: '#64748b' } : {}}
-              placeholder={isOffline ? 'Reconectando...' : activeInputMode === REGISTRATION_METHODS.BARCODE ? 'Acerque el código de barra al lector...' : 'Escriba nombre o identificador...'}
+              placeholder={isOffline ? 'Modo sin conexión: escanea o escribe un identificador...' : activeInputMode === REGISTRATION_METHODS.BARCODE ? 'Acerque el código de barra al lector...' : 'Escriba nombre o identificador...'}
               value={inputValue}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={isOffline}
-              autoFocus={!isOffline}
+              autoFocus
               autoComplete="off"
             />
             {activeInputMode === REGISTRATION_METHODS.MANUAL && (
@@ -732,18 +790,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         </div>
       )}
 
-      {isOffline && (
-        <div className="kiosk-offline-overlay">
-          <div className="kiosk-offline-card">
-            <AlertCircle size={48} className="kiosk-error-anim" style={{ color: '#dc2626' }} />
-            <h2 className="kiosk-offline-title">Servidor Desconectado</h2>
-            <p className="kiosk-offline-desc">
-              Por favor, verifique la conexión de red del kiosk. Reintentando enlazar con el servidor automáticamente...
-            </p>
-            <div className="kiosk-offline-loader" />
-          </div>
-        </div>
-      )}
+      {isOffline && <div className="kiosk-offline-safe" role="status"><AlertCircle size={20} /><div><strong>Operación segura sin conexión</strong><span>Los ingresos se guardan en este dispositivo y se sincronizan automáticamente. Visitas, retiros y cambios administrativos permanecen bloqueados.</span></div>{notificationPermission === 'default' && <button type="button" onClick={enableSyncNotifications}><Bell size={16} /> Avisarme al sincronizar</button>}</div>}
 
       {/* Top bar: entry times & layout options */}
       <div className="kiosk-topbar">

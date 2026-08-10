@@ -1,17 +1,20 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock3, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, CalendarClock, CheckCircle2, Clock3, Download, FileSpreadsheet, Power, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
 import AppSelect from './components/AppSelect';
 import { useFeedback } from './context/FeedbackContext';
+import { hasPermission, PERMISSIONS } from './permissions';
+import DevelopmentBadge from './components/DevelopmentBadge';
 
 const localIsoDate = (date = new Date()) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
 const initialPeriod = () => ({ from: localIsoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: localIsoDate() });
 const formatShortDate = (value) => new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`)).replace('.', '');
+const formatExecutionDate = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : null;
 
 const AnalyticsMetric = ({ icon: Icon, value, label, detail, tone }) => (
   <article className="analytics-kpi" data-tone={tone}>
@@ -58,7 +61,7 @@ const DistributionBars = ({ data, valueKey = 'atrasos', labelKey, suffix = 'atra
 
 const AnaliticasAdmin = () => {
   const navigate = useNavigate();
-  const { logout } = useContext(AuthContext);
+  const { logout, user } = useContext(AuthContext);
   const { notify } = useFeedback();
   const [period, setPeriod] = useState(initialPeriod);
   const [courseId, setCourseId] = useState('');
@@ -67,6 +70,13 @@ const AnaliticasAdmin = () => {
   const [courses, setCourses] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [institutional, setInstitutional] = useState(null);
+  const [schedules, setSchedules] = useState([]);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ nombre: 'Resumen institucional', frecuencia: 'SEMANAL', formato: 'PDF', dia_semana: '1', dia_mes: '1', hora: '07:00' });
+  const canViewInstitutional = hasPermission(user, PERMISSIONS.ANALYTICS_INSTITUTIONAL_VIEW);
+  const canExportInstitutional = hasPermission(user, PERMISSIONS.ANALYTICS_INSTITUTIONAL_EXPORT);
+  const canManageSchedules = hasPermission(user, PERMISSIONS.ANALYTICS_SCHEDULES_MANAGE);
 
   useEffect(() => {
     axios.get(`${API_URL}/courses`).then((response) => setCourses(response.data || [])).catch(() => notify('No fue posible cargar los cursos.', 'error'));
@@ -94,6 +104,62 @@ const AnaliticasAdmin = () => {
   }, [courseId, justified, notify, period.from, period.to, severity]);
 
   useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
+
+  useEffect(() => {
+    if (!canViewInstitutional) { setInstitutional(null); return; }
+    axios.get(`${API_URL}/analitica/institucional`, { params: { desde: period.from, hasta: period.to } })
+      .then((response) => setInstitutional(response.data))
+      .catch(() => setInstitutional(null));
+  }, [canViewInstitutional, period.from, period.to]);
+
+  const loadSchedules = useCallback(async () => {
+    if (!canManageSchedules) { setSchedules([]); return; }
+    try {
+      const response = await axios.get(`${API_URL}/analitica/programaciones`);
+      setSchedules(response.data || []);
+    } catch {
+      notify('No fue posible cargar los reportes automáticos.', 'error');
+    }
+  }, [canManageSchedules, notify]);
+
+  useEffect(() => { loadSchedules(); }, [loadSchedules]);
+
+  const createSchedule = async (event) => {
+    event.preventDefault();
+    setScheduleSaving(true);
+    try {
+      await axios.post(`${API_URL}/analitica/programaciones`, scheduleForm);
+      notify('Reporte automático programado correctamente.', 'success');
+      await loadSchedules();
+    } catch (error) {
+      notify(error.response?.data?.message || 'No fue posible programar el reporte.', 'error');
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
+
+  const toggleSchedule = async (schedule) => {
+    try {
+      await axios.patch(`${API_URL}/analitica/programaciones/${schedule.id_reporte}/estado`, { activo: !schedule.activo });
+      await loadSchedules();
+    } catch {
+      notify('No fue posible cambiar el estado del reporte automático.', 'error');
+    }
+  };
+
+  const exportInstitutional = async (format) => {
+    try {
+      const response = await axios.get(`${API_URL}/analitica/institucional/exportar`, {
+        params: { desde: period.from, hasta: period.to, formato: format }, responseType: 'blob'
+      });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `analitica-institucional-${period.from}-${period.to}.${format}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch { notify('No fue posible exportar la analítica institucional.', 'error'); }
+  };
 
   const insight = useMemo(() => {
     const daily = data?.por_dia || [];
@@ -161,6 +227,46 @@ const AnaliticasAdmin = () => {
             <header><div><span className="section-kicker">Seguimiento</span><h2>Personas con recurrencia en el período</h2><p>Ordenadas por cantidad de atrasos efectivamente registrados.</p></div></header>
             <div className="recurrence-table-wrap"><table className="recurrence-table"><thead><tr><th>Persona</th><th>Curso</th><th>Atrasos</th><th>Graves</th><th>Nivel</th></tr></thead><tbody>{data.recurrentes.map((person, index) => <tr key={person.id_alumno}><td data-label="Persona"><span className="rank-number">{index + 1}</span><strong>{[person.nombres, person.paterno, person.materno].filter(Boolean).join(' ')}</strong></td><td data-label="Curso">{person.curso}</td><td data-label="Atrasos"><strong>{person.atrasos}</strong></td><td data-label="Graves">{person.graves}</td><td data-label="Nivel"><span className="recurrence-level" data-level={person.graves >= 3 ? 'critical' : person.atrasos >= 3 ? 'warning' : 'normal'}>{person.graves >= 3 ? 'Prioritario' : person.atrasos >= 3 ? 'Preventivo' : 'Observación'}</span></td></tr>)}</tbody></table>{!data.recurrentes.length && <div className="analytics-empty">No hay atrasos recurrentes con estos filtros.</div>}</div>
           </section>
+
+          {institutional && <section className="institutional-analytics" aria-labelledby="institutional-title">
+            <header className="institutional-analytics__header">
+              <div><span className="section-kicker">Visión institucional</span><DevelopmentBadge /><h2 id="institutional-title">Analítica explicable</h2><p>Indicadores calculados con reglas visibles, sin puntajes opacos.</p></div>
+              {canExportInstitutional && <div className="institutional-analytics__actions"><button type="button" onClick={() => exportInstitutional('pdf')}><Download size={17} /> PDF</button><button type="button" onClick={() => exportInstitutional('xlsx')}><FileSpreadsheet size={17} /> Excel</button></div>}
+            </header>
+            <div className="institutional-analytics__metrics">
+              <AnalyticsMetric icon={TrendingDown} value={institutional.estudiantes_mejoraron.length} label="Estudiantes que mejoraron" detail="Comparación entre mitades" tone="green" />
+              <AnalyticsMetric icon={Users} value={institutional.convivencia.abiertos} label="Casos abiertos" detail={`${institutional.convivencia.resueltos} resueltos`} tone="blue" />
+              <AnalyticsMetric icon={Clock3} value={institutional.convivencia.promedio_dias_resolucion ? `${institutional.convivencia.promedio_dias_resolucion} días` : '—'} label="Resolución media" detail="Solo casos cerrados" tone="navy" />
+              <AnalyticsMetric icon={ShieldCheck} value={institutional.contactos_apoderados.porcentaje_cierre === null ? '—' : `${institutional.contactos_apoderados.porcentaje_cierre}%`} label="Casos cerrados con contacto" detail="Correlación descriptiva" tone="amber" />
+            </div>
+            <div className="institutional-analytics__grid">
+              <article className="analytics-panel"><header><div><span className="section-kicker">Horarios</span><h2>Bloques con más atrasos</h2></div></header><DistributionBars data={institutional.bloques_horarios.slice(0, 8)} labelKey="bloque" /></article>
+              <article className="analytics-panel"><header><div><span className="section-kicker">Portería</span><h2>Motivos de visita</h2></div></header><DistributionBars data={institutional.motivos_visita.slice(0, 8)} valueKey="total" labelKey="motivo" suffix="visitas" /></article>
+              <article className="analytics-panel"><header><div><span className="section-kicker">Retiros</span><h2>Retiros anticipados</h2></div></header><DistributionBars data={institutional.retiros_anticipados.slice(0, 8)} valueKey="total" labelKey="motivo" suffix="retiros" /></article>
+              <article className="analytics-panel"><header><div><span className="section-kicker">Equipos</span><h2>Carga por área</h2></div></header><DistributionBars data={institutional.carga_trabajo.slice(0, 8)} valueKey="casos" labelKey="area" suffix="casos" /></article>
+            </div>
+            <article className="analytics-explanations"><header><AlertTriangle size={20} /><div><h2>Alertas con explicación</h2><p>Cada aviso muestra el dato y la regla exacta que lo activó.</p></div></header>{institutional.alertas.length ? institutional.alertas.map((alert) => <div className="analytics-explanation" key={`${alert.title}-${alert.rule}`} data-level={alert.level}><strong>{alert.title}</strong><span>{alert.explanation}</span><small>Regla: {alert.rule}</small></div>) : <div className="analytics-empty">No se activaron alertas en este período.</div>}</article>
+            <details className="analytics-methodology"><summary>Cómo se calcularon estos indicadores</summary>{Object.values(institutional.metodologia).map((text) => <p key={text}>{text}</p>)}</details>
+            {canManageSchedules && <article className="analytics-schedules" aria-labelledby="analytics-schedules-title">
+              <header><CalendarClock size={22} /><div><span className="section-kicker">Entrega periódica</span><h2 id="analytics-schedules-title">Reportes automáticos</h2><p>Genera una copia institucional semanal o mensual con el período anterior ya cerrado.</p></div></header>
+              <form className="analytics-schedules__form" onSubmit={createSchedule}>
+                <label><span>Nombre</span><input value={scheduleForm.nombre} maxLength="120" required onChange={(event) => setScheduleForm((current) => ({ ...current, nombre: event.target.value }))} /></label>
+                <label><span>Frecuencia</span><AppSelect ariaLabel="Frecuencia del reporte" value={scheduleForm.frecuencia} onChange={(value) => setScheduleForm((current) => ({ ...current, frecuencia: value }))} options={[{ value: 'SEMANAL', label: 'Semanal' }, { value: 'MENSUAL', label: 'Mensual' }]} /></label>
+                <label><span>{scheduleForm.frecuencia === 'SEMANAL' ? 'Día de la semana' : 'Día del mes'}</span><input type="number" min="1" max={scheduleForm.frecuencia === 'SEMANAL' ? '7' : '28'} value={scheduleForm.frecuencia === 'SEMANAL' ? scheduleForm.dia_semana : scheduleForm.dia_mes} onChange={(event) => setScheduleForm((current) => ({ ...current, [current.frecuencia === 'SEMANAL' ? 'dia_semana' : 'dia_mes']: event.target.value }))} /></label>
+                <label><span>Hora</span><input type="time" value={scheduleForm.hora} required onChange={(event) => setScheduleForm((current) => ({ ...current, hora: event.target.value }))} /></label>
+                <label><span>Formato</span><AppSelect ariaLabel="Formato del reporte" value={scheduleForm.formato} onChange={(value) => setScheduleForm((current) => ({ ...current, formato: value }))} options={[{ value: 'PDF', label: 'PDF' }, { value: 'XLSX', label: 'Excel' }]} /></label>
+                <button type="submit" disabled={scheduleSaving}>{scheduleSaving ? <RefreshCw size={17} className="spin" /> : <CalendarClock size={17} />} Programar</button>
+              </form>
+              <div className="analytics-schedules__list">
+                {schedules.map((schedule) => <div key={schedule.id_reporte} className="analytics-schedule" data-active={schedule.activo}>
+                  <div><strong>{schedule.nombre}</strong><span>{schedule.frecuencia === 'SEMANAL' ? `Semanal · día ${schedule.dia_semana}` : `Mensual · día ${schedule.dia_mes}`} · {String(schedule.hora).slice(0, 5)} · {schedule.formato}</span><small>{schedule.ultima_ejecucion ? `Última ejecución: ${formatExecutionDate(schedule.ultima_ejecucion)}` : 'Aún no registra ejecuciones'}</small></div>
+                  <span className="analytics-schedule__status">{schedule.activo ? 'Activo' : 'Pausado'}</span>
+                  <button type="button" onClick={() => toggleSchedule(schedule)} aria-label={`${schedule.activo ? 'Pausar' : 'Reactivar'} ${schedule.nombre}`}><Power size={16} /> {schedule.activo ? 'Pausar' : 'Reactivar'}</button>
+                </div>)}
+                {!schedules.length && <div className="analytics-empty">Todavía no hay reportes automáticos programados.</div>}
+              </div>
+            </article>}
+          </section>}
         </> : <div className="analytics-empty analytics-empty--page">No fue posible mostrar el análisis.</div>}
       </div>
     </div>

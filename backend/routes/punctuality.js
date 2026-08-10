@@ -373,6 +373,30 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     }
   });
 
+  router.get('/offline-roster', verifyPermission('punctuality.register'), async (_req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT a.id_alumno, a.nombres, a.paterno, a.materno,
+               COALESCE(c.nombre_curso, 'Sin curso') AS curso,
+               ARRAY_REMOVE(ARRAY_AGG(DISTINCT ai.valor_original), NULL) ||
+                 ARRAY_REMOVE(ARRAY[a.codigo_barra, a.nombres, a.paterno, a.materno,
+                   concat_ws(' ', a.nombres, a.paterno, a.materno)], NULL) AS search_tokens
+        FROM alumno a
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = m.id_curso
+        LEFT JOIN alumno_identificador ai ON ai.id_alumno = a.id_alumno AND ai.estado <> 'REVOCADO'
+        WHERE a.activo = true AND a.rol = 'Estudiante'
+        GROUP BY a.id_alumno, c.nombre_curso
+        ORDER BY a.paterno, a.materno, a.nombres
+      `);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ generado_en: new Date().toISOString(), estudiantes: result.rows });
+    } catch (error) {
+      console.error('[puntualidad/offline-roster]', error.message);
+      res.status(500).json({ message: 'No fue posible preparar el padrón operativo sin conexión.' });
+    }
+  });
+
   router.post('/registros', verifyPermission('punctuality.register'), async (req, res) => {
     const studentId = asBoundedInteger(req.body?.id_alumno, 1, 2147483647);
     if (!studentId) return res.status(400).json({ message: 'El identificador del alumno no es válido.' });
@@ -386,9 +410,20 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       });
     }
 
+    const offlineOperationId = String(req.body?.offline_operation_id || '').trim();
+    const isOfflineReplay = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(offlineOperationId);
+    if (offlineOperationId && !isOfflineReplay) return res.status(400).json({ message: 'El identificador de sincronización no es válido.' });
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      if (isOfflineReplay) {
+        const previous = await client.query('SELECT * FROM attendance_registrations WHERE offline_operation_id = $1 LIMIT 1', [offlineOperationId]);
+        if (previous.rows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(200).json({ ...previous.rows[0], sincronizacion_repetida: true });
+        }
+      }
       const studentResult = await client.query(
         `SELECT a.id_alumno, a.nombres, a.paterno, a.materno, a.activo,
                 m.id_matricula, m.id_curso, c.nombre_curso
@@ -409,7 +444,19 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       }
 
       const config = await getConfig(client);
-      const now = await getInstitutionalNow(client);
+      let now = await getInstitutionalNow(client);
+      if (isOfflineReplay && req.body?.capturado_en) {
+        const captured = await client.query(`
+          SELECT ($1::timestamptz AT TIME ZONE 'America/Santiago')::date AS fecha,
+                 ($1::timestamptz AT TIME ZONE 'America/Santiago')::time AS hora,
+                 $1::timestamptz BETWEEN CURRENT_TIMESTAMP - interval '24 hours' AND CURRENT_TIMESTAMP + interval '5 minutes' AS valido
+        `, [req.body.capturado_en]);
+        if (!captured.rows[0]?.valido) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ message: 'El registro pendiente excedió la ventana segura de sincronización de 24 horas.' });
+        }
+        now = { fecha: captured.rows[0].fecha, hora: captured.rows[0].hora };
+      }
       const origen = registrationMethod === 'manual' ? 'manual' : 'lector';
       const student = studentResult.rows[0];
       const currentControls = await findCurrentControls(client, {
@@ -469,10 +516,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
            hora_entrada_aplicada, hora_limite_aplicada, minutos_atraso_grave_aplicado,
            minutos_atraso, version_regla, snapshot_migrado,
            control_puntualidad_id, control_codigo, control_nombre, control_tipo,
-           hora_apertura_aplicada, hora_cierre_aplicada, control_version, cuenta_alertas_aplicado)
+           hora_apertura_aplicada, hora_cierre_aplicada, control_version, cuenta_alertas_aplicado,
+           offline_operation_id, registrado_dispositivo, registrado_sin_conexion)
         VALUES ($1, $2, $3, $4, 'Entrada', $5, $6, $7, CURRENT_TIMESTAMP,
                 $8, $9, $10, $11, $12, $13, $14, $15, $16, false,
-                $17, $18, $19, $20, $21, $22, $23, $24)
+                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
         ON CONFLICT (id_alumno, fecha, control_puntualidad_id)
           WHERE anulado = false AND tipo_registro = 'Entrada'
         DO NOTHING
@@ -501,7 +549,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         control.hora_apertura,
         control.hora_cierre,
         control.version,
-        control.cuenta_alertas
+        control.cuenta_alertas,
+        isOfflineReplay ? offlineOperationId : null,
+        isOfflineReplay ? String(req.body?.dispositivo || '').trim().slice(0, 120) || null : null,
+        isOfflineReplay
       ]);
 
       if (inserted.rows.length === 0) {
@@ -542,6 +593,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           hora_limite_aplicada: control.hora_inicio_atraso,
           minutos_atraso: delayMinutes,
           version_regla: config?.version_regla || 1
+          ,sin_conexion: isOfflineReplay
         },
         ip: getClientIp(req)
       });
