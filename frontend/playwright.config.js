@@ -30,6 +30,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     ignoreHTTPSErrors: true,
+    // El service worker se valida por separado. Bloquearlo en la regresión funcional
+    // evita que un chunk antiguo almacenado eluda las intercepciones deterministas.
+    serviceWorkers: 'block',
   },
   projects: [
     { name: 'escritorio', use: { ...devices['Desktop Chrome'] } },
