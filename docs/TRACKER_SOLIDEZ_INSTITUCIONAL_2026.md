@@ -1,5 +1,7 @@
 # Tracker de solidez institucional 2026
 
+> Iniciativa implementada y validada localmente en la rama `Testing`: [perfiles personales del equipo institucional](perfiles-personales/README.md). La migración es aditiva y la evidencia local confirmó que no modifica cuentas, contraseñas ni datos operativos existentes. La aceptación física en el colegio continúa pendiente y no se ha desplegado esta rama.
+
 ## Objetivo
 
 Dejar el sistema de puntualidad, visitas y retiros preparado para una operación escolar
@@ -277,6 +279,26 @@ Deuda técnica residual:
   11 casos sin curso enviados a revisión, sin confirmar una importación destructiva.
 - Changelog verificado en escritorio, móvil y equivalentes de zoom 125 %, 150 % y 200 %;
   la prueba comprueba que ningún control global intercepte el botón de cierre.
+
+## Cierre local de perfiles y directorio del 8 de agosto de 2026
+
+- Alineación del menú de usuario corregida mediante selectores estrictamente acotados;
+  el avatar ya no hereda estilos destinados al texto de identidad.
+- El perfil propio distingue cambios pendientes de información ya guardada, avisa antes
+  de abandonar el navegador y permite volver a seleccionar una imagen tras un intento.
+- La persistencia fue comprobada desde la interfaz: guardar, recargar, verificar y
+  restaurar el valor original sin dejar datos de prueba en la ficha.
+- El directorio interno incorpora búsqueda tolerante a mayúsculas y tildes, filtros por
+  área, cargo, disponibilidad y tipo de cuenta, orden configurable, limpieza de filtros
+  y cancelación de solicitudes obsoletas.
+- Los filtros se adaptan a escritorio y móvil; en pantallas pequeñas permanecen
+  contraídos hasta que la persona decide abrirlos.
+- La regresión final aprobó 111 pruebas backend, 23 pruebas frontend y 18 ejecuciones
+  E2E en escritorio y Android. Dos casos se omiten deliberadamente por corresponder a
+  una única plataforma o viewport.
+- Docker confirmó saludables PostgreSQL, backend, frontend y el servicio de respaldos.
+- Durante la auditoría se corrigió además el contraste del botón deshabilitado del
+  inicio de sesión; la verificación de accesibilidad volvió a aprobar en ambos viewports.
 - Configuración de visitas reorganizada y validada sin desborde horizontal ni barreras
   críticas de accesibilidad en escritorio y Android emulado.
 - La recuperación de módulos versionados obsoletos evita que una actualización deje una
@@ -285,3 +307,186 @@ Deuda técnica residual:
   responsables y criterio de cierre institucional.
 - La guía distingue instalaciones nuevas de bases persistentes: una contraseña de
   PostgreSQL existente nunca se rota editando solamente `.env`.
+
+## Editor visual de avatar y portada del 8 de agosto de 2026
+
+Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
+
+- Los botones existentes de cámara y portada abren un editor previo al guardado sin
+  alterar la estructura visual del perfil.
+- Avatar y portada permiten arrastrar, ampliar con deslizador, rueda o gesto táctil,
+  girar en pasos de 90 grados y restablecer todos los ajustes.
+- La previsualización utiliza el mismo recorte que se enviará al servidor: circular
+  para el avatar y panorámica 3:1 para la portada.
+- El procesamiento conserva la proporción, no estira la imagen, elimina metadatos y
+  genera salidas WebP exactas de 640 × 640 y 1800 × 600 píxeles.
+- Se aceptan JPEG, PNG y WebP de hasta 5 MiB y 36 megapíxeles. Un error de carga o
+  guardado conserva el encuadre para permitir reintentar sin empezar de nuevo.
+- Durante el procesamiento se bloquean guardado y cierre, se informa el estado y no
+  se producen saltos de layout.
+- La interfaz fue comprobada visualmente en escritorio y 390 × 844, sin desborde
+  horizontal; los controles táctiles mantienen objetivos cómodos y nombres accesibles.
+- La persistencia real quedó comprobada mediante guardado, recarga y lectura de la
+  miniatura procesada desde el backend.
+- Las imágenes nuevas conservan además una fuente WebP normalizada y sin metadatos.
+  Esto permite volver a abrir una foto o portada ya guardada, reposicionarla y generar
+  otro recorte sin depender del archivo original del dispositivo. Los medios anteriores
+  a esta migración se pueden editar usando el recorte disponible y adquieren su fuente
+  normalizada en el siguiente guardado.
+- La regresión automatizada cubre zoom, giro, restablecimiento, cancelación, error
+  controlado, accesibilidad WCAG y ambas proporciones de salida.
+- No se realizó commit, push ni despliegue; la aceptación táctil en un teléfono físico
+  continúa siendo un control de instalación, no una deuda de implementación.
+
+## Administración de perfiles reutilizables del 9 de agosto de 2026
+
+Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
+
+- Todos los perfiles excepto Administrador se pueden editar, desactivar, reactivar y
+  eliminar cuando no conservan cuentas asociadas. Desactivar un perfil impide nuevas
+  asignaciones, pero mantiene sus cuentas e historial intactos.
+- Administrador es un perfil protegido en interfaz y API: no puede desactivarse,
+  eliminarse ni perder permisos mediante una petición manual. Solo admite cambios
+  seguros de nombre o descripción.
+- La eliminación comprueba y bloquea perfiles con cuentas antes de modificar datos;
+  nunca elimina cuentas como efecto secundario y se ejecuta dentro de una transacción.
+- Cada perfil ofrece una actividad consolidada de todas sus cuentas, con filtros por
+  persona, acción y período, orden descendente, paginación y exportación Excel que
+  respeta exactamente los filtros aplicados.
+- Las tarjetas y la ficha de cada perfil muestran estado, cuentas activas, cuentas
+  totales y funciones recomendadas calculadas desde la base, sin cifras fijas.
+- Crear o cambiar una cuenta hacia un perfil desactivado queda rechazado. Una cuenta
+  que ya pertenece a ese perfil puede conservarlo sin ser desactivada automáticamente.
+- Creación, edición, cambio de funciones, desactivación, reactivación y eliminación
+  quedan registradas en la auditoría con instantáneas del código y nombre del perfil,
+  por lo que los eventos sobreviven a cambios posteriores.
+- Los modales destructivos explican consecuencias; eliminar exige escribir el nombre
+  exacto del perfil y no se habilita mientras existan cuentas vinculadas.
+- La interfaz fue comprobada visualmente en escritorio y 390 × 844 sin desborde
+  horizontal. Acciones, filtros, resumen y tabla conservan la línea visual vigente.
+- La regresión final aprobó 114 pruebas backend, 27 pruebas frontend y 20 ejecuciones
+  E2E en escritorio y Android emulado. Dos casos se omiten deliberadamente porque solo
+  corresponden a una plataforma o viewport. El ciclo completo de un perfil temporal,
+  las protecciones de Administrador y el bloqueo de eliminación ocupada quedaron cubiertos.
+- Las migraciones `031` y `032` son aditivas: agregan instantáneas de auditoría y la
+  fuente normalizada de imágenes; no eliminan ni reemplazan información operacional.
+- No se realizó commit, push ni despliegue.
+
+## Analítica institucional y PWA del 9 de agosto de 2026
+
+Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
+
+- La migración `035` agrega idempotencia a ingresos diferidos, programaciones,
+  ejecuciones y tres permisos de analítica. Es aditiva y no elimina ni recalcula datos.
+- El panel institucional compara tendencias, cursos y bloques; identifica mejoras,
+  reincidencia posterior a intervenciones, retiros, visitas, convivencia y carga de
+  trabajo. Las alertas muestran el dato, umbral y regla exacta, sin puntajes opacos.
+- La relación entre contacto con apoderados y cierre se rotula como correlación
+  descriptiva y no como prueba de causalidad.
+- PDF y Excel respetan el período solicitado. Las programaciones semanales y mensuales
+  conservan una instantánea de cada ejecución y usan bloqueo de PostgreSQL para evitar
+  duplicaciones entre instancias del backend.
+- Los usuarios autorizados administran las programaciones desde el panel: pueden
+  crear reportes, consultar su estado y pausarlos o reactivarlos con auditoría.
+- La PWA incluye manifiesto, iconos institucionales, modo independiente y caché
+  versionada del shell. Ninguna respuesta de la API se almacena en caché.
+- Solo el terminal de puntualidad puede encolar operaciones sin conexión. Visitas,
+  retiros, estudiantes, convivencia, documentos y administración continúan exigiendo
+  conexión para evitar reconciliaciones ambiguas.
+- Cada operación diferida tiene UUID, instante de captura y método. El backend limita
+  la ventana a 24 horas, tolera hasta cinco minutos futuros y responde idempotentemente
+  ante reenvíos para impedir ingresos duplicados.
+- El aviso local de sincronización es opcional: el navegador solicita permiso mediante
+  una acción explícita y notifica solo después de recibir confirmación del servidor.
+- El padrón operativo local contiene exclusivamente la información mínima de búsqueda.
+  Queda aislado por origen en IndexedDB, sin cifrado adicional de aplicación; el puesto
+  debe contar con control físico y bloqueo del dispositivo.
+- PostgreSQL, backend, frontend y respaldos quedaron saludables en Docker. La consulta
+  analítica se ejecutó contra la base real local y el manifiesto y service worker
+  respondieron correctamente desde el frontend construido.
+- La regresión permanente cubre períodos, migración aditiva, bloqueo del programador,
+  administración visible de reportes, idempotencia, manifiesto, exclusión de API del
+  caché, cola FIFO, permiso explícito de avisos y restricción del modo diferido al
+  terminal de puntualidad.
+- La guía técnica y la aceptación física están documentadas en
+  `docs/ANALITICA_INSTITUCIONAL_PWA.md`.
+- Permanecen como aceptación escolar HTTPS confiable en teléfonos, instalación PWA,
+  cámara real y un ensayo físico de corte y recuperación de red en Portería.
+- No se realizó commit, push ni despliegue.
+
+## Convivencia Escolar protegida del 9 de agosto de 2026
+
+Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
+
+- Se incorporó un módulo independiente para situaciones, personas involucradas,
+  medidas, entrevistas, mediaciones, acuerdos, seguimientos, derivaciones, documentos,
+  fechas de revisión y cierre del caso.
+- La migración `033` es aditiva y crea cinco tablas reservadas. No altera datos ni
+  columnas de atrasos, estudiantes, matrículas, visitas o retiros.
+- Se agregaron cinco permisos críticos. Solamente Administrador y el nuevo perfil
+  `Convivencia Escolar` los reciben inicialmente; Inspectoría, Dirección, Secretaría y
+  Portería no obtienen acceso implícito.
+- Todos los controles se validan en backend. La interfaz replica esos permisos para
+  mostrar únicamente acciones autorizadas.
+- La bandeja resume casos activos, seguimientos, revisiones vencidas y cierres del mes;
+  sus indicadores son interactivos y los listados admiten búsqueda, estado, prioridad
+  y paginación.
+- Cada caso conserva relato inicial, responsable, participantes, línea de tiempo,
+  resultados, próxima revisión y documentos protegidos. El cierre bloquea cambios y la
+  reapertura exige un nuevo motivo.
+- Los respaldos se almacenan fuera de rutas públicas, se validan por firma y tamaño y
+  requieren permiso tanto para subir como para descargar.
+- La auditoría registra operaciones y metadatos, pero no duplica narrativas sensibles.
+  No existe borrado de casos o actuaciones en la API.
+- Se añadió ayuda contextual para bandeja y ficha, navegación responsive y modales con
+  cierre por teclado, restauración de foco y bloqueo del desplazamiento de fondo.
+- La regresión aprobó 121 pruebas backend, 27 pruebas frontend, lint, chequeo de rutas
+  y build de producción. La integración real de API aprobó acceso 401/403, alta,
+  participantes, actuación, archivo, descarga, cierre, bloqueo y reapertura.
+- La prueba de integración limpió exclusivamente su caso, auditoría y archivo temporal;
+  la base quedó con cero casos de prueba `PRUEBA CODEX`.
+- PostgreSQL, backend, frontend y respaldos quedaron saludables en Docker.
+- La inspección mediante navegador integrado quedó impedida por la política de acceso a
+  direcciones locales de esa herramienta. La aceptación visual humana en navegador de
+  escritorio y teléfono continúa pendiente y está detallada en
+  `docs/CONVIVENCIA_ESCOLAR.md`.
+- No se realizó commit, push ni despliegue.
+
+## Gestión documental de estudiantes del 9 de agosto de 2026
+
+Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
+
+- La migración `034` agrega expedientes, documentos, versiones, firmas y plantillas
+  mediante tablas nuevas. No elimina ni reemplaza datos operacionales existentes.
+- Cada estudiante dispone de un expediente único con categorías institucionales,
+  estado, nivel de acceso, vigencia, vencimiento y responsable de incorporación.
+- Las nuevas versiones nunca sobrescriben el archivo anterior y conservan nombre,
+  origen, notas, tamaño, tipo MIME y huella SHA-256.
+- La descarga se realiza mediante una ruta autenticada. No existe borrado físico en
+  la API; los documentos se archivan conservando su trazabilidad.
+- Se incorporaron seis permisos independientes para consultar, subir, administrar,
+  firmar, gestionar plantillas y ejecutar OCR. Solo Administrador y el perfil Gestión
+  Documental los reciben inicialmente.
+- Las plantillas generan PDF institucional en estado pendiente. Los campos admitidos
+  se controlan en backend para evitar sustituciones arbitrarias.
+- La firma implementada es una constancia electrónica interna asociada al usuario y a
+  la huella exacta de una versión; no se presenta como firma electrónica avanzada.
+- El OCR local procesa JPEG y PNG, guarda una propuesta y exige aprobación o rechazo
+  humano. No modifica fichas ni afirma la autenticidad del archivo.
+- El panel incluye indicadores, filtros, búsqueda de estudiantes, historial de
+  versiones, vigencias, plantillas y ayudas contextuales en sus tres niveles.
+- La integración real de API aprobó 401 sin sesión, 403 para Lector, carga, consulta,
+  OCR, revisión humana, firma, segunda versión, PDF, descarga y limpieza exacta de sus
+  datos de prueba.
+- La regresión backend aprobó 127 pruebas, incluyendo seis controles documentales;
+  las 27 pruebas frontend, lint y build de producción también aprobaron.
+- La regresión E2E aprobó 22 recorridos en escritorio y Android emulado; dos casos se
+  omitieron por condiciones previstas de plataforma o viewport. El módulo documental
+  superó navegación, expediente, responsive, ausencia de desborde y accesibilidad WCAG.
+- Un PDF institucional se renderizó a imagen y se inspeccionó visualmente. El diseño,
+  los saltos de línea y los caracteres Unicode de español quedaron correctos.
+- La guía operativa y las limitaciones están documentadas en
+  `docs/GESTION_DOCUMENTAL.md`.
+- Permanecen como aceptación escolar la asignación definitiva de permisos, las
+  plantillas oficiales, el criterio jurídico de firma y las políticas de retención.
+- No se realizó commit, push ni despliegue.
