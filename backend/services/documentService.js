@@ -86,19 +86,39 @@ const ensureUploadsDirectory = async () => {
 
 const createDocument = async (client, { fileData, fileName, userId }) => {
   const parsed = parseDocumentData({ fileData, fileName });
+  return createDocumentFromBuffer(client, {
+    buffer: parsed.buffer,
+    fileName: parsed.originalName,
+    mimeType: parsed.mimeType,
+    extension: parsed.extension,
+    userId
+  });
+};
+
+const createDocumentFromBuffer = async (client, { buffer, fileName, mimeType, extension, userId }) => {
+  const rule = ALLOWED_MIME_TYPES[String(mimeType || '').toLowerCase()];
+  if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_DOCUMENT_BYTES) {
+    throw new DocumentValidationError('El archivo generado está vacío o supera el máximo permitido.');
+  }
+  if (!rule || !rule.validSignature(buffer)) {
+    throw new DocumentValidationError('El contenido generado no corresponde a un formato permitido.');
+  }
+  const safeExtension = extension || rule.extension;
+  const originalName = sanitizeOriginalName(fileName);
   await ensureUploadsDirectory();
 
-  const storedName = `${crypto.randomUUID()}${parsed.extension}`;
+  const storedName = `${crypto.randomUUID()}${safeExtension}`;
   const filePath = path.join(UPLOADS_DIR, storedName);
 
-  await fs.promises.writeFile(filePath, parsed.buffer, { flag: 'wx', mode: 0o600 });
+  await fs.promises.writeFile(filePath, buffer, { flag: 'wx', mode: 0o600 });
   try {
     const result = await client.query(
       `INSERT INTO justification_documents
         (nombre_original, nombre_almacenado, mime_type, tamano_bytes, sha256, creado_por)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [parsed.originalName, storedName, parsed.mimeType, parsed.size, parsed.sha256, userId]
+      [originalName, storedName, String(mimeType).toLowerCase(), buffer.length,
+        crypto.createHash('sha256').update(buffer).digest('hex'), userId]
     );
     return result.rows[0];
   } catch (error) {
@@ -123,6 +143,14 @@ const deleteDocumentIfUnreferenced = async (client, documentId) => {
        (SELECT COUNT(*) FROM alumno_identificador WHERE respaldo_documento_id = $1)
        +
        (SELECT COUNT(*) FROM regularizaciones_identidad_estudiante WHERE documento_id = $1)
+       +
+       (SELECT COUNT(*) FROM convivencia_documentos WHERE id_documento = $1)
+       +
+       (SELECT COUNT(*) FROM documento_expediente_versiones WHERE id_documento = $1)
+       +
+       (SELECT COUNT(*) FROM seguimiento_documentos WHERE id_documento = $1)
+       +
+       (SELECT COUNT(*) FROM chat_adjuntos WHERE id_documento = $1)
      )::int AS total`,
     [documentId]
   );
@@ -148,6 +176,7 @@ module.exports = {
   MAX_DOCUMENT_BYTES,
   UPLOADS_DIR,
   createDocument,
+  createDocumentFromBuffer,
   deleteDocumentIfUnreferenced,
   parseDocumentData,
   removeStoredFile,
