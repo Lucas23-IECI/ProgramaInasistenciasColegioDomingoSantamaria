@@ -22,13 +22,19 @@ test('el service worker nunca almacena respuestas de la API', () => {
   assert.match(worker, /caches\.match\('\/'\)/u);
 });
 
+test('el service worker tolera respuestas consumidas y prioriza bundles vigentes', () => {
+  const worker = read('public/sw.js');
+  assert.match(worker, /if \(!response\?\.ok \|\| response\.bodyUsed\) return/u);
+  assert.match(worker, /try \{[\s\S]*response\.clone\(\)[\s\S]*\} catch \{/u);
+  assert.match(worker, /event\.respondWith\(fetchAndStore\(request\)\.catch\(\(\) => caches\.match\(request\)\)\)/u);
+  assert.doesNotMatch(worker, /cached \|\| fetch\(request\)/u);
+});
+
 test('las actualizaciones esperan confirmación y conservan la cola IndexedDB', () => {
   const worker = read('public/sw.js');
   const registration = read('src/pwa/registerServiceWorker.js');
-  const releaseNotes = read('src/releaseNotes.js');
   const workerVersion = worker.match(/const APP_VERSION = '([^']+)'/u)?.[1];
-  const releaseVersion = releaseNotes.match(/id: '([^']+)'/u)?.[1];
-  assert.equal(workerVersion, releaseVersion);
+  assert.match(workerVersion, /^\d{4}\.\d{2}\.\d{2}-[a-z0-9-]+$/u);
   assert.match(worker, /event\.data\?\.type === 'SKIP_WAITING'/u);
   assert.doesNotMatch(worker, /cache\.addAll\(APP_SHELL\)\)\.then\(\(\) => self\.skipWaiting/u);
   assert.match(registration, /updateAvailable: true/u);

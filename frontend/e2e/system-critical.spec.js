@@ -166,6 +166,14 @@ test('seguimiento institucional conserva filtros, ayuda y adaptación responsive
   await expect(page.getByRole('heading', { name: 'Seguimiento institucional' })).toBeVisible();
   await expect(page.getByLabel('Resumen de seguimiento')).toBeVisible();
   await expect(page.getByRole('button', { name: /Nuevo seguimiento/ })).toBeVisible();
+  await page.getByRole('button', { name: /Configurar reglas/ }).click();
+  const automation = page.getByRole('dialog', { name: /Reglas y automatización/ });
+  await expect(automation).toBeVisible();
+  await expect(automation.getByText('Asignación automática')).toBeVisible();
+  await expect(automation.getByText('Escalamiento por plazo')).toBeVisible();
+  await expect(automation.getByText('Avisar responsables')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await automation.getByRole('button', { name: 'Cancelar' }).click();
   await expectSpanishTextIsWellEncoded(page);
   await expectNoHorizontalOverflow(page);
   const results = await new AxeBuilder({ page }).include('.follow-page').withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -178,6 +186,13 @@ test('chat interno abre como espacio institucional en escritorio y móvil', asyn
   await expect(page.getByRole('heading', { name: 'Chat interno' })).toBeVisible();
   await expect(page.getByPlaceholder('Buscar conversaciones o mensajes')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Nueva conversación' })).toBeVisible();
+  await page.getByRole('button', { name: 'Política de retención' }).click();
+  const retention = page.getByRole('dialog', { name: /Retención del chat institucional/ });
+  await expect(retention).toBeVisible();
+  await expect(retention.getByText(/mensajes vencidos/)).toBeVisible();
+  await expect(retention.getByText(/adjuntos vinculados/)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await retention.getByRole('button', { name: 'Cancelar' }).click();
   await expectSpanishTextIsWellEncoded(page);
   await expectNoHorizontalOverflow(page);
   const results = await new AxeBuilder({ page }).include('.chat-page').withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -457,12 +472,14 @@ test('las pantallas críticas no desbordan en móvil', async ({ page }, testInfo
     '/admin/operacion',
     '/admin/familias',
     '/admin/gobierno-datos',
+    '/admin/seguimiento',
+    '/chat',
     '/mi-perfil',
     '/directorio',
     '/scanner',
   ]) {
     await page.goto(route);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expectNoHorizontalOverflow(page);
   }
 });

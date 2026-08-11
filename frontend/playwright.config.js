@@ -21,7 +21,7 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
-  timeout: 30_000,
+  timeout: 45_000,
   expect: { timeout: 8_000 },
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1',

@@ -1447,11 +1447,17 @@ body .login-btn:hover {
 }
 
 body .login-btn:disabled {
-  border-color: #526170 !important;
-  background: #526170 !important;
+  border-color: #3c4f60 !important;
+  background: #3c4f60 !important;
   color: #fff !important;
+  -webkit-text-fill-color: #fff;
   cursor: not-allowed;
-  opacity: 1;
+  opacity: 1 !important;
+}
+
+body .login-btn:disabled > * {
+  color: #fff !important;
+  opacity: 1 !important;
 }
 
 body:not(.light-mode) .login-btn {

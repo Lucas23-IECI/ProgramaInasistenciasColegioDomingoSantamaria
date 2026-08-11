@@ -13,6 +13,29 @@ const getRecoveryStorage = (target) => {
   }
 };
 
+const refreshWithCurrentWorker = async (target) => {
+  try {
+    const serviceWorker = target?.navigator?.serviceWorker;
+    const registration = await serviceWorker?.getRegistration?.('/');
+    if (!registration?.waiting) {
+      target.location.reload();
+      return;
+    }
+
+    let reloaded = false;
+    const reload = () => {
+      if (reloaded) return;
+      reloaded = true;
+      target.location.reload();
+    };
+    serviceWorker.addEventListener?.('controllerchange', reload, { once: true });
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    target.setTimeout?.(reload, 1500);
+  } catch {
+    target.location.reload();
+  }
+};
+
 export const recoverFromStaleChunk = (error, target = globalThis.window) => {
   if (!target || !isRecoverableChunkError(error)) return false;
 
@@ -24,7 +47,7 @@ export const recoverFromStaleChunk = (error, target = globalThis.window) => {
   if (previousAttempt && now - previousAttempt < RECOVERY_WINDOW_MS) return false;
 
   storage.setItem(RECOVERY_KEY, String(now));
-  target.location.reload();
+  void refreshWithCurrentWorker(target);
   return true;
 };
 
