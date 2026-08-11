@@ -490,3 +490,43 @@ Estado: IMPLEMENTADO Y VALIDADO LOCALMENTE EN `Testing`.
 - Permanecen como aceptación escolar la asignación definitiva de permisos, las
   plantillas oficiales, el criterio jurídico de firma y las políticas de retención.
 - No se realizó commit, push ni despliegue.
+
+## Seguimiento y chat institucional del 10 de agosto de 2026
+
+Estado: IMPLEMENTACIÓN DE SOFTWARE COMPLETA Y VALIDADA LOCALMENTE EN `testing`.
+
+- Seguimiento cuenta con reglas configurables, ejecución manual y periódica, asignación
+  por perfil y carga, escalamiento por plazo y avisos internos auditables.
+- Chat actualiza conversaciones y contadores mediante SSE con sondeo de respaldo,
+  administra miembros, horarios de silencio, pausas, menciones y preferencias.
+- La retención permite configurar, previsualizar y aplicar de forma explícita una
+  política global o por conversación. Permanece apagada por defecto.
+- Las migraciones son aditivas y conservaron cuentas, estudiantes, atrasos, documentos,
+  conversaciones y seguimientos existentes.
+- La API real confirmó sesión, diez reglas de seguimiento, diez perfiles responsables,
+  automatización desactivada y retención desactivada.
+- La regresión aprobó 143 pruebas backend, 47 frontend, lint, build y 32 recorridos
+  E2E en escritorio y Android; dos casos se omitieron por condiciones intencionales de
+  plataforma. Se corrigió además el contraste WCAG del resumen.
+- El límite global de API distingue cuentas autenticadas aunque compartan una red,
+  mantiene una cuota independiente para accesos anónimos y deja el inicio de sesión
+  bajo su protección específica. La regresión completa dejó de reproducir el 429.
+- PostgreSQL, backend, frontend y respaldos quedaron saludables en Docker.
+- Pendientes institucionales: aprobar reglas y plazos de retención, definir responsables
+  definitivos y realizar la aceptación física en los equipos del establecimiento.
+- No se realizó commit, push ni despliegue.
+
+### Cierre de decisiones de Dirección · 10 de agosto de 2026
+
+- [x] Regla preventiva definida en 3 atrasos dentro de 15 días móviles.
+- [x] Responsable inicial definido como perfil Inspectoría.
+- [x] Plazo institucional definido en 3 días.
+- [x] Escalamiento simultáneo definido para Inspectoría y Equipo de Gestión.
+- [x] Canales institucionales definidos para Inspectoría, Equipo de Gestión y
+  Equipo de Convivencia.
+- [x] Conservación de conversaciones definida durante todo el año escolar (365 días).
+- [x] Previsualización de solo lectura agregada antes de crear seguimientos manualmente.
+- [ ] Activar la ejecución automática únicamente después de validar la previsualización
+  con datos reales del establecimiento.
+- [ ] Activar eliminación por retención únicamente después de una autorización
+  operacional específica; permanece desactivada.

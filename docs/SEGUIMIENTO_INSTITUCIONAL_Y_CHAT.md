@@ -37,7 +37,29 @@ No se crea un segundo sistema de permisos, documentos ni auditoría. Ambos módu
 
 Las detecciones se registran como señales explicables. El sistema conserva el umbral, período y datos que justificaron la apertura. No utiliza puntajes opacos.
 
-La ejecución periódica queda desactivada por defecto para evitar abrir casos masivos al instalar una actualización sobre información aún no revisada. Primero se validan las reglas con la acción **Revisar reglas**; después de la aceptación institucional puede habilitarse expresamente con `FOLLOW_UP_AUTOMATION_ENABLED=true`.
+La ejecución periódica queda desactivada por defecto para evitar abrir casos masivos al instalar una actualización sobre información aún no revisada. La acción **Revisar ahora** ejecuta primero una previsualización de solo lectura y muestra cuántas condiciones detectó. Los seguimientos se crean o actualizan únicamente después de una confirmación explícita. Después de la aceptación operacional, una cuenta autorizada puede habilitar la ejecución periódica desde **Configurar reglas**. La política se conserva en PostgreSQL y no depende de reconstruir el contenedor.
+
+### Política confirmada por Dirección el 10 de agosto de 2026
+
+- La regla preventiva se activa con **3 atrasos dentro de 15 días móviles**.
+- El seguimiento se asigna inicialmente a una cuenta activa del perfil **Inspectoría**.
+- El plazo institucional para resolver o avanzar el caso es de **3 días**.
+- Si llega la fecha límite sin resolución, el caso escala simultáneamente a **Inspectoría** y **Equipo de Gestión**.
+- La persona inspectora asignada conserva la responsabilidad; el escalamiento añade supervisión y avisos, no cambia silenciosamente al responsable.
+- Los espacios institucionales de chat son **Inspectoría**, **Equipo de Gestión** y **Equipo de Convivencia**.
+- Las conversaciones se conservan durante el año escolar, configurado actualmente como **365 días**.
+- La eliminación automática por retención continúa desactivada hasta que exista una aprobación operacional expresa.
+
+### Automatización operativa implementada
+
+- Ejecución idempotente con intervalo configurable.
+- Asignación al integrante activo con menor carga dentro del perfil responsable.
+- Escalamiento explicable de casos vencidos.
+- Avisos internos por asignación y vencimiento, con bandeja y confirmación de lectura.
+- Edición individual de reglas, perfil responsable, plazo, margen y prioridad.
+- Equipos de escalamiento configurables por regla, con destinatarios derivados de los perfiles activos.
+- Canales institucionales sincronizados con las cuentas activas de cada perfil.
+- Configuración desactivada por defecto y ejecución manual disponible para validar antes de habilitarla.
 
 ### Flujo de caso
 
@@ -80,6 +102,16 @@ Un caso también puede escalarse, anularse con motivo o reabrirse. Cada transici
 - Indicador de no leídos dentro de la aplicación.
 - Vínculos a estudiante, retiro, visita, seguimiento, convivencia o documento.
 
+### Operación en tiempo real y gobierno
+
+- Actualización mediante eventos SSE en el servidor institucional, con sondeo de respaldo cada sesenta segundos.
+- Administración de miembros sin ampliar silenciosamente el acceso a conversaciones privadas.
+- Preferencias por conversación: menciones, avisos, horario de silencio y pausa temporal.
+- Política global y política específica por conversación.
+- Previsualización de mensajes y archivos vencidos antes de aplicar una retención.
+- Retención automática y aplicación manual desactivadas hasta contar con una política institucional aprobada.
+- Los mensajes fijados pueden excluirse de la política y toda aplicación queda auditada.
+
 ## Seguridad
 
 - Permisos verificados en API y UI.
@@ -100,3 +132,7 @@ Un caso también puede escalarse, anularse con motivo o reabrirse. Cada transici
 - Los vínculos de contexto abren el objeto correcto sin ampliar permisos.
 - Escritorio, tablet y móvil no presentan desbordamiento horizontal.
 - Lint, pruebas unitarias, build y pruebas E2E críticas quedan verdes antes de publicar.
+
+## Estado local al 10 de agosto de 2026
+
+La implementación de software de ambos módulos está completa en la rama local `testing`. Las configuraciones automáticas sensibles permanecen apagadas. La regresión final aprobó 143 pruebas backend, 47 frontend y 32 recorridos E2E en escritorio y Android, con dos omisiones intencionales de plataforma. El limitador de API fue validado por cuenta autenticada e IP real para evitar bloqueos cruzados dentro de la red escolar. Quedan fuera del cierre técnico local únicamente la aprobación institucional de reglas y retención, y la aceptación física en la red y dispositivos del colegio.
