@@ -16,6 +16,19 @@ test('seguimiento institucional ofrece operación completa y coordinación', () 
   assert.match(source, /Completar/u);
   assert.match(source, /vencidos/u);
   assert.match(source, /sin_responsable/u);
+  assert.match(source, /Configurar reglas/u);
+  assert.match(source, /Revisar ahora/u);
+  assert.match(source, /automatizaciones\/previsualizar/u);
+  assert.match(source, /Confirmar creación de seguimientos/u);
+});
+
+test('la configuración permite seleccionar equipos de escalamiento sin reasignar el caso', () => {
+  const source = read('src/components/FollowUpAutomationDialog.jsx');
+  assert.match(source, /escalamiento_grupos/u);
+  assert.match(source, /Equipos avisados al escalar/u);
+  assert.match(source, /El responsable original conserva el caso/u);
+  assert.match(source, /min="0"/u);
+  assert.match(source, /0 escala al vencer/u);
 });
 
 test('chat interno incluye búsquedas, menciones, urgencia y adjuntos', () => {
@@ -26,6 +39,9 @@ test('chat interno incluye búsquedas, menciones, urgencia y adjuntos', () => {
   assert.match(source, /Marcar como urgente/u);
   assert.match(source, /Adjuntar archivo/u);
   assert.match(source, /contexto_tipo/u);
+  assert.match(source, /ChatSettingsPanel/u);
+  assert.match(source, /ChatRetentionDialog/u);
+  assert.match(source, /subscribeToChatRealtime/u);
 });
 
 test('las rutas y herramientas globales exponen los dos módulos protegidos', () => {
@@ -35,6 +51,19 @@ test('las rutas y herramientas globales exponen los dos módulos protegidos', ()
   assert.match(main, /\/chat\/:conversationId/u);
   assert.match(tools, /\/api\/chat\/resumen/u);
   assert.match(tools, /mensajes sin leer/u);
+  assert.match(tools, /\/api\/seguimiento\/notificaciones/u);
+  assert.match(tools, /showChatNotification/u);
+});
+
+test('las preferencias y la retención explican el alcance institucional', () => {
+  const settings = read('src/components/ChatSettingsPanel.jsx');
+  const retention = read('src/components/ChatRetentionDialog.jsx');
+  assert.match(settings, /Horario de silencio/u);
+  assert.match(settings, /Silenciar excepcionalmente/u);
+  assert.match(settings, /Integrantes/u);
+  assert.match(retention, /política institucional aprobada/u);
+  assert.match(retention, /mensajes vencidos/u);
+  assert.match(retention, /Aplicar ahora/u);
 });
 
 test('ambos módulos tienen adaptación móvil explícita', () => {

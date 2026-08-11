@@ -3,13 +3,14 @@ import axios from 'axios';
 import {
   AlertTriangle, ArrowLeft, Bot, CalendarDays, CheckCircle2, ChevronRight,
   ClipboardList, Download, FileText, Handshake, MessageCircle, MessageSquareText,
-  PhoneCall, Plus, RefreshCw, Search, ShieldAlert, Upload, UserRoundCheck, X
+  PhoneCall, Plus, RefreshCw, Search, Settings2, ShieldAlert, Upload, UserRoundCheck, X
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from './permissions';
 import DevelopmentBadge from './components/DevelopmentBadge';
+import FollowUpAutomationDialog from './components/FollowUpAutomationDialog';
 
 const API = '/api/seguimiento';
 const STATES = [['', 'Todos'], ['ABIERTO', 'Abierto'], ['ASIGNADO', 'Asignado'], ['EN_CONTACTO', 'En contacto'], ['EN_SEGUIMIENTO', 'En seguimiento'], ['ESCALADO', 'Escalado'], ['RESUELTO', 'Resuelto'], ['CERRADO', 'Cerrado'], ['ANULADO', 'Anulado']];
@@ -121,26 +122,45 @@ const CaseDetail = ({ caseId, people, onBack }) => {
 
 const InstitutionalFollowUp = () => {
   const { caseId } = useParams(); const navigate = useNavigate(); const { user } = useContext(AuthContext); const { notify, confirm } = useFeedback();
-  const [summary, setSummary] = useState(null); const [cases, setCases] = useState([]); const [people, setPeople] = useState([]); const [loading, setLoading] = useState(true); const [dialog, setDialog] = useState(false);
+  const [summary, setSummary] = useState(null); const [cases, setCases] = useState([]); const [people, setPeople] = useState([]); const [loading, setLoading] = useState(true); const [dialog, setDialog] = useState(false); const [automationOpen, setAutomationOpen] = useState(false);
+  const closeAutomation = useCallback(() => setAutomationOpen(false), []);
   const [total, setTotal] = useState(0); const [page, setPage] = useState(1); const [runningRules, setRunningRules] = useState(false);
   const [filters, setFilters] = useState({ q: '', estado: '', prioridad: '', vencidos: false, sin_responsable: false });
   const load = useCallback(async () => { setLoading(true); try { const [summaryResult, caseResult, peopleResult] = await Promise.all([axios.get(`${API}/resumen`), axios.get(`${API}/casos`, { params: { ...filters, pagina: page, limite: 30 } }), axios.get(`${API}/personas`)]); setSummary(summaryResult.data); setCases(caseResult.data.cases || []); setTotal(caseResult.data.total || 0); setPeople(peopleResult.data || []); } catch (error) { notify(messageOf(error, 'No fue posible cargar Seguimiento Institucional.'), 'error'); } finally { setLoading(false); } }, [filters, page, notify]);
   useEffect(() => { if (!caseId) load(); }, [caseId, load]);
   useEffect(() => { if (!caseId || people.length > 0) return; axios.get(`${API}/personas`).then((response) => setPeople(response.data || [])).catch(() => {}); }, [caseId, people.length]);
   const runAutomation = async () => {
-    if (!await confirm({ title: 'Revisar reglas preventivas', message: 'El sistema evaluará la información actual y abrirá seguimientos por cada condición institucional detectada. No modificará alumnos ni registros de origen.', confirmLabel: 'Ejecutar revisión' })) return;
     setRunningRules(true);
-    try { const response = await axios.post(`${API}/automatizaciones/ejecutar`); notify(`Revisión completada: ${response.data.detected || 0} señales detectadas y ${response.data.created || 0} casos nuevos.`, 'success'); load(); } catch (error) { notify(messageOf(error, 'No fue posible ejecutar la revisión.'), 'error'); } finally { setRunningRules(false); }
+    try {
+      const preview = (await axios.get(`${API}/automatizaciones/previsualizar`)).data;
+      if (!preview.detected) {
+        notify('La previsualización no detectó condiciones que requieran seguimiento.', 'success');
+        return;
+      }
+      const breakdown = (preview.by_rule || []).slice(0, 4)
+        .map((rule) => `${rule.nombre}: ${rule.total}`).join(' · ');
+      const accepted = await confirm({
+        title: 'Confirmar creación de seguimientos',
+        message: `La previsualización detectó ${preview.detected} condiciones para ${preview.affected_students || 0} estudiantes. ${breakdown}. Solo al confirmar se crearán o actualizarán casos; alumnos y atrasos de origen no se modificarán.`,
+        confirmLabel: 'Crear seguimientos'
+      });
+      if (!accepted) return;
+      const response = await axios.post(`${API}/automatizaciones/ejecutar`);
+      notify(`Revisión completada: ${response.data.detected || 0} señales detectadas y ${response.data.created || 0} casos nuevos.`, 'success');
+      load();
+    } catch (error) { notify(messageOf(error, 'No fue posible ejecutar la revisión.'), 'error'); }
+    finally { setRunningRules(false); }
   };
   if (caseId) return <main className="follow-page" data-tour="follow-detail"><CaseDetail caseId={caseId} people={people} onBack={() => navigate('/admin/seguimiento')} /></main>;
   return <main className="follow-page">
-    <header className="follow-page__header" data-tour="page-header"><div><span className="section-kicker">Gestión preventiva</span><DevelopmentBadge /><h1>Seguimiento institucional</h1><p>Casos, contactos, acuerdos y tareas que necesitan una respuesta coordinada.</p></div><div className="follow-page__actions"><button className="app-action app-action--secondary" onClick={() => navigate('/admin')}><ArrowLeft size={17} /> Panel principal</button><button className="app-action app-action--secondary" onClick={load}><RefreshCw size={17} /> Actualizar</button>{hasPermission(user, PERMISSIONS.FOLLOW_UP_AUTOMATION_MANAGE) && <button className="app-action app-action--secondary" onClick={runAutomation} disabled={runningRules}><Bot size={17} /> {runningRules ? 'Revisando…' : 'Revisar reglas'}</button>}{hasPermission(user, PERMISSIONS.FOLLOW_UP_CREATE) && <button className="app-action app-action--primary" onClick={() => setDialog(true)}><Plus size={17} /> Nuevo seguimiento</button>}</div></header>
+    <header className="follow-page__header" data-tour="page-header"><div><span className="section-kicker">Gestión preventiva</span><DevelopmentBadge /><h1>Seguimiento institucional</h1><p>Casos, contactos, acuerdos y tareas que necesitan una respuesta coordinada.</p></div><div className="follow-page__actions"><button className="app-action app-action--secondary" onClick={() => navigate('/admin')}><ArrowLeft size={17} /> Panel principal</button><button className="app-action app-action--secondary" onClick={load}><RefreshCw size={17} /> Actualizar</button>{hasPermission(user, PERMISSIONS.FOLLOW_UP_AUTOMATION_MANAGE) && <><button className="app-action app-action--secondary" onClick={() => setAutomationOpen(true)}><Settings2 size={17} /> Configurar reglas</button><button className="app-action app-action--secondary" onClick={runAutomation} disabled={runningRules}><Bot size={17} /> {runningRules ? 'Revisando…' : 'Revisar ahora'}</button></>}{hasPermission(user, PERMISSIONS.FOLLOW_UP_CREATE) && <button className="app-action app-action--primary" onClick={() => setDialog(true)}><Plus size={17} /> Nuevo seguimiento</button>}</div></header>
     <Summary data={summary} onFilter={(value) => { setPage(1); setFilters({ q: '', estado: '', prioridad: value === 'ALTA' ? 'ALTA' : '', vencidos: value === 'VENCIDOS', sin_responsable: value === 'SIN_RESPONSABLE' }); }} />
     <section className="follow-workspace"><div className="follow-filters"><label><Search size={18} /><input value={filters.q} onChange={(e) => { setPage(1); setFilters({ ...filters, q: e.target.value }); }} placeholder="Buscar por estudiante, título o motivo" aria-label="Buscar seguimientos" /></label><select aria-label="Filtrar por estado" value={filters.estado} onChange={(e) => { setPage(1); setFilters({ ...filters, estado: e.target.value }); }}>{STATES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><select aria-label="Filtrar por prioridad" value={filters.prioridad} onChange={(e) => { setPage(1); setFilters({ ...filters, prioridad: e.target.value }); }}>{PRIORITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
       {loading ? <div className="follow-state">Cargando seguimientos…</div> : cases.length === 0 ? <div className="follow-state"><ClipboardList size={32} /><h2>No hay seguimientos con estos filtros</h2><p>Prueba otra búsqueda o ejecuta la revisión de reglas.</p></div> : <div className="follow-list" data-tour="follow-list">{cases.map((item) => <button key={item.id_caso} type="button" onClick={() => navigate(`/admin/seguimiento/${item.id_caso}`)}><span className={`follow-priority priority-${item.prioridad.toLowerCase()}`} /><div><div className="follow-list__top"><span className="follow-badge">{stateLabel(item.estado)}</span><small>{item.regla_codigo ? 'Automático' : 'Manual'}</small></div><h2>{item.titulo}</h2><p>{item.estudiante || 'Caso institucional'}{item.nombre_curso ? ` · ${item.nombre_curso}` : ''}</p><footer><span><UserRoundCheck size={15} /> {item.responsable_nombre || 'Sin responsable'}</span><span><CalendarDays size={15} /> {date(item.fecha_limite)}</span><span><ClipboardList size={15} /> {item.tareas_pendientes || 0} tareas</span></footer></div><ChevronRight /></button>)}</div>}
       {total > 30 && <nav className="follow-pagination" aria-label="Paginación de seguimientos"><button type="button" className="app-action app-action--secondary" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Anterior</button><span>Página {page} de {Math.ceil(total / 30)} · {total} seguimientos</span><button type="button" className="app-action app-action--secondary" disabled={page >= Math.ceil(total / 30)} onClick={() => setPage((current) => current + 1)}>Siguiente</button></nav>}
     </section>
     {dialog && <NewCaseDialog people={people} onClose={() => setDialog(false)} onCreated={(id) => { setDialog(false); navigate(`/admin/seguimiento/${id}`); }} />}
+    {automationOpen && <FollowUpAutomationDialog onClose={closeAutomation} onSaved={load} />}
   </main>;
 };
 

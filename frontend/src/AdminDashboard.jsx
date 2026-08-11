@@ -56,7 +56,18 @@ const initialPeriod = () => {
   };
 };
 
+const initialPendingPeriod = () => {
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(from.getDate() - 29);
+  return { from: localIsoDate(from), to: localIsoDate(today) };
+};
+
 const formatTime = (value) => String(value || '').slice(0, 5) || '—';
+const formatDate = (value) => value
+  ? new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+    .format(new Date(`${String(value).slice(0, 10)}T12:00:00`))
+  : '—';
 const formatDateTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—';
 const studentName = (row) => [row.nombres, row.paterno, row.materno].filter(Boolean).join(' ');
 
@@ -114,6 +125,21 @@ const AdminDashboard = () => {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [pendingQuery, setPendingQuery] = useState('');
+  const [pendingCourseId, setPendingCourseId] = useState('');
+  const [pendingPeriod, setPendingPeriod] = useState(() => initialPendingPeriod());
+  const [pendingFilters, setPendingFilters] = useState(() => ({
+    query: '',
+    courseId: '',
+    period: initialPendingPeriod()
+  }));
+  const [pendingRows, setPendingRows] = useState([]);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPages, setPendingPages] = useState(1);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingRefreshToken, setPendingRefreshToken] = useState(0);
+
   const [reportOpen, setReportOpen] = useState(false);
   const [period, setPeriod] = useState(initialPeriod);
   const [scope, setScope] = useState('institucional');
@@ -160,7 +186,37 @@ const AdminDashboard = () => {
     }
   }, [notify]);
 
+  const loadPendingJustifications = useCallback(async () => {
+    if (!canJustify) return;
+    setPendingLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/puntualidad/justificaciones-pendientes`, {
+        params: {
+          desde: pendingFilters.period.from,
+          hasta: pendingFilters.period.to,
+          q: pendingFilters.query || undefined,
+          curso_id: pendingFilters.courseId || undefined,
+          pagina: pendingPage,
+          limite: PAGE_SIZE
+        }
+      });
+      setPendingRows(response.data.registros || []);
+      setPendingTotal(response.data.total || 0);
+      setPendingPages(response.data.paginas || 1);
+      if (response.data.pagina && response.data.pagina !== pendingPage) {
+        setPendingPage(response.data.pagina);
+      }
+    } catch (error) {
+      setPendingRows([]);
+      setPendingTotal(0);
+      notify(error.response?.data?.message || 'No fue posible cargar las justificaciones pendientes.', 'error');
+    } finally {
+      setPendingLoading(false);
+    }
+  }, [canJustify, notify, pendingFilters, pendingPage]);
+
   useEffect(() => { loadOperationalData(); }, [loadOperationalData]);
+  useEffect(() => { loadPendingJustifications(); }, [loadPendingJustifications, pendingRefreshToken]);
 
   useEffect(() => {
     if (!reportOpen || !['individual', 'personalizado'].includes(scope) || studentQuery.trim().length < 2) {
@@ -214,6 +270,37 @@ const AdminDashboard = () => {
     setCorrectedDate(String(row.fecha).slice(0, 10));
     setCorrectedTime(formatTime(row.hora));
     setHistory([]);
+  };
+
+  const openHistoricalJustification = (row) => {
+    setSelectedRow(row);
+    setActionMode('justificar');
+    setActionReason('');
+    setJustificationType('apoderado');
+    setAttachmentFile(null);
+    setCorrectedDate(String(row.fecha).slice(0, 10));
+    setCorrectedTime(formatTime(row.hora));
+    setHistory([]);
+  };
+
+  const applyPendingFilters = () => {
+    setPendingPage(1);
+    setPendingFilters({
+      query: pendingQuery.trim(),
+      courseId: pendingCourseId,
+      period: pendingPeriod
+    });
+    setPendingRefreshToken((current) => current + 1);
+  };
+
+  const resetPendingFilters = () => {
+    const nextPeriod = initialPendingPeriod();
+    setPendingQuery('');
+    setPendingCourseId('');
+    setPendingPeriod(nextPeriod);
+    setPendingPage(1);
+    setPendingFilters({ query: '', courseId: '', period: nextPeriod });
+    setPendingRefreshToken((current) => current + 1);
   };
 
   const openHistory = async () => {
@@ -307,6 +394,9 @@ const AdminDashboard = () => {
       }
       closeDrawer();
       await loadOperationalData({ quiet: true });
+      if (actionMode === 'justificar' || actionMode === 'revocar' || actionMode === 'anular') {
+        setPendingRefreshToken((current) => current + 1);
+      }
     } catch (error) {
       notify(error.response?.data?.message || 'No fue posible completar la acción.', 'error');
     } finally {
@@ -436,6 +526,64 @@ const AdminDashboard = () => {
           {totalPages > 1 && <div className="operation-pagination"><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {page} de {totalPages}</span><button type="button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
         </section>
 
+        {canJustify && <section className="pending-justifications" data-tour="pending-justifications">
+          <div className="operation-heading pending-justifications__heading">
+            <div>
+              <span className="section-kicker">Regularización histórica</span>
+              <h2>Justificaciones pendientes</h2>
+              <p>Busca por estudiante, curso o período y justifica el atraso exacto que permanece pendiente.</p>
+            </div>
+            <div className="pending-justifications__total"><ShieldAlert size={19} /><strong>{pendingTotal}</strong><span>atraso{pendingTotal === 1 ? '' : 's'} pendiente{pendingTotal === 1 ? '' : 's'}</span></div>
+          </div>
+
+          <div className="pending-justifications__guide">
+            <ShieldCheck size={20} />
+            <div>
+              <strong>La justificación se aplica a un atraso registrado, no a la ficha general de la estudiante.</strong>
+              <span>La fecha original nunca cambia. Si el atraso no fue registrado, primero debe regularizarse; las inasistencias se gestionan en un flujo distinto.</span>
+            </div>
+          </div>
+
+          <div className="pending-justifications__filters">
+            <div className="pending-justifications__filter-heading">
+              <SlidersHorizontal size={19} />
+              <div>
+                <strong>Encontrar un atraso específico</strong>
+                <span>Combina nombre, curso y período. La búsqueda nunca modifica el registro original.</span>
+              </div>
+            </div>
+            <label className="operation-search"><Search size={19} /><input value={pendingQuery} onChange={(event) => setPendingQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyPendingFilters(); }} placeholder="Nombre, RUT u otro identificador" /></label>
+            <label><span>Curso</span><AppSelect ariaLabel="Filtrar pendientes por curso" value={pendingCourseId} onChange={setPendingCourseId} options={[{ value: '', label: 'Todos los cursos' }, ...courses.map((course) => ({ value: String(course.id_curso), label: course.nombre_curso }))]} /></label>
+            <div className="pending-justifications__period"><DateRangeField label="Período del atraso" from={pendingPeriod.from} to={pendingPeriod.to} maxValue={localIsoDate()} onChange={setPendingPeriod} /></div>
+            <div className="pending-justifications__filter-actions">
+              <button type="button" className="quiet-action" onClick={resetPendingFilters}>Restablecer</button>
+              <button type="button" className="primary-action" onClick={applyPendingFilters}><Search size={17} /> Buscar</button>
+            </div>
+          </div>
+
+          <div className="operation-table-wrap">
+            <table className="operation-table pending-justifications__table">
+              <thead><tr><th>Estudiante</th><th>Curso</th><th>Fecha del atraso</th><th>Hora</th><th>Clasificación</th><th>Control</th><th>Acción requerida</th></tr></thead>
+              <tbody>
+                {pendingRows.map((row) => (
+                  <tr key={row.id_registro} className="pending-justifications__row">
+                    <td data-label="Estudiante"><span className="pending-justifications__student"><ShieldAlert size={18} /><span><strong>{studentName(row)}</strong><small>{getStudentIdentifier(row)}</small></span></span></td>
+                    <td data-label="Curso">{row.curso || 'Sin curso'}</td>
+                    <td data-label="Fecha del atraso"><strong>{formatDate(row.fecha)}</strong><small>Fecha original</small></td>
+                    <td data-label="Hora" className="time-cell">{formatTime(row.hora)}</td>
+                    <td data-label="Clasificación"><span className="status-pill" data-status={row.severidad?.toLowerCase()}>{`Atraso ${row.severidad?.toLowerCase() || ''}`}</span></td>
+                    <td data-label="Control"><strong>{row.control_nombre || 'Ingreso de la jornada'}</strong><small>{row.minutos_atraso === null || row.minutos_atraso === undefined ? 'Minutos no informados' : `${row.minutos_atraso} min de atraso`}</small></td>
+                    <td data-label="Acción requerida"><button type="button" className="pending-justifications__primary-action" onClick={() => openHistoricalJustification(row)}><ShieldCheck size={18} /><span>Justificar atraso</span><ChevronRight size={17} /></button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!pendingRows.length && <div className="operation-empty">{pendingLoading ? <><RotateCcw size={30} className="spin" /><strong>Buscando atrasos pendientes…</strong></> : <><ShieldCheck size={34} /><strong>No hay atrasos pendientes con estos filtros</strong><span>Amplía el período o revisa otro curso o estudiante.</span></>}</div>}
+          </div>
+
+          {pendingPages > 1 && <div className="operation-pagination"><button type="button" disabled={pendingPage === 1 || pendingLoading} onClick={() => setPendingPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {pendingPage} de {pendingPages}</span><button type="button" disabled={pendingPage === pendingPages || pendingLoading} onClick={() => setPendingPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
+        </section>}
+
         {canReport && <section className="report-section-v2" data-tour="report-builder">
           <div className="report-intro">
             <div className="report-intro__icon"><FileSpreadsheet size={25} /></div>
@@ -458,23 +606,27 @@ const AdminDashboard = () => {
 
       {selectedRow && <div className="record-drawer-backdrop" onMouseDown={closeDrawer}>
         <aside className="record-drawer" role="dialog" aria-modal="true" aria-label="Gestionar registro" onMouseDown={(event) => event.stopPropagation()}>
-          <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {getStudentIdentifier(selectedRow)}</p></div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
-          <div className="record-summary"><div><small>Fecha</small><strong>{String(selectedRow.fecha).slice(0, 10)}</strong></div><div><small>Hora</small><strong>{formatTime(selectedRow.hora)}</strong></div><div><small>Resultado</small><strong>{selectedRow.estado === 'Presente' ? 'A tiempo' : `Atraso ${selectedRow.severidad}`}</strong></div></div>
+          <header><div><span className="section-kicker">Registro #{selectedRow.id_registro}</span><h2>{studentName(selectedRow)}</h2><p>{selectedRow.curso || 'Sin curso'} · {getStudentIdentifier(selectedRow)}</p>{selectedRow.estado === 'Atrasado' && !selectedRow.justificado && <span className="record-drawer__status"><ShieldAlert size={15} /> Pendiente de justificación</span>}</div><button type="button" onClick={closeDrawer} aria-label="Cerrar"><X size={22} /></button></header>
+          <div className="record-summary"><div><small>Fecha original</small><strong>{formatDate(selectedRow.fecha)}</strong></div><div><small>Hora</small><strong>{formatTime(selectedRow.hora)}</strong></div><div><small>Resultado</small><strong>{selectedRow.estado === 'Presente' ? 'A tiempo' : `Atraso ${selectedRow.severidad}`}</strong></div></div>
 
           {!actionMode && (
             <div className="record-actions">
+              {canJustify && selectedRow.estado === 'Atrasado' && !selectedRow.justificado && (
+                <>
+                  <div className="record-actions__intro"><span>Acción recomendada</span><strong>Este atraso todavía necesita una resolución.</strong></div>
+                  <button type="button" className="recommended" onClick={() => setActionMode('justificar')}>
+                  <ShieldCheck size={19} />
+                  <span><strong>Registrar justificación</strong><small>Respalda el atraso específico y conserva su fecha original.</small></span>
+                  <ChevronRight size={18} />
+                  </button>
+                  <div className="record-actions__divider"><span>Otras acciones del registro</span></div>
+                </>
+              )}
               {canCorrect && <button type="button" onClick={() => setActionMode('corregir')}>
                 <Clock3 size={19} />
                 <span><strong>Corregir fecha u hora</strong><small>Recalcula automáticamente la clasificación.</small></span>
                 <ChevronRight size={18} />
               </button>}
-              {canJustify && selectedRow.estado === 'Atrasado' && !selectedRow.justificado && (
-                <button type="button" onClick={() => setActionMode('justificar')}>
-                  <ShieldCheck size={19} />
-                  <span><strong>Registrar justificación</strong><small>Permite respaldar la constancia y adjuntar certificado.</small></span>
-                  <ChevronRight size={18} />
-                </button>
-              )}
               {canJustify && selectedRow.estado === 'Atrasado' && selectedRow.justificado && (
                 <button type="button" onClick={() => setActionMode('revocar')}>
                   <RotateCcw size={19} />
@@ -514,7 +666,7 @@ const AdminDashboard = () => {
                   setAttachmentFile(null);
                 }}
               >
-                <ChevronLeft size={17} /> Volver a opciones
+                <ChevronLeft size={17} /> Ver otras acciones
               </button>
               <h3>
                 {actionMode === 'corregir'
@@ -525,6 +677,8 @@ const AdminDashboard = () => {
                       ? 'Revocar justificación'
                       : 'Anular registro'}
               </h3>
+
+              {actionMode === 'justificar' && <div className="record-form__context"><ShieldCheck size={18} /><div><strong>Atraso del {formatDate(selectedRow.fecha)} a las {formatTime(selectedRow.hora)}</strong><span>La justificación quedará vinculada solamente a este registro.</span></div></div>}
 
               {actionMode === 'corregir' && (
                 <div className="record-form__row">

@@ -131,6 +131,14 @@ const tours = {
         },
       },
       {
+        element: '[data-tour="pending-justifications"]',
+        popover: {
+          title: 'Justificaciones pendientes',
+          description: 'Busca un atraso anterior por estudiante, curso o período. La justificación se aplica al registro seleccionado y conserva la fecha original del atraso.',
+          side: 'top',
+        },
+      },
+      {
         element: '[data-tour="report-builder"]',
         popover: {
           title: 'Reportes',
