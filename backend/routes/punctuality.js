@@ -646,6 +646,111 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     }
   });
 
+  router.get('/justificaciones-pendientes', verifyPermission('punctuality.justify'), async (req, res) => {
+    const {
+      desde,
+      hasta,
+      q: rawQuery = '',
+      curso_id: rawCourseId = '',
+      pagina: rawPage = '1',
+      limite: rawLimit = '12'
+    } = req.query;
+    const range = validateDateRange(desde, hasta);
+    if (range.error) return res.status(400).json({ message: range.error });
+
+    const query = String(rawQuery || '').trim();
+    if (query.length > 120) {
+      return res.status(400).json({ message: 'La búsqueda no puede superar 120 caracteres.' });
+    }
+    const courseId = rawCourseId === '' ? null : asBoundedInteger(rawCourseId, 1, 2147483647);
+    if (rawCourseId !== '' && !courseId) {
+      return res.status(400).json({ message: 'El curso seleccionado no es válido.' });
+    }
+    const requestedPage = asBoundedInteger(rawPage, 1, 1000000);
+    const limit = asBoundedInteger(rawLimit, 1, 100);
+    if (!requestedPage || !limit) {
+      return res.status(400).json({ message: 'La paginación solicitada no es válida.' });
+    }
+
+    const conditions = [
+      'r.fecha BETWEEN $1 AND $2',
+      "r.tipo_registro = 'Entrada'",
+      "r.estado = 'Atrasado'",
+      'r.anulado = false',
+      'r.justificado = false'
+    ];
+    const params = [desde, hasta];
+    let index = 3;
+
+    if (courseId) {
+      conditions.push(`COALESCE(r.id_curso_registro, m.id_curso) = $${index++}`);
+      params.push(courseId);
+    }
+    if (query) {
+      conditions.push(`(
+        CONCAT_WS(' ', a.nombres, a.paterno, a.materno) ILIKE $${index}
+        OR COALESCE(r.curso_registro, c.nombre_curso, '') ILIKE $${index}
+        OR CONCAT_WS('-', a.rut::text, a.dv) ILIKE $${index}
+        OR REGEXP_REPLACE(COALESCE(a.documento_erp, ''), '[^0-9A-Za-z]', '', 'g') ILIKE $${index + 1}
+        OR COALESCE(a.uuid_erp::text, '') ILIKE $${index}
+      )`);
+      params.push(`%${query}%`, `%${query.replace(/[^0-9A-Za-z]/g, '')}%`);
+      index += 2;
+    }
+
+    const where = conditions.join(' AND ');
+    try {
+      const countResult = await pool.query(`
+        SELECT COUNT(*)::int AS total
+        FROM attendance_registrations r
+        JOIN alumno a ON a.id_alumno = r.id_alumno
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
+        WHERE ${where}
+      `, params);
+      const total = countResult.rows[0]?.total || 0;
+      const pages = Math.max(1, Math.ceil(total / limit));
+      const page = Math.min(requestedPage, pages);
+      const queryParams = [...params, limit, (page - 1) * limit];
+      const result = await pool.query(`
+        SELECT r.id_registro, r.fecha::text AS fecha, TO_CHAR(r.hora, 'HH24:MI:SS') AS hora,
+               r.estado, r.severidad, r.justificado, r.tipo_justificacion,
+               r.comentario_justificacion, r.documento_id,
+               d.nombre_original AS documento_nombre, d.mime_type AS documento_mime_type,
+               r.origen, r.registrado_por, r.creado_en, r.version, r.corregido_en,
+               r.motivo_correccion, a.id_alumno, a.nombres, a.paterno, a.materno,
+               a.rut, a.dv, a.documento_erp, a.uuid_erp,
+               COALESCE(r.id_curso_registro, m.id_curso) AS id_curso,
+               COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso informado') AS curso,
+               r.jornada_registro, r.hora_limite_aplicada, r.minutos_atraso,
+               r.version_regla, r.snapshot_migrado, r.control_puntualidad_id,
+               r.control_codigo, r.control_nombre, r.control_tipo, r.control_version,
+               u.nombre AS registrado_por_nombre
+        FROM attendance_registrations r
+        JOIN alumno a ON a.id_alumno = r.id_alumno
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
+        LEFT JOIN usuarios u ON u.id = r.registrado_por
+        LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
+        WHERE ${where}
+        ORDER BY r.fecha DESC, r.hora DESC, r.id_registro DESC
+        LIMIT $${index} OFFSET $${index + 1}
+      `, queryParams);
+
+      res.json({
+        periodo: range,
+        pagina: page,
+        limite: limit,
+        total,
+        paginas: pages,
+        registros: result.rows.map((row) => protectStudentRecord(row))
+      });
+    } catch (error) {
+      console.error('[puntualidad/justificaciones-pendientes]', error.message);
+      res.status(500).json({ message: 'No fue posible obtener las justificaciones pendientes.' });
+    }
+  });
+
   router.get('/resumen-hoy', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
     const controlId = asBoundedInteger(req.query?.control_id, 1, 2147483647);
     try {
