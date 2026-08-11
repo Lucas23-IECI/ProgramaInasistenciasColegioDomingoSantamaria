@@ -1,8 +1,10 @@
-const ACTIVE_CASE_STATES = ['ABIERTO', 'ASIGNADO', 'EN_CONTACTO', 'EN_SEGUIMIENTO', 'ESCALADO', 'RESUELTO'];
+const ACTIVE_CASE_STATES = ['ABIERTO', 'ASIGNADO', 'EN_CONTACTO', 'EN_SEGUIMIENTO', 'ESCALADO'];
+const PRIORITY_RANK = { BAJA: 1, MEDIA: 2, ALTA: 3, URGENTE: 4 };
 
-const signal = ({ rule, key, entityType, entityId, studentId = null, occurrences = 1, title, reason, data = {} }) => ({
+const signal = ({ rule, key, dedupeKey = null, entityType, entityId, studentId = null, occurrences = 1, title, reason, data = {} }) => ({
   rule,
   key: String(key),
+  dedupeKey,
   entityType,
   entityId: String(entityId),
   studentId,
@@ -12,9 +14,11 @@ const signal = ({ rule, key, entityType, entityId, studentId = null, occurrences
   data
 });
 
-const collectSignals = async (queryable) => {
+const collectSignals = async (queryable, rules) => {
+  const latenessRules = [...rules.values()].filter((rule) => (
+    rule.activa && rule.tipo_senal === 'ATRASOS' && Number(rule.ventana_dias) > 0
+  ));
   const [
-    lateCounts,
     manualStudents,
     withoutCourse,
     withoutGuardian,
@@ -24,17 +28,6 @@ const collectSignals = async (queryable) => {
     pendingJustifications,
     identityConflicts
   ] = await Promise.all([
-    queryable.query(`
-      SELECT r.id_alumno, COUNT(*)::int AS total,
-             trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
-      FROM attendance_registrations r
-      JOIN alumno a ON a.id_alumno = r.id_alumno
-      WHERE r.tipo_registro = 'Entrada' AND r.estado = 'Atrasado' AND r.anulado = false
-        AND r.fecha >= CURRENT_DATE - INTERVAL '29 days'
-        AND a.activo = true AND a.fusionado_en_id IS NULL
-      GROUP BY r.id_alumno, a.nombres, a.paterno, a.materno
-      HAVING COUNT(*) >= 3
-    `),
     queryable.query(`
       SELECT a.id_alumno, trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
       FROM alumno a
@@ -100,16 +93,42 @@ const collectSignals = async (queryable) => {
   ]);
 
   const results = [];
-  for (const row of lateCounts.rows) {
-    const critical = row.total >= 5;
+  const latenessCandidates = new Map();
+  const latenessResults = await Promise.all(latenessRules.map(async (rule) => ({
+    rule,
+    rows: (await queryable.query(`
+      SELECT r.id_alumno, COUNT(*)::int AS total,
+             trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
+      FROM attendance_registrations r
+      JOIN alumno a ON a.id_alumno = r.id_alumno
+      WHERE r.tipo_registro = 'Entrada' AND r.estado = 'Atrasado' AND r.anulado = false
+        AND r.fecha >= CURRENT_DATE - (($1::int - 1) * INTERVAL '1 day')
+        AND a.activo = true AND a.fusionado_en_id IS NULL
+      GROUP BY r.id_alumno, a.nombres, a.paterno, a.materno
+      HAVING COUNT(*) >= $2::int
+    `, [Number(rule.ventana_dias), Number(rule.umbral)])).rows
+  })));
+  for (const { rule, rows } of latenessResults) {
+    for (const row of rows) {
+      const current = latenessCandidates.get(row.id_alumno);
+      const currentRank = current ? PRIORITY_RANK[current.rule.prioridad] || 0 : -1;
+      const candidateRank = PRIORITY_RANK[rule.prioridad] || 0;
+      if (!current || candidateRank > currentRank || (candidateRank === currentRank && Number(rule.umbral) > Number(current.rule.umbral))) {
+        latenessCandidates.set(row.id_alumno, { rule, row });
+      }
+    }
+  }
+  for (const { rule, row } of latenessCandidates.values()) {
+    const critical = rule.codigo === 'ATRASOS_CRITICOS' || ['ALTA', 'URGENTE'].includes(rule.prioridad);
     results.push(signal({
-      rule: critical ? 'ATRASOS_CRITICOS' : 'ATRASOS_PREVENTIVOS',
+      rule: rule.codigo,
       key: `estudiante:${row.id_alumno}`,
+      dedupeKey: `ATRASOS:estudiante:${row.id_alumno}`,
       entityType: 'ESTUDIANTE', entityId: row.id_alumno, studentId: row.id_alumno,
       occurrences: row.total,
       title: critical ? `Seguimiento crítico de puntualidad · ${row.estudiante}` : `Seguimiento preventivo de puntualidad · ${row.estudiante}`,
-      reason: `${row.total} atrasos registrados durante los últimos 30 días.`,
-      data: { atrasos_30_dias: row.total }
+      reason: `${row.total} atrasos registrados durante los últimos ${rule.ventana_dias} días.`,
+      data: { atrasos: row.total, ventana_dias: Number(rule.ventana_dias), umbral: Number(rule.umbral) }
     }));
   }
   for (const row of manualStudents.rows) results.push(signal({
@@ -158,7 +177,7 @@ const collectSignals = async (queryable) => {
 const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
   const rule = rules.get(item.rule);
   if (!rule || !rule.activa) return { ignored: true };
-  const signalKey = `${item.rule}:${item.key}`;
+  const signalKey = item.dedupeKey || `${item.rule}:${item.key}`;
   const signalResult = await client.query(`
     INSERT INTO seguimiento_senales (
       regla_codigo, clave, entidad_tipo, entidad_id, id_alumno, activa,
@@ -185,7 +204,11 @@ const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
       ) VALUES ($1, $2, 'AUTOMATICO', $3, $4, $5, $6,
         CURRENT_DATE + ($7::int * INTERVAL '1 day'), $8, $9, $10, $10)
       ON CONFLICT (clave_dedupe) WHERE clave_dedupe IS NOT NULL AND estado NOT IN ('CERRADO', 'ANULADO')
-      DO UPDATE SET actualizado_en = CURRENT_TIMESTAMP, version = seguimiento_casos.version + 1
+      DO UPDATE SET regla_codigo = EXCLUDED.regla_codigo,
+        titulo = EXCLUDED.titulo,
+        motivo_apertura = EXCLUDED.motivo_apertura,
+        actualizado_en = CURRENT_TIMESTAMP,
+        version = seguimiento_casos.version + 1
       RETURNING id_caso, (xmax = 0) AS creado
     `, [item.title, item.reason, item.rule, signalKey, rule.prioridad, item.studentId,
       rule.plazo_dias, item.entityType === 'VISITA' ? Number(item.entityId) : null,
@@ -207,14 +230,213 @@ const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
   return { caseId, created };
 };
 
+const insertNotification = async (client, {
+  userId, type, title, detail, link, dedupeKey
+}) => {
+  if (!userId) return false;
+  const result = await client.query(`
+    INSERT INTO notificaciones_internas (
+      usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe
+    ) VALUES ($1, 'SEGUIMIENTO', $2, $3, $4, $5, $6)
+    ON CONFLICT (usuario_id, clave_dedupe) WHERE clave_dedupe IS NOT NULL DO NOTHING
+    RETURNING id_notificacion
+  `, [userId, type, title, detail, link, dedupeKey]);
+  return result.rowCount > 0;
+};
+
+const selectResponsible = async (client, profileCode) => {
+  if (!profileCode) return null;
+  const result = await client.query(`
+    SELECT u.id
+    FROM usuarios u
+    WHERE u.rol = $1 AND u.activo = true AND u.eliminado_en IS NULL
+    ORDER BY (
+      SELECT COUNT(*) FROM seguimiento_casos c
+      WHERE c.responsable_usuario_id = u.id
+        AND c.estado = ANY($2::varchar[])
+    ), u.id
+    LIMIT 1
+  `, [profileCode, ACTIVE_CASE_STATES]);
+  return result.rows[0]?.id || null;
+};
+
+const selectEscalationRecipients = async (client, ruleCode) => {
+  const result = await client.query(`
+    SELECT DISTINCT u.id AS usuario_id, g.codigo AS grupo_codigo, g.nombre AS grupo_nombre
+    FROM seguimiento_regla_escalamiento_grupos rg
+    JOIN seguimiento_grupos_notificacion g
+      ON g.codigo = rg.grupo_codigo AND g.activo = true
+    JOIN seguimiento_grupo_perfiles gp ON gp.grupo_codigo = g.codigo
+    JOIN usuarios u ON u.rol = gp.perfil_codigo
+    WHERE rg.regla_codigo = $1
+      AND u.activo = true AND u.eliminado_en IS NULL
+    ORDER BY u.id, g.codigo
+  `, [ruleCode]);
+  const recipients = new Map();
+  for (const row of result.rows) {
+    const current = recipients.get(row.usuario_id) || { userId: row.usuario_id, groups: [] };
+    current.groups.push({ code: row.grupo_codigo, name: row.grupo_nombre });
+    recipients.set(row.usuario_id, current);
+  }
+  return [...recipients.values()];
+};
+
+const operateCases = async (client, rules, configuration, actorId = null) => {
+  const result = { assigned: 0, escalated: 0, notified: 0 };
+  if (configuration.asignacion_automatica) {
+    const unassigned = await client.query(`
+      SELECT c.id_caso, c.titulo, c.regla_codigo, r.responsable_perfil_codigo,
+             r.notificar_responsable
+      FROM seguimiento_casos c
+      JOIN seguimiento_reglas r ON r.codigo = c.regla_codigo
+      WHERE c.origen = 'AUTOMATICO' AND c.responsable_usuario_id IS NULL
+        AND c.estado = ANY($1::varchar[]) AND r.responsable_perfil_codigo IS NOT NULL
+      ORDER BY c.fecha_limite NULLS LAST, c.creado_en, c.id_caso
+      FOR UPDATE OF c
+    `, [ACTIVE_CASE_STATES]);
+    for (const item of unassigned.rows) {
+      const userId = await selectResponsible(client, item.responsable_perfil_codigo);
+      if (!userId) continue;
+      await client.query(`
+        UPDATE seguimiento_casos
+        SET responsable_usuario_id = $2, estado = CASE WHEN estado = 'ABIERTO' THEN 'ASIGNADO' ELSE estado END,
+            asignado_automaticamente = true, actualizado_en = CURRENT_TIMESTAMP,
+            actualizado_por = $3, version = version + 1
+        WHERE id_caso = $1
+      `, [item.id_caso, userId, actorId]);
+      await client.query(`
+        INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
+        VALUES ($1, 'ASIGNACION_AUTOMATICA', 'Responsable asignado automáticamente',
+          'La asignación se realizó según el perfil definido en la regla institucional.',
+          $2::jsonb, $3)
+      `, [item.id_caso, JSON.stringify({ perfil: item.responsable_perfil_codigo, responsable_usuario_id: userId }), actorId]);
+      result.assigned += 1;
+      if (configuration.notificaciones_activas && item.notificar_responsable) {
+        const inserted = await insertNotification(client, {
+          userId,
+          type: 'CASO_ASIGNADO',
+          title: 'Nuevo seguimiento asignado',
+          detail: item.titulo,
+          link: `/admin/seguimiento/${item.id_caso}`,
+          dedupeKey: `seguimiento:${item.id_caso}:asignacion:${userId}`
+        });
+        if (inserted) result.notified += 1;
+      }
+    }
+  }
+
+  if (configuration.escalamiento_automatico) {
+    const overdue = await client.query(`
+      SELECT c.id_caso, c.titulo, c.prioridad, c.responsable_usuario_id,
+             r.codigo AS regla_codigo,
+             c.fecha_limite, r.escalamiento_dias, r.notificar_responsable
+      FROM seguimiento_casos c
+      JOIN seguimiento_reglas r ON r.codigo = c.regla_codigo
+      WHERE c.estado = ANY($1::varchar[]) AND c.fecha_limite IS NOT NULL
+        AND r.escalamiento_dias IS NOT NULL AND c.escalado_automatico_en IS NULL
+        AND c.fecha_limite + r.escalamiento_dias <= CURRENT_DATE
+      ORDER BY c.fecha_limite, c.id_caso
+      FOR UPDATE OF c
+    `, [ACTIVE_CASE_STATES]);
+    for (const item of overdue.rows) {
+      const nextPriority = Object.entries(PRIORITY_RANK)
+        .find(([, rank]) => rank === Math.min(4, (PRIORITY_RANK[item.prioridad] || 1) + 1))?.[0] || 'URGENTE';
+      const escalationRecipients = await selectEscalationRecipients(client, item.regla_codigo);
+      const escalationGroups = [...new Set(escalationRecipients.flatMap((recipient) => (
+        recipient.groups.map((group) => group.name)
+      )))];
+      await client.query(`
+        UPDATE seguimiento_casos
+        SET estado = 'ESCALADO', prioridad = $2, escalado_automatico_en = CURRENT_TIMESTAMP,
+            actualizado_en = CURRENT_TIMESTAMP, actualizado_por = $3, version = version + 1
+        WHERE id_caso = $1
+      `, [item.id_caso, nextPriority, actorId]);
+      await client.query(`
+        INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
+        VALUES ($1, 'ESCALAMIENTO_AUTOMATICO', 'Plazo institucional excedido',
+          'El caso fue escalado al alcanzar el plazo institucional sin una resolución registrada.',
+          $2::jsonb, $3)
+      `, [item.id_caso, JSON.stringify({
+        fecha_limite: item.fecha_limite,
+        margen_adicional_dias: item.escalamiento_dias,
+        prioridad_anterior: item.prioridad,
+        prioridad_nueva: nextPriority,
+        grupos_notificados: escalationGroups
+      }), actorId]);
+      result.escalated += 1;
+      if (configuration.notificaciones_activas && item.notificar_responsable) {
+        const recipients = [...escalationRecipients];
+        if (recipients.length === 0 && item.responsable_usuario_id) {
+          recipients.push({ userId: item.responsable_usuario_id, groups: [] });
+        }
+        for (const recipient of recipients) {
+          const groupNames = recipient.groups.map((group) => group.name).join(' y ');
+          const inserted = await insertNotification(client, {
+            userId: recipient.userId,
+            type: 'CASO_ESCALADO',
+            title: 'Seguimiento fuera de plazo',
+            detail: groupNames ? `${item.titulo} · Aviso para ${groupNames}` : item.titulo,
+            link: `/admin/seguimiento/${item.id_caso}`,
+            dedupeKey: `seguimiento:${item.id_caso}:escalamiento:${recipient.userId}`
+          });
+          if (inserted) result.notified += 1;
+        }
+      }
+    }
+  }
+  return result;
+};
+
+const previewInstitutionalFollowUp = async (pool) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const rulesResult = await client.query('SELECT * FROM seguimiento_reglas WHERE activa = true');
+    const rules = new Map(rulesResult.rows.map((row) => [row.codigo, row]));
+    const detected = await collectSignals(client, rules);
+    const grouped = new Map();
+    for (const item of detected) {
+      const rule = rules.get(item.rule);
+      const current = grouped.get(item.rule) || {
+        codigo: item.rule,
+        nombre: rule?.nombre || item.rule,
+        prioridad: rule?.prioridad || null,
+        total: 0
+      };
+      current.total += 1;
+      grouped.set(item.rule, current);
+    }
+    await client.query('COMMIT');
+    return {
+      detected: detected.length,
+      affected_students: new Set(detected.map((item) => item.studentId).filter(Boolean)).size,
+      by_rule: [...grouped.values()].sort((a, b) => b.total - a.total || a.nombre.localeCompare(b.nombre, 'es')),
+      evaluated_at: new Date().toISOString()
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const runInstitutionalFollowUp = async (pool, { actorId = null } = {}) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query("SELECT pg_advisory_xact_lock(hashtext('seguimiento-institucional'))");
-    const rulesResult = await client.query('SELECT * FROM seguimiento_reglas WHERE activa = true');
+    const [rulesResult, configResult] = await Promise.all([
+      client.query('SELECT * FROM seguimiento_reglas WHERE activa = true'),
+      client.query('SELECT * FROM seguimiento_configuracion WHERE id_configuracion = 1 FOR UPDATE')
+    ]);
     const rules = new Map(rulesResult.rows.map((row) => [row.codigo, row]));
-    const detected = await collectSignals(client);
+    const configuration = configResult.rows[0] || {
+      asignacion_automatica: false,
+      escalamiento_automatico: false,
+      notificaciones_activas: false
+    };
+    const detected = await collectSignals(client, rules);
     const currentKeys = new Set(detected.map((item) => `${item.rule}:${item.key}`));
     let created = 0;
     for (const item of detected) {
@@ -226,14 +448,26 @@ const runInstitutionalFollowUp = async (pool, { actorId = null } = {}) => {
     for (const row of activeSignals.rows) {
       if (currentKeys.has(`${row.regla_codigo}:${row.clave}`)) continue;
       await client.query('UPDATE seguimiento_senales SET activa = false, resuelta_en = CURRENT_TIMESTAMP WHERE id_senal = $1', [row.id_senal]);
-      if (row.id_caso) await client.query(`
+      const replacementSignal = row.id_caso ? await client.query(`
+        SELECT 1 FROM seguimiento_senales
+        WHERE id_caso = $1 AND activa = true AND id_senal <> $2
+        LIMIT 1
+      `, [row.id_caso, row.id_senal]) : { rowCount: 0 };
+      if (row.id_caso && !replacementSignal.rowCount) await client.query(`
         INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
         VALUES ($1, 'SENAL_RESUELTA', 'La señal automática dejó de estar activa', $2, $3::jsonb, $4)
       `, [row.id_caso, `La condición ${row.regla_codigo} ya no fue detectada.`, JSON.stringify({ regla: row.regla_codigo }), actorId]);
       resolved += 1;
     }
+    const operations = await operateCases(client, rules, configuration, actorId);
+    const summary = { detected: detected.length, created, resolved, ...operations, evaluated_at: new Date().toISOString() };
+    await client.query(`
+      UPDATE seguimiento_configuracion
+      SET ultima_ejecucion_en = CURRENT_TIMESTAMP, ultima_ejecucion_resultado = $1::jsonb
+      WHERE id_configuracion = 1
+    `, [JSON.stringify(summary)]);
     await client.query('COMMIT');
-    return { detected: detected.length, created, resolved, evaluated_at: new Date().toISOString() };
+    return summary;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -243,13 +477,19 @@ const runInstitutionalFollowUp = async (pool, { actorId = null } = {}) => {
 };
 
 const startInstitutionalFollowUpScheduler = (pool) => {
-  if (String(process.env.FOLLOW_UP_AUTOMATION_ENABLED || 'false').toLowerCase() !== 'true') return () => {};
-  const intervalMs = Math.max(60_000, Number(process.env.FOLLOW_UP_AUTOMATION_INTERVAL_MS) || 15 * 60_000);
+  if (String(process.env.FOLLOW_UP_AUTOMATION_ENABLED || 'true').toLowerCase() === 'false') return () => {};
   let running = false;
   const execute = async () => {
     if (running) return;
     running = true;
     try {
+      const config = await pool.query(`
+        SELECT automatizacion_activa, intervalo_minutos, ultima_ejecucion_en,
+               ultima_ejecucion_en IS NULL OR ultima_ejecucion_en <=
+                 CURRENT_TIMESTAMP - (intervalo_minutos * INTERVAL '1 minute') AS corresponde
+        FROM seguimiento_configuracion WHERE id_configuracion = 1
+      `);
+      if (!config.rows[0]?.automatizacion_activa || !config.rows[0]?.corresponde) return;
       const result = await runInstitutionalFollowUp(pool);
       console.log(JSON.stringify({ event: 'seguimiento_automatico', ...result }));
     } catch (error) {
@@ -259,8 +499,17 @@ const startInstitutionalFollowUpScheduler = (pool) => {
     }
   };
   const initial = setTimeout(execute, 30_000);
-  const timer = setInterval(execute, intervalMs);
+  const timer = setInterval(execute, 60_000);
+  initial.unref?.();
+  timer.unref?.();
   return () => { clearTimeout(initial); clearInterval(timer); };
 };
 
-module.exports = { ACTIVE_CASE_STATES, collectSignals, runInstitutionalFollowUp, startInstitutionalFollowUpScheduler };
+module.exports = {
+  ACTIVE_CASE_STATES,
+  collectSignals,
+  operateCases,
+  previewInstitutionalFollowUp,
+  runInstitutionalFollowUp,
+  startInstitutionalFollowUpScheduler
+};

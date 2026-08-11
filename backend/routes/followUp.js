@@ -1,7 +1,10 @@
 const express = require('express');
 const fs = require('fs');
 const { createDocument, removeStoredFile, resolveDocumentPath } = require('../services/documentService');
-const { runInstitutionalFollowUp } = require('../services/institutionalFollowUpService');
+const {
+  previewInstitutionalFollowUp,
+  runInstitutionalFollowUp
+} = require('../services/institutionalFollowUpService');
 
 const STATES = new Set(['ABIERTO', 'ASIGNADO', 'EN_CONTACTO', 'EN_SEGUIMIENTO', 'ESCALADO', 'RESUELTO', 'CERRADO', 'ANULADO']);
 const PRIORITIES = new Set(['BAJA', 'MEDIA', 'ALTA', 'URGENTE']);
@@ -117,24 +120,135 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
     } catch (error) { safeError(res, error, 'No fue posible cargar las reglas.'); }
   });
 
+  router.get('/configuracion', verifyPermission('seguimiento.automation.manage'), async (_req, res) => {
+    try {
+      const [configuration, rules, profiles, escalationGroups, escalationLinks] = await Promise.all([
+        pool.query('SELECT * FROM seguimiento_configuracion WHERE id_configuracion = 1'),
+        pool.query('SELECT * FROM seguimiento_reglas ORDER BY tipo_senal, nombre'),
+        pool.query(`SELECT codigo, nombre FROM perfiles_acceso WHERE activo = true ORDER BY orden, nombre`),
+        pool.query(`
+          SELECT g.codigo, g.nombre, g.descripcion, g.orden,
+                 COALESCE(json_agg(DISTINCT jsonb_build_object('codigo', p.codigo, 'nombre', p.nombre))
+                   FILTER (WHERE p.codigo IS NOT NULL), '[]'::json) AS perfiles,
+                 COUNT(DISTINCT u.id) FILTER (WHERE u.activo = true AND u.eliminado_en IS NULL)::int AS cuentas_activas
+          FROM seguimiento_grupos_notificacion g
+          LEFT JOIN seguimiento_grupo_perfiles gp ON gp.grupo_codigo = g.codigo
+          LEFT JOIN perfiles_acceso p ON p.codigo = gp.perfil_codigo
+          LEFT JOIN usuarios u ON u.rol = p.codigo
+          WHERE g.activo = true
+          GROUP BY g.codigo
+          ORDER BY g.orden, g.nombre
+        `),
+        pool.query('SELECT regla_codigo, grupo_codigo FROM seguimiento_regla_escalamiento_grupos')
+      ]);
+      const groupsByRule = escalationLinks.rows.reduce((map, row) => {
+        if (!map.has(row.regla_codigo)) map.set(row.regla_codigo, []);
+        map.get(row.regla_codigo).push(row.grupo_codigo);
+        return map;
+      }, new Map());
+      res.json({
+        configuration: configuration.rows[0],
+        rules: rules.rows.map((rule) => ({
+          ...rule,
+          escalamiento_grupos: groupsByRule.get(rule.codigo) || []
+        })),
+        profiles: profiles.rows,
+        escalation_groups: escalationGroups.rows
+      });
+    } catch (error) { safeError(res, error, 'No fue posible cargar la configuración de seguimiento.'); }
+  });
+
+  router.patch('/configuracion', verifyPermission('seguimiento.automation.manage'), async (req, res) => {
+    const interval = Number(req.body.intervalo_minutos);
+    if (!Number.isInteger(interval) || interval < 5 || interval > 1440) {
+      return res.status(400).json({ message: 'El intervalo debe estar entre 5 minutos y 24 horas.' });
+    }
+    try {
+      const result = await pool.query(`
+        UPDATE seguimiento_configuracion SET
+          automatizacion_activa = $1, intervalo_minutos = $2,
+          asignacion_automatica = $3, escalamiento_automatico = $4,
+          notificaciones_activas = $5, actualizada_por = $6,
+          actualizada_en = CURRENT_TIMESTAMP
+        WHERE id_configuracion = 1 RETURNING *
+      `, [Boolean(req.body.automatizacion_activa), interval,
+        Boolean(req.body.asignacion_automatica), Boolean(req.body.escalamiento_automatico),
+        Boolean(req.body.notificaciones_activas), req.user.id]);
+      await insertarAudit(pool, {
+        usuario_id: req.user.id, usuario_correo: req.user.correo,
+        accion: 'CONFIGURAR_SEGUIMIENTO_AUTOMATICO', entidad: 'seguimiento_configuracion',
+        entidad_id: 1, detalle: result.rows[0], ip: getClientIp(req)
+      });
+      res.json(result.rows[0]);
+    } catch (error) { safeError(res, error, 'No fue posible guardar la configuración de seguimiento.'); }
+  });
+
   router.patch('/reglas/:code', verifyPermission('seguimiento.automation.manage'), async (req, res) => {
     const priority = String(req.body.prioridad || '').toUpperCase();
     const threshold = Number(req.body.umbral);
     const windowDays = req.body.ventana_dias === null ? null : Number(req.body.ventana_dias);
     const dueDays = Number(req.body.plazo_dias);
-    if (!PRIORITIES.has(priority) || !Number.isInteger(threshold) || threshold < 1 || !Number.isInteger(dueDays) || dueDays < 1 || (windowDays !== null && (!Number.isInteger(windowDays) || windowDays < 1))) {
+    const escalationDays = req.body.escalamiento_dias === null ? null : Number(req.body.escalamiento_dias);
+    const escalationGroups = [...new Set((Array.isArray(req.body.escalamiento_grupos) ? req.body.escalamiento_grupos : [])
+      .map((value) => clean(value, 64)).filter(Boolean))];
+    const responsibleProfile = clean(req.body.responsable_perfil_codigo, 64) || null;
+    if (!PRIORITIES.has(priority) || !Number.isInteger(threshold) || threshold < 1 || !Number.isInteger(dueDays) || dueDays < 1 || (windowDays !== null && (!Number.isInteger(windowDays) || windowDays < 1)) || (escalationDays !== null && (!Number.isInteger(escalationDays) || escalationDays < 0))) {
       return res.status(400).json({ message: 'Revisa el umbral, período, prioridad y plazo.' });
     }
+    const client = await pool.connect();
     try {
-      const result = await pool.query(`
+      await client.query('BEGIN');
+      if (responsibleProfile) {
+        const profile = await client.query('SELECT 1 FROM perfiles_acceso WHERE codigo = $1 AND activo = true', [responsibleProfile]);
+        if (!profile.rowCount) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ message: 'El perfil responsable no está disponible.' });
+        }
+      }
+      if (escalationGroups.length) {
+        const available = await client.query(
+          'SELECT codigo FROM seguimiento_grupos_notificacion WHERE activo = true AND codigo = ANY($1::varchar[])',
+          [escalationGroups]
+        );
+        if (available.rowCount !== escalationGroups.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ message: 'Uno de los equipos de escalamiento no está disponible.' });
+        }
+      }
+      const result = await client.query(`
         UPDATE seguimiento_reglas SET umbral = $2, ventana_dias = $3, prioridad = $4,
-          plazo_dias = $5, activa = $6, actualizada_en = CURRENT_TIMESTAMP, actualizada_por = $7
+          plazo_dias = $5, activa = $6, actualizada_en = CURRENT_TIMESTAMP, actualizada_por = $7,
+          responsable_perfil_codigo = $8, escalamiento_dias = $9,
+          notificar_responsable = $10
         WHERE codigo = $1 RETURNING *
-      `, [req.params.code, threshold, windowDays, priority, dueDays, Boolean(req.body.activa), req.user.id]);
-      if (!result.rowCount) return res.status(404).json({ message: 'La regla no existe.' });
-      await insertarAudit(pool, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'EDITAR_REGLA_SEGUIMIENTO', entidad: 'seguimiento_regla', entidad_id: null, detalle: { codigo: req.params.code }, ip: getClientIp(req) });
+      `, [req.params.code, threshold, windowDays, priority, dueDays, Boolean(req.body.activa), req.user.id,
+        responsibleProfile, escalationDays, Boolean(req.body.notificar_responsable)]);
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'La regla no existe.' });
+      }
+      await client.query('DELETE FROM seguimiento_regla_escalamiento_grupos WHERE regla_codigo = $1', [req.params.code]);
+      for (const groupCode of escalationGroups) {
+        await client.query(`
+          INSERT INTO seguimiento_regla_escalamiento_grupos (regla_codigo, grupo_codigo)
+          VALUES ($1, $2)
+        `, [req.params.code, groupCode]);
+      }
+      await insertarAudit(client, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'EDITAR_REGLA_SEGUIMIENTO',
+        entidad: 'seguimiento_regla',
+        entidad_id: null,
+        detalle: { codigo: req.params.code, escalamiento_grupos: escalationGroups },
+        ip: getClientIp(req)
+      });
+      await client.query('COMMIT');
       res.json(result.rows[0]);
-    } catch (error) { safeError(res, error, 'No fue posible actualizar la regla.'); }
+    } catch (error) {
+      await client.query('ROLLBACK');
+      safeError(res, error, 'No fue posible actualizar la regla.');
+    } finally { client.release(); }
   });
 
   router.post('/automatizaciones/ejecutar', verifyPermission('seguimiento.automation.manage'), async (req, res) => {
@@ -143,6 +257,35 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
       await insertarAudit(pool, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'EJECUTAR_SEGUIMIENTO_AUTOMATICO', entidad: 'seguimiento', entidad_id: null, detalle: result, ip: getClientIp(req) });
       res.json(result);
     } catch (error) { safeError(res, error, 'No fue posible ejecutar la revisión automática.'); }
+  });
+
+  router.get('/automatizaciones/previsualizar', verifyPermission('seguimiento.automation.manage'), async (_req, res) => {
+    try {
+      res.json(await previewInstitutionalFollowUp(pool));
+    } catch (error) { safeError(res, error, 'No fue posible previsualizar la revisión automática.'); }
+  });
+
+  router.get('/notificaciones', verifyPermission('seguimiento.view'), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT * FROM notificaciones_internas
+        WHERE usuario_id = $1 AND modulo = 'SEGUIMIENTO'
+        ORDER BY creada_en DESC LIMIT 50
+      `, [req.user.id]);
+      res.json(result.rows);
+    } catch (error) { safeError(res, error, 'No fue posible cargar las notificaciones de seguimiento.'); }
+  });
+
+  router.patch('/notificaciones/:notificationId/leer', verifyPermission('seguimiento.view'), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        UPDATE notificaciones_internas SET leida_en = COALESCE(leida_en, CURRENT_TIMESTAMP)
+        WHERE id_notificacion = $1 AND usuario_id = $2 AND modulo = 'SEGUIMIENTO'
+        RETURNING *
+      `, [id(req.params.notificationId), req.user.id]);
+      if (!result.rowCount) return res.status(404).json({ message: 'La notificación no existe.' });
+      res.json(result.rows[0]);
+    } catch (error) { safeError(res, error, 'No fue posible actualizar la notificación.'); }
   });
 
   router.get('/casos', verifyPermission('seguimiento.view'), async (req, res) => {
@@ -247,6 +390,15 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
       const owner = req.body.responsable_usuario_id === null ? null : id(req.body.responsable_usuario_id);
       const updated = await client.query(`UPDATE seguimiento_casos SET titulo=$2, prioridad=$3, estado=$4,responsable_usuario_id=$5,fecha_limite=$6,actualizado_por=$7,actualizado_en=CURRENT_TIMESTAMP,version=version+1 WHERE id_caso=$1 RETURNING *`, [current.id_caso, clean(req.body.titulo || current.titulo, 180), priority, state, owner, dueDate, req.user.id]);
       await addEvent(client, { caseId: current.id_caso, type: 'ACTUALIZACION', title: 'Seguimiento actualizado', metadata: { anterior: { estado: current.estado, prioridad: current.prioridad, responsable: current.responsable_usuario_id, fecha_limite: current.fecha_limite }, posterior: { estado: state, prioridad, responsable: owner, fecha_limite: dueDate } }, userId: req.user.id });
+      if (owner && owner !== current.responsable_usuario_id) {
+        await client.query(`
+          INSERT INTO notificaciones_internas (
+            usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe
+          ) VALUES ($1, 'SEGUIMIENTO', 'CASO_ASIGNADO', 'Seguimiento asignado', $2, $3, $4)
+          ON CONFLICT (usuario_id, clave_dedupe) WHERE clave_dedupe IS NOT NULL DO NOTHING
+        `, [owner, updated.rows[0].titulo, `/admin/seguimiento/${current.id_caso}`,
+          `seguimiento:${current.id_caso}:asignacion-manual:${owner}:v${updated.rows[0].version}`]);
+      }
       await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'EDITAR_SEGUIMIENTO', entidad: 'seguimiento_caso', entidad_id: current.id_caso, detalle: { estado: state, prioridad }, ip: getClientIp(req) });
       await client.query('COMMIT'); res.json(updated.rows[0]);
     } catch (error) { await client.query('ROLLBACK'); safeError(res, error, 'No fue posible actualizar el seguimiento.'); } finally { client.release(); }

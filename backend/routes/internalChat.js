@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const { createDocument, removeStoredFile, resolveDocumentPath } = require('../services/documentService');
+const { previewChatRetention, runChatRetention } = require('../services/chatRetentionService');
 
 const TYPES = new Set(['DIRECTA', 'GRUPO', 'CANAL', 'CONTEXTO']);
 const MESSAGE_TYPES = new Set(['NORMAL', 'URGENTE']);
@@ -10,6 +11,7 @@ const narrative = (value, max = 6000) => String(value || '').trim().slice(0, max
 const id = (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const uniqueIds = (values) => [...new Set((Array.isArray(values) ? values : []).map(id).filter(Boolean))];
 const hasPermission = (req, permission) => Array.isArray(req.user?.permissions) && req.user.permissions.includes(permission);
+const optionalTime = (value) => value === undefined || value === null || value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value));
 
 const safeError = (res, error, fallback) => {
   const status = error.statusCode || (error.code === '23505' ? 409 : 500);
@@ -53,7 +55,7 @@ const insertMembers = async (client, conversationId, members, creatorId) => {
   }
 };
 
-const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, insertarAudit, getClientIp }) => {
+const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, insertarAudit, getClientIp, realtimeHub }) => {
   const router = express.Router();
   router.use(verifyToken);
   router.use(verifyPermission('chat.access'));
@@ -61,6 +63,61 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     next();
+  });
+
+  router.get('/eventos', (req, res) => {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    res.write(`event: ready\ndata: ${JSON.stringify({ connected: true })}\n\n`);
+    const unsubscribe = realtimeHub?.subscribe(req.user.id, res) || (() => {});
+    req.on('close', unsubscribe);
+  });
+
+  router.get('/configuracion', verifyPermission('chat.channels.manage'), async (_req, res) => {
+    try {
+      const [configuration, preview] = await Promise.all([
+        pool.query('SELECT * FROM chat_configuracion WHERE id_configuracion = 1'),
+        previewChatRetention(pool)
+      ]);
+      res.json({ configuration: configuration.rows[0], preview });
+    } catch (error) { safeError(res, error, 'No fue posible cargar la configuración del chat.'); }
+  });
+
+  router.patch('/configuracion', verifyPermission('chat.channels.manage'), async (req, res) => {
+    const days = Number(req.body.retencion_predeterminada_dias);
+    if (!Number.isInteger(days) || days < 30 || days > 3650) {
+      return res.status(400).json({ message: 'La retención debe estar entre 30 días y 10 años.' });
+    }
+    try {
+      const result = await pool.query(`
+        UPDATE chat_configuracion SET retencion_activa = $1,
+          retencion_predeterminada_dias = $2, preservar_fijados = $3,
+          actualizada_por = $4, actualizada_en = CURRENT_TIMESTAMP
+        WHERE id_configuracion = 1 RETURNING *
+      `, [Boolean(req.body.retencion_activa), days, Boolean(req.body.preservar_fijados), req.user.id]);
+      await insertarAudit(pool, {
+        usuario_id: req.user.id, usuario_correo: req.user.correo,
+        accion: 'CONFIGURAR_RETENCION_CHAT', entidad: 'chat_configuracion', entidad_id: 1,
+        detalle: result.rows[0], ip: getClientIp(req)
+      });
+      res.json(result.rows[0]);
+    } catch (error) { safeError(res, error, 'No fue posible guardar la política de retención.'); }
+  });
+
+  router.post('/configuracion/retencion/ejecutar', verifyPermission('chat.channels.manage'), async (req, res) => {
+    try {
+      const result = await runChatRetention(pool, { actorId: req.user.id });
+      await insertarAudit(pool, {
+        usuario_id: req.user.id, usuario_correo: req.user.correo,
+        accion: 'EJECUTAR_RETENCION_CHAT', entidad: 'chat_configuracion', entidad_id: 1,
+        detalle: result, ip: getClientIp(req)
+      });
+      res.json(result);
+    } catch (error) { safeError(res, error, 'No fue posible ejecutar la retención del chat.'); }
   });
 
   router.get('/directorio', async (req, res) => {
@@ -212,6 +269,30 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
     } catch (error) { safeError(res, error, 'No fue posible cargar la conversación.'); }
   });
 
+  router.patch('/conversaciones/:conversationId/configuracion', async (req, res) => {
+    const days = req.body.retencion_dias === null || req.body.retencion_dias === '' ? null : Number(req.body.retencion_dias);
+    if (days !== null && (!Number.isInteger(days) || days < 30 || days > 3650)) {
+      return res.status(400).json({ message: 'La retención de la conversación debe estar entre 30 días y 10 años.' });
+    }
+    try {
+      const conversationId = id(req.params.conversationId);
+      const conversation = await requireMembership(pool, conversationId, req.user.id);
+      const canManage = ['PROPIETARIO', 'MODERADOR'].includes(conversation.miembro_rol)
+        && hasPermission(req, 'chat.channels.manage');
+      if (!canManage) return res.status(403).json({ message: 'No puedes modificar la política de esta conversación.' });
+      const result = await pool.query(`
+        UPDATE chat_conversaciones SET retencion_dias = $2, actualizada_en = CURRENT_TIMESTAMP
+        WHERE id_conversacion = $1 RETURNING *
+      `, [conversationId, days]);
+      await insertarAudit(pool, {
+        usuario_id: req.user.id, usuario_correo: req.user.correo,
+        accion: 'CONFIGURAR_CONVERSACION_CHAT', entidad: 'chat_conversacion', entidad_id: conversationId,
+        detalle: { retencion_dias: days }, ip: getClientIp(req)
+      });
+      res.json(result.rows[0]);
+    } catch (error) { safeError(res, error, 'No fue posible configurar la conversación.'); }
+  });
+
   router.get('/conversaciones/:conversationId/mensajes', async (req, res) => {
     const limit = Math.min(100, Math.max(20, Number(req.query.limite) || 50)); const before = id(req.query.antes_de);
     try {
@@ -263,7 +344,39 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
       await client.query(`INSERT INTO chat_lecturas (id_mensaje,usuario_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [messageId, req.user.id]);
       await client.query(`UPDATE chat_miembros SET ultima_lectura_en=CURRENT_TIMESTAMP,ultimo_mensaje_leido_id=$2 WHERE id_conversacion=$1 AND usuario_id=$3`, [conversationId, messageId, req.user.id]);
       await client.query('UPDATE chat_conversaciones SET actualizada_en=CURRENT_TIMESTAMP WHERE id_conversacion=$1', [conversationId]);
-      await client.query('COMMIT'); res.status(201).json(created.rows[0]);
+      const recipients = await client.query(`
+        SELECT m.usuario_id,
+               COALESCE(NULLIF(c.nombre, ''), NULLIF(sender.nombre, ''), sender.correo, 'Conversación institucional') AS conversation_title,
+               (
+                 m.usuario_id <> $2
+                 AND m.notificaciones <> 'SILENCIADAS'
+                 AND (m.notificaciones = 'TODAS' OR m.usuario_id = ANY($3::int[]) OR $4 = 'URGENTE')
+                 AND (m.silenciado_hasta IS NULL OR m.silenciado_hasta <= CURRENT_TIMESTAMP)
+                 AND (
+                   $4 = 'URGENTE'
+                   OR m.horario_silencio_desde IS NULL OR m.horario_silencio_hasta IS NULL
+                   OR CASE WHEN m.horario_silencio_desde <= m.horario_silencio_hasta
+                     THEN (CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time NOT BETWEEN m.horario_silencio_desde AND m.horario_silencio_hasta
+                     ELSE NOT ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time >= m.horario_silencio_desde
+                       OR (CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time <= m.horario_silencio_hasta)
+                   END
+                 )
+               ) AS notify
+        FROM chat_miembros m
+        JOIN chat_conversaciones c ON c.id_conversacion = m.id_conversacion
+        JOIN usuarios sender ON sender.id = $2
+        WHERE m.id_conversacion = $1 AND m.activo = true
+      `, [conversationId, req.user.id, mentions, type]);
+      await client.query('COMMIT');
+      for (const recipient of recipients.rows) realtimeHub?.publishToUsers([recipient.usuario_id], 'chat-message', {
+        conversation_id: conversationId,
+        conversation_title: recipient.conversation_title,
+        message_id: messageId,
+        sender_id: req.user.id,
+        type,
+        notify: recipient.notify
+      });
+      res.status(201).json(created.rows[0]);
     } catch (error) { await client.query('ROLLBACK'); safeError(res, error, 'No fue posible enviar el mensaje.'); } finally { client.release(); }
   });
 
@@ -273,7 +386,7 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
   });
 
   router.get('/conversaciones/:conversationId/adjuntos/:attachmentId', async (req, res) => {
-    try { const conversationId = id(req.params.conversationId); await requireMembership(pool, conversationId, req.user.id); const result = await pool.query(`SELECT d.* FROM chat_adjuntos a JOIN chat_mensajes msg ON msg.id_mensaje=a.id_mensaje JOIN justification_documents d ON d.id_documento=a.id_documento WHERE a.id_adjunto=$1 AND msg.id_conversacion=$2`, [id(req.params.attachmentId), conversationId]); if (!result.rowCount) return res.status(404).json({ message: 'El adjunto no existe.' }); const doc=result.rows[0]; const filePath=resolveDocumentPath(doc.nombre_almacenado); if (!filePath||!fs.existsSync(filePath)) return res.status(404).json({ message:'El archivo no está disponible.' }); await insertarAudit(pool,{usuario_id:req.user.id,usuario_correo:req.user.correo,accion:'DESCARGAR_ADJUNTO_CHAT',entidad:'chat_conversacion',entidad_id:conversationId,detalle:{documento_id:doc.id_documento},ip:getClientIp(req)}); res.type(doc.mime_type).download(filePath,doc.nombre_original); } catch(error){safeError(res,error,'No fue posible descargar el adjunto.');}
+    try { const conversationId = id(req.params.conversationId); await requireMembership(pool, conversationId, req.user.id); const result = await pool.query(`SELECT d.* FROM chat_adjuntos a JOIN chat_mensajes msg ON msg.id_mensaje=a.id_mensaje JOIN justification_documents d ON d.id_documento=a.id_documento WHERE a.id_adjunto=$1 AND msg.id_conversacion=$2 AND msg.eliminado_en IS NULL`, [id(req.params.attachmentId), conversationId]); if (!result.rowCount) return res.status(404).json({ message: 'El adjunto no existe o ya cumplió su retención.' }); const doc=result.rows[0]; const filePath=resolveDocumentPath(doc.nombre_almacenado); if (!filePath||!fs.existsSync(filePath)) return res.status(404).json({ message:'El archivo no está disponible.' }); await insertarAudit(pool,{usuario_id:req.user.id,usuario_correo:req.user.correo,accion:'DESCARGAR_ADJUNTO_CHAT',entidad:'chat_conversacion',entidad_id:conversationId,detalle:{documento_id:doc.id_documento},ip:getClientIp(req)}); res.type(doc.mime_type).download(filePath,doc.nombre_original); } catch(error){safeError(res,error,'No fue posible descargar el adjunto.');}
   });
 
   router.post('/conversaciones/:conversationId/leer', async (req, res) => {
@@ -288,7 +401,7 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
     const client=await pool.connect();try{await client.query('BEGIN');const conversationId=id(req.params.conversationId);const conversation=await requireMembership(client,conversationId,req.user.id,{lock:true});const message=await client.query('SELECT * FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2 FOR UPDATE',[id(req.params.messageId),conversationId]);if(!message.rowCount){const e=new Error('El mensaje no existe.');e.statusCode=404;throw e;}const own=message.rows[0].enviado_por===req.user.id;const moderator=['PROPIETARIO','MODERADOR'].includes(conversation.miembro_rol)&&hasPermission(req,'chat.moderate');if(!own&&!moderator){const e=new Error('No puedes moderar este mensaje.');e.statusCode=403;throw e;}await client.query(`UPDATE chat_mensajes SET eliminado_en=CURRENT_TIMESTAMP,eliminado_por=$2,motivo_eliminacion=$3 WHERE id_mensaje=$1`,[id(req.params.messageId),req.user.id,reason]);await client.query('DELETE FROM chat_mensajes_fijados WHERE id_mensaje=$1',[id(req.params.messageId)]);await insertarAudit(client,{usuario_id:req.user.id,usuario_correo:req.user.correo,accion:'MODERAR_MENSAJE_CHAT',entidad:'chat_mensaje',entidad_id:id(req.params.messageId),detalle:{conversacion_id:conversationId,motivo:reason},ip:getClientIp(req)});await client.query('COMMIT');res.json({ok:true});}catch(error){await client.query('ROLLBACK');safeError(res,error,'No fue posible moderar el mensaje.');}finally{client.release();}
   });
 
-  router.patch('/conversaciones/:conversationId/preferencias', async (req,res)=>{const level=String(req.body.notificaciones||'TODAS').toUpperCase();if(!NOTIFICATION_LEVELS.has(level))return res.status(400).json({message:'Preferencia de notificaciones no válida.'});try{const conversationId=id(req.params.conversationId);await requireMembership(pool,conversationId,req.user.id);const result=await pool.query(`UPDATE chat_miembros SET notificaciones=$3,silenciado_hasta=$4,horario_silencio_desde=$5,horario_silencio_hasta=$6 WHERE id_conversacion=$1 AND usuario_id=$2 RETURNING notificaciones,silenciado_hasta,horario_silencio_desde,horario_silencio_hasta`,[conversationId,req.user.id,level,req.body.silenciado_hasta||null,req.body.horario_silencio_desde||null,req.body.horario_silencio_hasta||null]);res.json(result.rows[0]);}catch(error){safeError(res,error,'No fue posible guardar las preferencias.');}});
+  router.patch('/conversaciones/:conversationId/preferencias', async (req,res)=>{const level=String(req.body.notificaciones||'TODAS').toUpperCase();if(!NOTIFICATION_LEVELS.has(level))return res.status(400).json({message:'Preferencia de notificaciones no válida.'});if(!optionalTime(req.body.horario_silencio_desde)||!optionalTime(req.body.horario_silencio_hasta))return res.status(400).json({message:'Los horarios de silencio no son válidos.'});try{const conversationId=id(req.params.conversationId);await requireMembership(pool,conversationId,req.user.id);const result=await pool.query(`UPDATE chat_miembros SET notificaciones=$3,silenciado_hasta=$4,horario_silencio_desde=$5,horario_silencio_hasta=$6 WHERE id_conversacion=$1 AND usuario_id=$2 RETURNING notificaciones,silenciado_hasta,horario_silencio_desde,horario_silencio_hasta`,[conversationId,req.user.id,level,req.body.silenciado_hasta||null,req.body.horario_silencio_desde||null,req.body.horario_silencio_hasta||null]);res.json(result.rows[0]);}catch(error){safeError(res,error,'No fue posible guardar las preferencias.');}});
 
   router.post('/conversaciones/:conversationId/miembros', async (req,res)=>{const client=await pool.connect();try{await client.query('BEGIN');const conversationId=id(req.params.conversationId);const conversation=await requireMembership(client,conversationId,req.user.id,{lock:true});if(!['PROPIETARIO','MODERADOR'].includes(conversation.miembro_rol)){const e=new Error('No puedes incorporar miembros a esta conversación.');e.statusCode=403;throw e;}if(conversation.tipo==='DIRECTA'){const e=new Error('Una conversación directa no admite más miembros.');e.statusCode=409;throw e;}const members=uniqueIds(req.body.miembros);await insertMembers(client,conversationId,members,req.user.id);await client.query('COMMIT');res.json({ok:true,agregados:members.length});}catch(error){await client.query('ROLLBACK');safeError(res,error,'No fue posible agregar miembros.');}finally{client.release();}});
 

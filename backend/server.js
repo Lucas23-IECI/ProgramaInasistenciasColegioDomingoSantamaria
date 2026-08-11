@@ -12,6 +12,7 @@ const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
 const { verifyToken, verifyPermission, verifyAnyPermission, JWT_SECRET } = require('./middleware/auth');
+const { createApiRateLimitOptions } = require('./utils/requestRateLimit');
 const { runMigrations } = require('./migrations');
 const {
   normalizeEmail,
@@ -51,6 +52,12 @@ const { createFollowUpRouter } = require('./routes/followUp');
 const { createInternalChatRouter } = require('./routes/internalChat');
 const { startInstitutionalReportScheduler } = require('./services/institutionalReportScheduler');
 const { startInstitutionalFollowUpScheduler } = require('./services/institutionalFollowUpService');
+const { createChatRealtimeHub } = require('./services/chatRealtimeHub');
+const { startChatRetentionScheduler } = require('./services/chatRetentionService');
+const {
+  syncInstitutionalChannels,
+  startInstitutionalChannelSyncScheduler
+} = require('./services/institutionalChannelsService');
 const { registerAuthRoutes } = require('./routes/auth');
 const { registerStudentRoutes } = require('./routes/students');
 const { registerUserRoutes } = require('./routes/users');
@@ -75,6 +82,7 @@ const {
 } = require('./utils/permissions');
 
 const app = express();
+const chatRealtimeHub = createChatRealtimeHub();
 app.set('trust proxy', 1);
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{8,100}$/;
@@ -143,14 +151,7 @@ app.use(helmet({
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 600,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  skip: (req) => req.path === '/health' || req.path.startsWith('/health/'),
-  message: { message: 'Se alcanzó el límite temporal de solicitudes. Intente nuevamente en unos minutos.' }
-});
+const apiLimiter = rateLimit(createApiRateLimitOptions({ jwtSecret: JWT_SECRET }));
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -802,7 +803,8 @@ app.use('/api/chat', createInternalChatRouter({
   verifyToken,
   verifyPermission,
   insertarAudit,
-  getClientIp
+  getClientIp,
+  realtimeHub: chatRealtimeHub
 }));
 
 const bootstrapBaseSchema = async () => {
@@ -963,11 +965,14 @@ const startServer = async () => {
   const isNewSchema = await bootstrapBaseSchema();
   await runMigrations(pool);
   await ensureBaseData(isNewSchema);
+  await syncInstitutionalChannels(pool);
 
   return app.listen(PORT, () => {
     console.log(`Servidor listo en el puerto ${PORT}`);
     startInstitutionalReportScheduler(pool);
     startInstitutionalFollowUpScheduler(pool);
+    startChatRetentionScheduler(pool);
+    startInstitutionalChannelSyncScheduler(pool);
   });
 };
 
