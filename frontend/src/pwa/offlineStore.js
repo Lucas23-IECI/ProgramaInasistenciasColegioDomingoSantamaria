@@ -1,3 +1,5 @@
+import { isDuplicateRegistrationError } from '../utils/punctualityRegistration';
+
 const DB_NAME = 'ldsm-operacion-segura';
 const DB_VERSION = 1;
 const ROSTER = 'roster';
@@ -57,7 +59,7 @@ export const flushOfflineRegistrations = async (sender) => {
       await transaction(QUEUE, 'readwrite', (store) => store.delete(item.offline_operation_id));
       synced += 1;
     } catch (error) {
-      if (error?.response?.status === 409) {
+      if (isDuplicateRegistrationError(error)) {
         await transaction(QUEUE, 'readwrite', (store) => store.delete(item.offline_operation_id));
         synced += 1;
         continue;

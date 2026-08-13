@@ -431,8 +431,12 @@ const createVisitsRouter = ({
     const contactedPerson = sanitizeText(req.body?.persona_contactada, 160);
     const observations = sanitizeText(req.body?.observaciones, 500);
     const origin = String(req.body?.origen || 'MANUAL').toUpperCase() === 'LECTOR' ? 'LECTOR' : 'MANUAL';
+    const expectedExit = req.body?.salida_esperada_en ? new Date(req.body.salida_esperada_en) : null;
 
     if (!motive || !destination) return res.status(400).json({ message: 'Selecciona el motivo y el destino de la visita.' });
+    if (expectedExit && (!Number.isFinite(expectedExit.getTime()) || expectedExit <= new Date())) {
+      return res.status(400).json({ message: 'La salida estimada debe ser una fecha y hora futura.' });
+    }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -463,6 +467,28 @@ const createVisitsRouter = ({
       }
 
       const visitor = await findOrCreateVisitor(client, req.body?.visitante, req.user.id);
+      const accessRestriction = await client.query(
+        `SELECT tipo
+         FROM visita_restricciones_acceso
+         WHERE visitante_id = $1
+           AND activo = true
+           AND tipo IN ('BLOQUEO', 'REQUIERE_AUTORIZACION')
+           AND vigente_desde <= CURRENT_TIMESTAMP
+           AND (vigente_hasta IS NULL OR vigente_hasta >= CURRENT_TIMESTAMP)
+         ORDER BY CASE tipo WHEN 'BLOQUEO' THEN 0 ELSE 1 END, creado_en DESC
+         LIMIT 1`,
+        [visitor.id]
+      );
+      if (accessRestriction.rows.length) {
+        await client.query('ROLLBACK');
+        const isBlocked = accessRestriction.rows[0].tipo === 'BLOQUEO';
+        return res.status(409).json({
+          code: isBlocked ? 'VISITOR_ACCESS_BLOCKED' : 'VISITOR_AUTHORIZATION_REQUIRED',
+          message: isBlocked
+            ? 'Esta persona tiene un bloqueo de acceso vigente. Inspectoría debe resolverlo.'
+            : 'Esta persona requiere autorización de Inspectoría antes de registrar su ingreso.'
+        });
+      }
       const active = await client.query(
         "SELECT id FROM visitas WHERE visitante_id = $1 AND estado = 'DENTRO' FOR UPDATE",
         [visitor.id]
@@ -475,10 +501,11 @@ const createVisitsRouter = ({
       const result = await client.query(
         `INSERT INTO visitas
           (visitante_id, motivo_codigo, motivo_detalle, destino_codigo,
-           persona_contactada, observaciones, origen, registrado_por)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           persona_contactada, observaciones, origen, registrado_por, salida_esperada_en)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id`,
-        [visitor.id, motive, motiveDetail || null, destination, contactedPerson || null, observations || null, origin, req.user.id]
+        [visitor.id, motive, motiveDetail || null, destination, contactedPerson || null,
+          observations || null, origin, req.user.id, expectedExit?.toISOString() || null]
       );
       const visitId = result.rows[0].id;
       await client.query(
@@ -497,7 +524,8 @@ const createVisitsRouter = ({
           documento: maskDocument(visitor.tipo_documento, visitor.documento_numero),
           destino: destination,
           motivo: motive,
-          origen: origin
+          origen: origin,
+          salida_esperada_en: expectedExit?.toISOString() || null
         },
         ip: getClientIp(req)
       });

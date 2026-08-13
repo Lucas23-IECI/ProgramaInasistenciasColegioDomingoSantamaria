@@ -33,6 +33,17 @@ const navigate = useNavigate();
   const canImportGuardians = hasPermission(user, PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS)
     || hasPermission(user, PERMISSIONS.STUDENTS_IMPORT);
   const canConfigure = hasPermission(user, PERMISSIONS.VISITS_SETTINGS);
+  const extendedPermissions = useMemo(() => ({
+    view: canView || canRegister,
+    prereg: hasPermission(user, PERMISSIONS.VISITS_PREREGISTRATIONS_MANAGE),
+    restrictions: hasPermission(user, PERMISSIONS.VISITS_RESTRICTIONS_MANAGE),
+    deliveries: hasPermission(user, PERMISSIONS.VISITS_DELIVERIES_MANAGE),
+    vehicles: hasPermission(user, PERMISSIONS.VISITS_VEHICLES_MANAGE),
+    settings: canConfigure,
+    emergency: hasPermission(user, PERMISSIONS.VISITS_EMERGENCY_VIEW),
+    emergencyManage: hasPermission(user, PERMISSIONS.VISITS_EMERGENCY_MANAGE)
+  }), [canConfigure, canRegister, canView, user]);
+  const canUseExtended = Object.values(extendedPermissions).some(Boolean);
 
   const canSeeWithdrawals = canRegisterWithdrawal || canApproveWithdrawal || canManageAuthorizations || canView;
   const initialTab = canView
@@ -422,6 +433,8 @@ const navigate = useNavigate();
     canExport,
     canImportGuardians,
     canConfigure,
+    extendedPermissions,
+    canUseExtended,
     canSeeWithdrawals,
     initialTab,
     requestedTab,

@@ -76,6 +76,9 @@ const validatePunctualityControl = (input = {}, { requireId = false } = {}) => {
   const cursos = [...new Set((Array.isArray(input.cursos_ids) ? input.cursos_ids : [])
     .map(Number)
     .filter((courseId) => Number.isInteger(courseId) && courseId > 0))];
+  const turnoId = input.turno_id === undefined || input.turno_id === null || input.turno_id === ''
+    ? null
+    : asBoundedInteger(input.turno_id, 1, 2147483647);
 
   if (requireId && !id) return { error: 'El control horario no tiene un identificador válido.' };
   if (nombre.length < 3 || nombre.length > 100) return { error: 'Cada control debe tener un nombre de 3 a 100 caracteres.' };
@@ -107,6 +110,7 @@ const validatePunctualityControl = (input = {}, { requireId = false } = {}) => {
       minutos_atraso_grave: minutosGrave,
       dias_semana: dias,
       cursos_ids: cursos,
+      turno_id: turnoId,
       cuenta_alertas: input.cuenta_alertas !== false,
       activo: input.activo !== false,
       orden: asBoundedInteger(input.orden, 0, 10000) ?? 0

@@ -124,7 +124,15 @@ app.get('/api/students', verifyToken, verifyAnyPermission(['students.view', 'stu
   }
 });
 
-app.get('/api/students/search', verifyToken, verifyAnyPermission(['punctuality.register', 'reports.generate', 'students.view', 'students.manage']), async (req, res) => {
+app.get('/api/students/search', verifyToken, verifyAnyPermission([
+  'punctuality.register',
+  'punctuality.exceptions.manage',
+  'punctuality.contingencies.manage',
+  'punctuality.commitments.manage',
+  'reports.generate',
+  'students.view',
+  'students.manage'
+]), async (req, res) => {
   const { q } = req.query;
   const searchTerm = `%${(q || '').toString().trim().toLowerCase()}%`;
   const identifierTerm = `%${normalizeIdentifierValue(q).toLowerCase()}%`;

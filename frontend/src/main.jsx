@@ -132,7 +132,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/admin/usuarios/:profileCode" element={<ProtectedRoute permission={PERMISSIONS.USERS_MANAGE}><UsuariosAdmin /></ProtectedRoute>} />
             <Route path="/admin/auditoria" element={<ProtectedRoute permission={PERMISSIONS.AUDIT_VIEW}><AuditoriaAdmin /></ProtectedRoute>} />
             <Route path="/admin/analiticas" element={<ProtectedRoute anyPermissions={[PERMISSIONS.ANALYTICS_VIEW, PERMISSIONS.ANALYTICS_INSTITUTIONAL_VIEW]}><AnaliticasAdmin /></ProtectedRoute>} />
-            <Route path="/admin/configuracion" element={<ProtectedRoute anyPermissions={[PERMISSIONS.SETTINGS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE]}><PunctualitySettings /></ProtectedRoute>} />
+            <Route path="/admin/configuracion" element={<ProtectedRoute anyPermissions={[PERMISSIONS.SETTINGS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE, PERMISSIONS.PUNCTUALITY_CALENDAR_MANAGE, PERMISSIONS.PUNCTUALITY_SHIFTS_MANAGE, PERMISSIONS.PUNCTUALITY_EXCEPTIONS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTINGENCIES_MANAGE, PERMISSIONS.PUNCTUALITY_COMMITMENTS_MANAGE, PERMISSIONS.PUNCTUALITY_IMPROVEMENTS_VIEW]}><PunctualitySettings /></ProtectedRoute>} />
             <Route path="/admin/visitas" element={<ProtectedRoute anyPermissions={[
               PERMISSIONS.VISITS_VIEW,
               PERMISSIONS.VISITS_REGISTER,
@@ -142,6 +142,12 @@ createRoot(document.getElementById('root')).render(
               PERMISSIONS.WITHDRAWALS_APPROVE,
               PERMISSIONS.WITHDRAWALS_AUTHORIZATIONS,
               PERMISSIONS.VISITS_REPORTS,
+              PERMISSIONS.VISITS_PREREGISTRATIONS_MANAGE,
+              PERMISSIONS.VISITS_RESTRICTIONS_MANAGE,
+              PERMISSIONS.VISITS_DELIVERIES_MANAGE,
+              PERMISSIONS.VISITS_VEHICLES_MANAGE,
+              PERMISSIONS.VISITS_EMERGENCY_VIEW,
+              PERMISSIONS.VISITS_EMERGENCY_MANAGE,
             ]}><VisitsAdmin /></ProtectedRoute>} />
             <Route path="/admin/operacion" element={<ProtectedRoute permission={PERMISSIONS.OPERATIONS_VIEW}><OperationalInbox /></ProtectedRoute>} />
             <Route path="/admin/visitas/configuracion" element={<ProtectedRoute permission={PERMISSIONS.VISITS_SETTINGS}><VisitSettingsAdmin /></ProtectedRoute>} />

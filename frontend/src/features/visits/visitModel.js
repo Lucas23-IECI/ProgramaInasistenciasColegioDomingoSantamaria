@@ -11,6 +11,7 @@ export const emptyVisit = {
   motivo_detalle: '',
   destino_codigo: '',
   persona_contactada: '',
+  salida_esperada_en: '',
   observaciones: '',
   origen: 'MANUAL'
 };

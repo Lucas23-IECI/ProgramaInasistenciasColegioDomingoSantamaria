@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
-import { Activity, AlertTriangle, BarChart3, CalendarClock, CheckCircle2, Clock3, Download, FileSpreadsheet, Power, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, FileSpreadsheet, Power, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
@@ -15,13 +15,15 @@ const localIsoDate = (date = new Date()) => [date.getFullYear(), String(date.get
 const initialPeriod = () => ({ from: localIsoDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: localIsoDate() });
 const formatShortDate = (value) => new Intl.DateTimeFormat('es-CL', { day: '2-digit', month: 'short' }).format(new Date(`${value}T12:00:00`)).replace('.', '');
 const formatExecutionDate = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : null;
+const COURSES_PER_PAGE = 8;
 
-const AnalyticsMetric = ({ icon: Icon, value, label, detail, tone }) => (
-  <article className="analytics-kpi" data-tone={tone}>
+const AnalyticsMetric = ({ icon: Icon, value, label, detail, tone, onClick }) => {
+  const Element = onClick ? 'button' : 'article';
+  return <Element type={onClick ? 'button' : undefined} className={`analytics-kpi${onClick ? ' analytics-kpi--action' : ''}`} data-tone={tone} onClick={onClick}>
     <div className="analytics-kpi__icon">{React.createElement(Icon, { size: 22 })}</div>
     <div><strong>{value}</strong><span>{label}</span>{detail && <small>{detail}</small>}</div>
-  </article>
-);
+  </Element>;
+};
 
 const DailyChart = ({ data }) => {
   if (!data?.length) return <div className="analytics-empty">No hay ingresos registrados en este período.</div>;
@@ -53,10 +55,13 @@ const DailyChart = ({ data }) => {
   );
 };
 
-const DistributionBars = ({ data, valueKey = 'atrasos', labelKey, suffix = 'atrasos' }) => {
+const DistributionBars = ({ data, valueKey = 'atrasos', labelKey, suffix = 'atrasos', onSelect }) => {
   if (!data?.length) return <div className="analytics-empty">Sin datos para mostrar.</div>;
   const max = Math.max(1, ...data.map((item) => Number(item[valueKey])));
-  return <div className="distribution-list">{data.map((item) => <div className="distribution-row" key={item[labelKey]}><div><strong>{item[labelKey]}</strong><span>{item[valueKey]} {suffix}</span></div><div className="distribution-track"><i style={{ width: `${Math.max(3, (Number(item[valueKey]) / max) * 100)}%` }} /></div></div>)}</div>;
+  return <div className="distribution-list">{data.map((item) => {
+    const Element = onSelect ? 'button' : 'div';
+    return <Element type={onSelect ? 'button' : undefined} className={`distribution-row${onSelect ? ' distribution-row--action' : ''}`} key={`${item.id_curso || 'sin-curso'}-${item[labelKey]}`} onClick={onSelect ? () => onSelect(item) : undefined} aria-label={onSelect ? `Ver detalle de atrasos de ${item[labelKey]}` : undefined}><div><strong>{item[labelKey]}</strong><span>{item[valueKey]} {suffix}</span></div><div className="distribution-track"><i style={{ width: `${Math.max(3, (Number(item[valueKey]) / max) * 100)}%` }} /></div>{onSelect && <ChevronRight size={17} aria-hidden="true" />}</Element>;
+  })}</div>;
 };
 
 const AnaliticasAdmin = () => {
@@ -72,6 +77,7 @@ const AnaliticasAdmin = () => {
   const [loading, setLoading] = useState(true);
   const [institutional, setInstitutional] = useState(null);
   const [schedules, setSchedules] = useState([]);
+  const [coursePage, setCoursePage] = useState(1);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({ nombre: 'Resumen institucional', frecuencia: 'SEMANAL', formato: 'PDF', dia_semana: '1', dia_mes: '1', hora: '07:00' });
   const canViewInstitutional = hasPermission(user, PERMISSIONS.ANALYTICS_INSTITUTIONAL_VIEW);
@@ -179,8 +185,23 @@ const AnaliticasAdmin = () => {
     setSeverity('');
   };
 
+  useEffect(() => { setCoursePage(1); }, [courseId, justified, period.from, period.to, severity]);
+
+  const openLateRecords = (course = null) => {
+    const params = new URLSearchParams({ desde: period.from, hasta: period.to, estado: 'Atrasado' });
+    const selectedCourse = course?.id_curso ?? courseId;
+    if (course && !course.id_curso) params.set('curso_id', 'sin_curso');
+    else if (selectedCourse) params.set('curso_id', String(selectedCourse));
+    if (severity) params.set('severidad', severity);
+    if (justified) params.set('justificado', justified);
+    navigate(`/admin/atrasos?${params.toString()}`);
+  };
+
   const handleLogout = async () => { await logout(); navigate('/login'); };
   const summary = data?.resumen;
+  const courseBreakdown = (data?.por_curso || []).filter((item) => Number(item.atrasos) > 0);
+  const coursePages = Math.max(1, Math.ceil(courseBreakdown.length / COURSES_PER_PAGE));
+  const visibleCourses = courseBreakdown.slice((coursePage - 1) * COURSES_PER_PAGE, coursePage * COURSES_PER_PAGE);
 
   return (
     <div className="app-container analytics-page-v2">
@@ -201,7 +222,7 @@ const AnaliticasAdmin = () => {
           <section className="analytics-kpi-grid">
             <AnalyticsMetric icon={ShieldCheck} value={summary.puntualidad_registrada === null ? '—' : `${summary.puntualidad_registrada}%`} label="Puntualidad registrada" detail="Sobre ingresos marcados" tone="green" />
             <AnalyticsMetric icon={Users} value={summary.ingresos} label="Ingresos registrados" detail={`${summary.a_tiempo} a tiempo`} tone="blue" />
-            <AnalyticsMetric icon={AlertTriangle} value={summary.atrasos} label="Atrasos" detail={`${summary.leves} leves · ${summary.graves} graves`} tone="amber" />
+            <AnalyticsMetric icon={AlertTriangle} value={summary.atrasos} label="Atrasos" detail={`${summary.leves} leves · ${summary.graves} graves · Ver detalle`} tone="amber" onClick={() => openLateRecords()} />
             <AnalyticsMetric icon={Clock3} value={summary.promedio_minutos_atraso ? `${summary.promedio_minutos_atraso} min` : '—'} label="Promedio de atraso" detail={`${summary.justificados} justificados`} tone="navy" />
           </section>
 
@@ -220,7 +241,7 @@ const AnaliticasAdmin = () => {
 
           <section className="analytics-detail-grid">
             <article className="analytics-panel"><header><div><span className="section-kicker">Distribución</span><h2>Minutos de atraso</h2></div></header><DistributionBars data={data.por_tramo} labelKey="tramo" /></article>
-            <article className="analytics-panel"><header><div><span className="section-kicker">Cursos</span><h2>Atrasos por curso</h2></div></header><DistributionBars data={data.por_curso.slice(0, 8)} labelKey="curso" /></article>
+            <article className="analytics-panel"><header><div><span className="section-kicker">Cursos</span><h2>Atrasos por curso</h2></div><span className="panel-period">{courseBreakdown.length} curso{courseBreakdown.length === 1 ? '' : 's'}</span></header><DistributionBars data={visibleCourses} labelKey="curso" onSelect={openLateRecords} />{coursePages > 1 && <div className="analytics-panel__pagination"><button type="button" disabled={coursePage === 1} onClick={() => setCoursePage((current) => current - 1)}><ChevronLeft size={17} /> Anterior</button><span>Página {coursePage} de {coursePages}</span><button type="button" disabled={coursePage === coursePages} onClick={() => setCoursePage((current) => current + 1)}>Siguiente <ChevronRight size={17} /></button></div>}</article>
           </section>
 
           <section className="analytics-recurrence">

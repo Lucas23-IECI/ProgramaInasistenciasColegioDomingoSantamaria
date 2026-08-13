@@ -40,7 +40,9 @@ const {
   validateImportMode
 } = require('./utils/studentImportGovernance');
 const { createPunctualityRouter } = require('./routes/punctuality');
+const { createPunctualityPoliciesRouter } = require('./routes/punctualityPolicies');
 const { createVisitsRouter } = require('./routes/visits');
+const { createVisitsExtendedRouter } = require('./routes/visitsExtended');
 const { createOperationsRouter } = require('./routes/operations');
 const { createVisitSettingsRouter } = require('./routes/visitSettings');
 const { createFamiliesRouter } = require('./routes/families');
@@ -723,6 +725,24 @@ app.use('/api/puntualidad', createPunctualityRouter({
 }));
 
 app.use('/api/visitas', createVisitsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/puntualidad', createPunctualityPoliciesRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  verifyAnyPermission,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/visitas', createVisitsExtendedRouter({
   pool,
   verifyToken,
   verifyPermission,

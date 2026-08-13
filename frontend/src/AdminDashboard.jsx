@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
   ArrowRight,
@@ -93,6 +93,7 @@ const ScopeButton = ({ active, icon: Icon, children, onClick }) => (
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user, logout } = useContext(AuthContext);
   const { notify, confirm } = useFeedback();
   const canRegister = hasPermission(user, PERMISSIONS.PUNCTUALITY_REGISTER);
@@ -108,11 +109,18 @@ const AdminDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [query, setQuery] = useState('');
-  const [severity, setSeverity] = useState('');
-  const [status, setStatus] = useState('');
+  const requestedFrom = searchParams.get('desde') || '';
+  const requestedTo = searchParams.get('hasta') || '';
+  const requestedCourseId = searchParams.get('curso_id') || '';
+  const requestedJustified = searchParams.get('justificado') || '';
+  const historicalView = Boolean(requestedFrom && requestedTo);
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
+  const [severity, setSeverity] = useState(() => searchParams.get('severidad') || '');
+  const [status, setStatus] = useState(() => searchParams.get('estado') || '');
   const [controlFilter, setControlFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [historicalTotal, setHistoricalTotal] = useState(0);
+  const [historicalPages, setHistoricalPages] = useState(1);
   const [selectedRow, setSelectedRow] = useState(null);
   const [actionMode, setActionMode] = useState(null);
   const [actionReason, setActionReason] = useState('');
@@ -155,19 +163,39 @@ const AdminDashboard = () => {
   const loadOperationalData = useCallback(async ({ quiet = false } = {}) => {
     if (quiet) setRefreshing(true); else setLoading(true);
     try {
+      const recordsRequest = historicalView
+        ? axios.get(`${API_URL}/puntualidad/registros`, {
+          params: {
+            desde: requestedFrom,
+            hasta: requestedTo,
+            curso_id: requestedCourseId || undefined,
+            estado: status || undefined,
+            severidad: severity || undefined,
+            justificado: requestedJustified || undefined,
+            control_id: controlFilter || undefined,
+            q: query || undefined,
+            pagina: page,
+            limite: PAGE_SIZE
+          }
+        })
+        : axios.get(`${API_URL}/puntualidad/hoy`);
       const [summaryResponse, rowsResponse, configResponse, coursesResponse] = await Promise.all([
         axios.get(`${API_URL}/puntualidad/resumen-hoy`),
-        axios.get(`${API_URL}/puntualidad/hoy`),
+        recordsRequest,
         axios.get(`${API_URL}/puntualidad/config`),
         axios.get(`${API_URL}/courses`)
       ]);
+      const loadedRows = historicalView ? rowsResponse.data.registros || [] : rowsResponse.data || [];
       setSummary(summaryResponse.data);
-      setRows(rowsResponse.data || []);
+      setRows(loadedRows);
+      setHistoricalTotal(historicalView ? rowsResponse.data.total || 0 : 0);
+      setHistoricalPages(historicalView ? rowsResponse.data.paginas || 1 : 1);
+      if (historicalView && rowsResponse.data.pagina && rowsResponse.data.pagina !== page) setPage(rowsResponse.data.pagina);
       setConfig(configResponse.data);
       setCourses(coursesResponse.data || []);
       setSelectedRow((currentSelection) => {
         if (!currentSelection) return null;
-        const updatedSelection = (rowsResponse.data || []).find(
+        const updatedSelection = loadedRows.find(
           (row) => row.id_registro === currentSelection.id_registro
         );
         if (!updatedSelection) {
@@ -184,7 +212,7 @@ const AdminDashboard = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [notify]);
+  }, [controlFilter, historicalView, notify, page, query, requestedCourseId, requestedFrom, requestedJustified, requestedTo, severity, status]);
 
   const loadPendingJustifications = useCallback(async () => {
     if (!canJustify) return;
@@ -238,6 +266,7 @@ const AdminDashboard = () => {
   }, [reportOpen, scope, studentQuery]);
 
   const filteredRows = useMemo(() => {
+    if (historicalView) return rows;
     const normalized = query.trim().toLocaleLowerCase('es');
     return rows.filter((row) => {
       const haystack = `${studentName(row)} ${getStudentIdentifier(row)} ${row.curso || ''}`.toLocaleLowerCase('es');
@@ -246,11 +275,12 @@ const AdminDashboard = () => {
         && (!controlFilter || String(row.control_puntualidad_id) === String(controlFilter))
         && (!status || (status === 'justificado' ? row.justificado : row.estado === status));
     });
-  }, [controlFilter, query, rows, severity, status]);
+  }, [controlFilter, historicalView, query, rows, severity, status]);
 
   useEffect(() => { setPage(1); }, [controlFilter, query, severity, status]);
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const visibleRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = historicalView ? historicalPages : Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const visibleRows = historicalView ? filteredRows : filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const visibleTotal = historicalView ? historicalTotal : filteredRows.length;
 
   const closeDrawer = () => {
     setSelectedRow(null);
@@ -490,9 +520,11 @@ const AdminDashboard = () => {
 
         <div className="calculation-notice"><ShieldCheck size={18} /><span>El sistema no presume asistencia ni ausencia: los indicadores consideran únicamente ingresos efectivamente registrados.</span></div>
 
+        {historicalView && <div className="historical-detail-notice"><BarChart3 size={20} /><div><strong>Detalle solicitado desde Estadísticas</strong><span>{requestedFrom} a {requestedTo}{requestedCourseId ? ` · ${requestedCourseId === 'sin_curso' ? 'Sin curso' : courses.find((course) => String(course.id_curso) === requestedCourseId)?.nombre_curso || 'Curso seleccionado'}` : ' · Toda la institución'}</span></div><button type="button" onClick={() => navigate('/admin/atrasos')}>Volver a hoy</button></div>}
+
         <section className="operation-section" data-tour="late-list">
           <div className="operation-heading">
-            <div><span className="section-kicker">Registro del día</span><h2>Ingresos procesados</h2><p>{filteredRows.length} resultado{filteredRows.length === 1 ? '' : 's'} visible{filteredRows.length === 1 ? '' : 's'}</p></div>
+            <div><span className="section-kicker">{historicalView ? 'Detalle del período' : 'Registro del día'}</span><h2>{historicalView && status === 'Atrasado' ? 'Atrasos registrados' : historicalView ? 'Ingresos del período' : 'Ingresos procesados'}</h2><p>{visibleTotal} resultado{visibleTotal === 1 ? '' : 's'} con estos filtros</p></div>
             <button type="button" className="icon-text-action" onClick={() => loadOperationalData({ quiet: true })} disabled={refreshing}><RotateCcw size={18} className={refreshing ? 'spin' : ''} /> Actualizar</button>
           </div>
 
@@ -505,12 +537,13 @@ const AdminDashboard = () => {
 
           <div className="operation-table-wrap">
             <table className="operation-table">
-              <thead><tr><th>Persona</th><th>Curso</th><th>Control</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
+              <thead><tr><th>Persona</th><th>Curso</th>{historicalView && <th>Fecha</th>}<th>Control</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody>
                 {visibleRows.map((row) => (
                   <tr key={row.id_registro}>
                     <td data-label="Persona"><strong>{studentName(row)}</strong><small>{getStudentIdentifier(row)}</small></td>
                     <td data-label="Curso">{row.curso || 'Sin curso'}</td>
+                    {historicalView && <td data-label="Fecha"><strong>{formatDate(row.fecha)}</strong></td>}
                     <td data-label="Control"><strong>{row.control_nombre || 'Ingreso de la jornada'}</strong><small>{String(row.control_tipo || 'INGRESO').replaceAll('_', ' ').toLocaleLowerCase('es')}</small></td>
                     <td data-label="Hora" className="time-cell">{formatTime(row.hora)}{row.corregido_en && <small>Corregido</small>}</td>
                     <td data-label="Clasificación"><span className="status-pill" data-status={row.estado === 'Presente' ? 'ontime' : row.severidad?.toLowerCase()}>{row.estado === 'Presente' ? 'A tiempo' : `Atraso ${row.severidad?.toLowerCase()}`}</span></td>

@@ -69,7 +69,8 @@ test('la cola sin conexión es FIFO y elimina operaciones ya reconciliadas', () 
   const store = read('src/pwa/offlineStore.js');
   assert.match(store, /capturado_en\.localeCompare/u);
   assert.match(store, /offline_operation_id/u);
-  assert.match(store, /error\?\.response\?\.status === 409/u);
+  assert.match(store, /isDuplicateRegistrationError\(error\)/u);
+  assert.doesNotMatch(store, /error\?\.response\?\.status === 409/u);
   assert.match(store, /store\.delete\(item\.offline_operation_id\)/u);
 });
 

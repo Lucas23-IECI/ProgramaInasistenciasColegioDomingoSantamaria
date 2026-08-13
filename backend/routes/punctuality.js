@@ -75,7 +75,9 @@ const controlSelect = `
          TO_CHAR(hora_inicio_atraso, 'HH24:MI:SS') AS hora_inicio_atraso,
          TO_CHAR(hora_cierre, 'HH24:MI:SS') AS hora_cierre,
          minutos_atraso_grave, dias_semana, cursos_ids, cuenta_alertas,
-         activo, orden, version, creado_en, actualizado_en
+         activo, orden, version, turno_id,
+         (SELECT t.nombre FROM puntualidad_turnos t WHERE t.id = controles_puntualidad.turno_id) AS turno_nombre,
+         creado_en, actualizado_en
   FROM controles_puntualidad
 `;
 
@@ -100,6 +102,8 @@ const controlSnapshot = (control) => ({
   minutos_atraso_grave: Number(control.minutos_atraso_grave),
   dias_semana: (control.dias_semana || []).map(Number),
   cursos_ids: (control.cursos_ids || []).map(Number),
+  turno_id: control.turno_id ? Number(control.turno_id) : null,
+  turno_nombre: control.turno_nombre || null,
   cuenta_alertas: Boolean(control.cuenta_alertas),
   activo: Boolean(control.activo)
 });
@@ -112,6 +116,42 @@ const slugControlCode = (name) => {
 };
 
 const findCurrentControls = async (queryable, { date, time, courseId = null }) => {
+  const exception = await queryable.query(`
+    SELECT id, tipo, reemplaza_controles
+    FROM puntualidad_calendario_excepciones
+    WHERE fecha = $1::date AND activo = true
+      AND (cardinality(cursos_ids) = 0 OR $2::int = ANY(cursos_ids))
+    ORDER BY CASE WHEN cardinality(cursos_ids) > 0 THEN 0 ELSE 1 END, id DESC
+    LIMIT 1
+  `, [date, courseId]);
+
+  if (exception.rows[0]?.tipo === 'SUSPENSION') return [];
+
+  let exceptionalControls = [];
+  if (exception.rows[0]) {
+    const exceptional = await queryable.query(`
+      SELECT b.id, b.configuracion_id, x.codigo, x.nombre, x.tipo,
+             TO_CHAR(x.hora_apertura, 'HH24:MI:SS') AS hora_apertura,
+             TO_CHAR(x.hora_referencia, 'HH24:MI:SS') AS hora_referencia,
+             TO_CHAR(x.hora_inicio_atraso, 'HH24:MI:SS') AS hora_inicio_atraso,
+             TO_CHAR(x.hora_cierre, 'HH24:MI:SS') AS hora_cierre,
+             x.minutos_atraso_grave, ARRAY[EXTRACT(ISODOW FROM $2::date)::int]::smallint[] AS dias_semana,
+             x.cursos_ids, x.cuenta_alertas, x.activo, x.orden, x.version,
+             b.turno_id, t.nombre AS turno_nombre, x.creado_en, x.creado_en AS actualizado_en,
+             x.excepcion_id AS calendario_excepcion_id, true AS control_excepcional
+      FROM puntualidad_controles_excepcionales x
+      JOIN controles_puntualidad b ON b.id = x.control_base_id
+      LEFT JOIN puntualidad_turnos t ON t.id = b.turno_id
+      WHERE x.excepcion_id = $1 AND x.activo = true
+        AND $3::time BETWEEN x.hora_apertura AND x.hora_cierre
+        AND (cardinality(x.cursos_ids) = 0 OR $4::int = ANY(x.cursos_ids))
+      ORDER BY CASE WHEN cardinality(x.cursos_ids) > 0 THEN 0 ELSE 1 END,
+               x.hora_referencia DESC, x.orden, x.id
+    `, [exception.rows[0].id, date, time, courseId]);
+    exceptionalControls = exceptional.rows;
+    if (exception.rows[0].reemplaza_controles) return exceptionalControls;
+  }
+
   const result = await queryable.query(`
     ${controlSelect}
     WHERE activo = true
@@ -124,7 +164,7 @@ const findCurrentControls = async (queryable, { date, time, courseId = null }) =
       orden,
       id
   `, [date, time, courseId]);
-  return result.rows;
+  return [...exceptionalControls, ...result.rows];
 };
 
 const getInstitutionalNow = async (queryable) => {
@@ -252,6 +292,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           }
         }
 
+        const shiftIds = [...new Set(validatedControls.map((control) => control.turno_id).filter(Boolean))];
+        if (shiftIds.length > 0) {
+          const shifts = await client.query('SELECT id FROM puntualidad_turnos WHERE id = ANY($1::bigint[]) AND activo = true', [shiftIds]);
+          if (shifts.rows.length !== shiftIds.length) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ message: 'Uno de los turnos seleccionados ya no está disponible.' });
+          }
+        }
+
         for (const control of validatedControls) {
           let saved;
           if (control.id) {
@@ -260,14 +309,14 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
               SET nombre = $1, tipo = $2, hora_apertura = $3, hora_referencia = $4,
                   hora_inicio_atraso = $5, hora_cierre = $6, minutos_atraso_grave = $7,
                   dias_semana = $8::smallint[], cursos_ids = $9::int[],
-                  cuenta_alertas = $10, activo = $11, orden = $12,
-                  version = version + 1, actualizado_por = $13, actualizado_en = CURRENT_TIMESTAMP
-              WHERE id = $14
+                  turno_id = $10, cuenta_alertas = $11, activo = $12, orden = $13,
+                  version = version + 1, actualizado_por = $14, actualizado_en = CURRENT_TIMESTAMP
+              WHERE id = $15
               RETURNING *
             `, [
               control.nombre, control.tipo, control.hora_apertura, control.hora_referencia,
               control.hora_inicio_atraso, control.hora_cierre, control.minutos_atraso_grave,
-              control.dias_semana, control.cursos_ids, control.cuenta_alertas, control.activo,
+              control.dias_semana, control.cursos_ids, control.turno_id, control.cuenta_alertas, control.activo,
               control.orden, req.user.id, control.id
             ]);
             saved = result.rows[0];
@@ -276,15 +325,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
               INSERT INTO controles_puntualidad
                 (configuracion_id, codigo, nombre, tipo, hora_apertura, hora_referencia,
                  hora_inicio_atraso, hora_cierre, minutos_atraso_grave, dias_semana,
-                 cursos_ids, cuenta_alertas, activo, orden, creado_por, actualizado_por)
+                 cursos_ids, turno_id, cuenta_alertas, activo, orden, creado_por, actualizado_por)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::smallint[],
-                      $11::int[], $12, $13, $14, $15, $15)
+                      $11::int[], $12, $13, $14, $15, $16, $16)
               RETURNING *
             `, [
               before.id, slugControlCode(control.nombre), control.nombre, control.tipo,
               control.hora_apertura, control.hora_referencia, control.hora_inicio_atraso,
               control.hora_cierre, control.minutos_atraso_grave, control.dias_semana,
-              control.cursos_ids, control.cuenta_alertas, control.activo, control.orden,
+              control.cursos_ids, control.turno_id, control.cuenta_alertas, control.activo, control.orden,
               req.user.id
             ]);
             saved = result.rows[0];
@@ -508,6 +557,16 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       };
       const { status, severidad } = calculateStatusAndSeverity('Entrada', now.hora, appliedConfig);
       const delayMinutes = calculateDelayMinutes(now.hora, control.hora_inicio_atraso);
+      const institutionalException = await client.query(`
+        SELECT e.id, e.motivo_codigo, m.nombre, m.excluye_alertas
+        FROM puntualidad_excepciones_estudiante e
+        JOIN puntualidad_motivos_institucionales m ON m.codigo = e.motivo_codigo
+        WHERE e.id_alumno = $1 AND e.estado = 'VIGENTE'
+          AND $2::date BETWEEN e.fecha_desde AND e.fecha_hasta
+        ORDER BY e.creado_en DESC LIMIT 1
+      `, [studentId, now.fecha]);
+      const appliedException = institutionalException.rows[0] || null;
+      const effectiveCountsAlerts = appliedException?.excluye_alertas === true ? false : control.cuenta_alertas;
 
       const inserted = await client.query(`
         INSERT INTO attendance_registrations
@@ -517,10 +576,13 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
            minutos_atraso, version_regla, snapshot_migrado,
            control_puntualidad_id, control_codigo, control_nombre, control_tipo,
            hora_apertura_aplicada, hora_cierre_aplicada, control_version, cuenta_alertas_aplicado,
-           offline_operation_id, registrado_dispositivo, registrado_sin_conexion)
+           offline_operation_id, registrado_dispositivo, registrado_sin_conexion,
+           turno_id_aplicado, turno_nombre_aplicado, calendario_excepcion_id,
+           motivo_institucional_codigo, excepcion_estudiante_id)
         VALUES ($1, $2, $3, $4, 'Entrada', $5, $6, $7, CURRENT_TIMESTAMP,
                 $8, $9, $10, $11, $12, $13, $14, $15, $16, false,
-                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+                $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
+                $28, $29, $30, $31, $32)
         ON CONFLICT (id_alumno, fecha, control_puntualidad_id)
           WHERE anulado = false AND tipo_registro = 'Entrada'
         DO NOTHING
@@ -549,10 +611,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         control.hora_apertura,
         control.hora_cierre,
         control.version,
-        control.cuenta_alertas,
+        effectiveCountsAlerts,
         isOfflineReplay ? offlineOperationId : null,
         isOfflineReplay ? String(req.body?.dispositivo || '').trim().slice(0, 120) || null : null,
-        isOfflineReplay
+        isOfflineReplay,
+        control.turno_id || null,
+        control.turno_nombre || null,
+        control.calendario_excepcion_id || null,
+        appliedException?.motivo_codigo || null,
+        appliedException?.id || null
       ]);
 
       if (inserted.rows.length === 0) {
@@ -564,7 +631,10 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           detail: { fecha: now.fecha, origen, metodo_registro: registrationMethod, control_id: control.id, control_nombre: control.nombre },
           userId: req.user.id
         });
-        return res.status(409).json({ message: `Esta persona ya fue registrada en “${control.nombre}”.` });
+        return res.status(409).json({
+          code: 'REGISTRO_DUPLICADO',
+          message: `Esta persona ya fue registrada en “${control.nombre}”.`
+        });
       }
 
       const registration = inserted.rows[0];
@@ -593,7 +663,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           hora_limite_aplicada: control.hora_inicio_atraso,
           minutos_atraso: delayMinutes,
           version_regla: config?.version_regla || 1
-          ,sin_conexion: isOfflineReplay
+          ,sin_conexion: isOfflineReplay,
+          turno: control.turno_nombre || null,
+          calendario_excepcion_id: control.calendario_excepcion_id || null,
+          motivo_institucional: appliedException?.motivo_codigo || null,
+          excluido_alertas: Boolean(appliedException?.excluye_alertas)
         },
         ip: getClientIp(req)
       });
@@ -607,7 +681,12 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error('[puntualidad/registros:create]', error.message);
-      if (error.code === '23505') return res.status(409).json({ message: 'La persona ya fue registrada en este control horario.' });
+      if (error.code === '23505') {
+        return res.status(409).json({
+          code: 'REGISTRO_DUPLICADO',
+          message: 'La persona ya fue registrada en este control horario.'
+        });
+      }
       res.status(500).json({ message: 'No fue posible registrar el ingreso.' });
     } finally {
       client.release();
@@ -643,6 +722,136 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     } catch (error) {
       console.error('[puntualidad/hoy]', error.message);
       res.status(500).json({ message: 'No fue posible obtener los ingresos del día.' });
+    }
+  });
+
+  router.get('/registros', verifyAnyPermission(['punctuality.register', 'punctuality.view']), async (req, res) => {
+    const {
+      desde,
+      hasta,
+      q: rawQuery = '',
+      curso_id: rawCourseId = '',
+      estado: rawStatus = '',
+      severidad: rawSeverity = '',
+      justificado: rawJustified = '',
+      control_id: rawControlId = '',
+      pagina: rawPage = '1',
+      limite: rawLimit = '12'
+    } = req.query;
+    const range = validateDateRange(desde, hasta);
+    if (range.error) return res.status(400).json({ message: range.error });
+
+    const query = String(rawQuery || '').trim();
+    if (query.length > 120) return res.status(400).json({ message: 'La búsqueda no puede superar 120 caracteres.' });
+    if (rawStatus && !['Presente', 'Atrasado', 'justificado'].includes(rawStatus)) {
+      return res.status(400).json({ message: 'El estado seleccionado no es válido.' });
+    }
+    if (rawSeverity && !['Leve', 'Grave'].includes(rawSeverity)) {
+      return res.status(400).json({ message: 'La severidad seleccionada no es válida.' });
+    }
+    if (rawJustified && !['true', 'false'].includes(String(rawJustified))) {
+      return res.status(400).json({ message: 'El filtro de justificación no es válido.' });
+    }
+
+    const withoutCourse = rawCourseId === 'sin_curso';
+    const courseId = rawCourseId === '' || withoutCourse ? null : asBoundedInteger(rawCourseId, 1, 2147483647);
+    if (rawCourseId !== '' && !withoutCourse && !courseId) {
+      return res.status(400).json({ message: 'El curso seleccionado no es válido.' });
+    }
+    const controlId = rawControlId === '' ? null : asBoundedInteger(rawControlId, 1, 2147483647);
+    if (rawControlId !== '' && !controlId) return res.status(400).json({ message: 'El control horario no es válido.' });
+    const requestedPage = asBoundedInteger(rawPage, 1, 1000000);
+    const limit = asBoundedInteger(rawLimit, 1, 100);
+    if (!requestedPage || !limit) return res.status(400).json({ message: 'La paginación solicitada no es válida.' });
+
+    const conditions = ['r.fecha BETWEEN $1 AND $2', ACTIVE_ENTRY_FILTER];
+    const params = [desde, hasta];
+    let index = 3;
+    if (withoutCourse) {
+      conditions.push('COALESCE(r.id_curso_registro, m.id_curso) IS NULL');
+    } else if (courseId) {
+      conditions.push(`COALESCE(r.id_curso_registro, m.id_curso) = $${index++}`);
+      params.push(courseId);
+    }
+    if (rawStatus === 'justificado') {
+      conditions.push("r.estado = 'Atrasado' AND r.justificado = true");
+    } else if (rawStatus) {
+      conditions.push(`r.estado = $${index++}`);
+      params.push(rawStatus);
+    }
+    if (rawSeverity) {
+      conditions.push(`r.estado = 'Atrasado' AND r.severidad = $${index++}`);
+      params.push(rawSeverity);
+    }
+    if (rawJustified) {
+      conditions.push(`r.estado = 'Atrasado' AND r.justificado = $${index++}`);
+      params.push(String(rawJustified) === 'true');
+    }
+    if (controlId) {
+      conditions.push(`r.control_puntualidad_id = $${index++}`);
+      params.push(controlId);
+    }
+    if (query) {
+      conditions.push(`(
+        CONCAT_WS(' ', a.nombres, a.paterno, a.materno) ILIKE $${index}
+        OR COALESCE(r.curso_registro, c.nombre_curso, '') ILIKE $${index}
+        OR CONCAT_WS('-', a.rut::text, a.dv) ILIKE $${index}
+        OR REGEXP_REPLACE(COALESCE(a.documento_erp, ''), '[^0-9A-Za-z]', '', 'g') ILIKE $${index + 1}
+        OR COALESCE(a.uuid_erp::text, '') ILIKE $${index}
+      )`);
+      params.push(`%${query}%`, `%${query.replace(/[^0-9A-Za-z]/g, '')}%`);
+      index += 2;
+    }
+
+    const where = conditions.join(' AND ');
+    try {
+      const countResult = await pool.query(`
+        SELECT COUNT(*)::int AS total
+        FROM attendance_registrations r
+        JOIN alumno a ON a.id_alumno = r.id_alumno
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
+        WHERE ${where}
+      `, params);
+      const total = countResult.rows[0]?.total || 0;
+      const pages = Math.max(1, Math.ceil(total / limit));
+      const page = Math.min(requestedPage, pages);
+      const queryParams = [...params, limit, (page - 1) * limit];
+      const result = await pool.query(`
+        SELECT r.id_registro, r.fecha::text AS fecha, TO_CHAR(r.hora, 'HH24:MI:SS') AS hora,
+               r.estado, r.severidad, r.justificado, r.tipo_justificacion,
+               r.comentario_justificacion, r.documento_id,
+               d.nombre_original AS documento_nombre, d.mime_type AS documento_mime_type,
+               r.origen, r.registrado_por, r.creado_en, r.version, r.corregido_en,
+               r.motivo_correccion, a.id_alumno, a.nombres, a.paterno, a.materno,
+               a.rut, a.dv, a.documento_erp, a.uuid_erp,
+               COALESCE(r.id_curso_registro, m.id_curso) AS id_curso,
+               COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso informado') AS curso,
+               r.jornada_registro, r.hora_limite_aplicada, r.minutos_atraso,
+               r.version_regla, r.snapshot_migrado, r.control_puntualidad_id,
+               r.control_codigo, r.control_nombre, r.control_tipo, r.control_version,
+               u.nombre AS registrado_por_nombre
+        FROM attendance_registrations r
+        JOIN alumno a ON a.id_alumno = r.id_alumno
+        LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
+        LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
+        LEFT JOIN usuarios u ON u.id = r.registrado_por
+        LEFT JOIN justification_documents d ON d.id_documento = r.documento_id
+        WHERE ${where}
+        ORDER BY r.fecha DESC, r.hora DESC, r.id_registro DESC
+        LIMIT $${index} OFFSET $${index + 1}
+      `, queryParams);
+      res.json({
+        periodo: range,
+        pagina: page,
+        limite: limit,
+        total,
+        paginas: pages,
+        registros: result.rows.map((row) => protectStudentRecord(row))
+      });
+    } catch (error) {
+      console.error('[puntualidad/registros:list]', error.message);
+      res.status(500).json({ message: 'No fue posible obtener el detalle de ingresos.' });
     }
   });
 
@@ -1226,7 +1435,8 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           ORDER BY r.fecha
         `, params),
         pool.query(`
-          SELECT COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
+          SELECT COALESCE(r.id_curso_registro, m.id_curso) AS id_curso,
+                 COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso') AS curso,
                  COUNT(*)::int AS ingresos,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado')::int AS atrasos,
                  COUNT(*) FILTER (WHERE r.estado = 'Atrasado' AND r.severidad = 'Grave')::int AS graves
@@ -1235,7 +1445,8 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
           LEFT JOIN curso c ON c.id_curso = COALESCE(r.id_curso_registro, m.id_curso)
           WHERE ${where}
-          GROUP BY COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso')
+          GROUP BY COALESCE(r.id_curso_registro, m.id_curso),
+                   COALESCE(r.curso_registro, c.nombre_curso, 'Sin curso')
           ORDER BY atrasos DESC, ingresos DESC, curso
         `, params),
         pool.query(`

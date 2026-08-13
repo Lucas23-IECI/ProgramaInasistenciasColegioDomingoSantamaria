@@ -11,6 +11,7 @@ import { getStudentIdentifier } from '../utils/studentFormat';
 import { REGISTRATION_METHODS, vibrateForRegistration } from '../utils/cameraScanner';
 import { countOfflineRegistrations, findOfflineStudent, flushOfflineRegistrations, queueOfflineRegistration, saveOfflineRoster } from '../pwa/offlineStore';
 import { notifyPwaSync, requestPwaNotifications } from '../pwa/registerServiceWorker';
+import { getRegistrationError } from '../utils/punctualityRegistration';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
   const { user } = useContext(AuthContext);
@@ -552,18 +553,16 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         vibrateForRegistration('success');
       }
     } catch (err) {
-      if (err.response && err.response.status === 409) {
+      const registrationError = getRegistrationError(err);
+      if (registrationError.duplicate) {
         setAlreadyRegistered(true);
-        setError('Ya registrado hoy.');
-        triggerFlash('warning');
-        playBeep('warning');
-        vibrateForRegistration('warning');
       } else {
-        setError(err.response?.data?.message || 'Error al registrar. Intente nuevamente.');
-        triggerFlash('error');
-        playBeep('error');
-        vibrateForRegistration('error');
+        setAlreadyRegistered(false);
       }
+      setError(registrationError.message);
+      triggerFlash(registrationError.duplicate ? 'warning' : 'error');
+      playBeep(registrationError.duplicate ? 'warning' : 'error');
+      vibrateForRegistration(registrationError.duplicate ? 'warning' : 'error');
     }
   };
 
@@ -592,6 +591,16 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   const filteredSearchResults = filterCurso
     ? searchResults.filter(s => s.nombre_curso === filterCurso)
     : searchResults;
+
+  const isoDay = new Date().getDay() || 7;
+  const controlsToday = (punctualityConfig.controles || []).filter((control) => (
+    control.activo && (control.dias_semana || []).map(Number).includes(isoDay)
+  ));
+  const selectedScheduledControl = controlsToday.find((control) => String(control.id) === String(selectedControlId));
+  const selectedControl = selectedScheduledControl || controlState.actual;
+  const isManualControl = Boolean(selectedScheduledControl && selectedControlId)
+    && String(selectedControlId) !== String(controlState.actual?.id || '');
+  const canAttemptRegistration = isOffline || Boolean(controlState.actual || isManualControl);
 
   // Feedback content
   const feedbackContent = (
@@ -692,7 +701,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
       <CameraBarcodeScanner
         active={activeInputMode === REGISTRATION_METHODS.CAMERA}
-        disabled={false}
+        disabled={!canAttemptRegistration}
         onDetected={(value) => scanByBarcode(value, REGISTRATION_METHODS.CAMERA)}
         onManualFallback={() => selectInputMode(REGISTRATION_METHODS.MANUAL)}
       />
@@ -709,6 +718,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
               value={inputValue}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              disabled={!canAttemptRegistration}
               autoFocus
               autoComplete="off"
             />
@@ -769,15 +779,6 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       )}
     </>
   );
-
-  const isoDay = new Date().getDay() || 7;
-  const controlsToday = (punctualityConfig.controles || []).filter((control) => (
-    control.activo && (control.dias_semana || []).map(Number).includes(isoDay)
-  ));
-  const selectedControl = controlsToday.find((control) => String(control.id) === String(selectedControlId))
-    || controlState.actual;
-  const isManualControl = Boolean(selectedControlId)
-    && String(selectedControlId) !== String(controlState.actual?.id || '');
 
   return (
     <div className={`kiosk-scanner ${layoutMode === 'columns' ? 'kiosk-columns' : ''}`} style={{ width: '100%' }}>
@@ -852,7 +853,7 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       {!controlState.actual && !isManualControl && (
         <div className="kiosk-no-control" role="status">
           <AlertCircle size={20} />
-          <div><strong>El terminal está fuera de un bloque de puntualidad</strong><span>{controlState.proximos?.[0] ? `Próximo: ${controlState.proximos[0].nombre}, desde las ${String(controlState.proximos[0].hora_apertura).slice(0, 5)}.` : 'Revisa la jornada configurada o espera el próximo control.'}</span></div>
+          <div><strong>El terminal está fuera de un bloque de puntualidad</strong><span>{canOverrideControl && controlsToday.length ? 'Selecciona un control horario para habilitar el registro y deja el motivo de la excepción.' : controlState.proximos?.[0] ? `Próximo: ${controlState.proximos[0].nombre}, desde las ${String(controlState.proximos[0].hora_apertura).slice(0, 5)}.` : 'Revisa la jornada configurada o espera el próximo control.'}</span></div>
         </div>
       )}
 

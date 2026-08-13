@@ -11,6 +11,7 @@ import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
 import TimeField from './components/TimeField';
 import AppSelect from './components/AppSelect';
+import PunctualityPoliciesPanel from './features/punctuality/PunctualityPoliciesPanel';
 
 const DAYS = [
   { value: 1, label: 'Lu' }, { value: 2, label: 'Ma' }, { value: 3, label: 'Mi' },
@@ -51,6 +52,7 @@ const normalizeControl = (control, index = 0) => ({
   minutos_atraso_grave: Number(control.minutos_atraso_grave || 10),
   dias_semana: (control.dias_semana || [1, 2, 3, 4, 5]).map(Number),
   cursos_ids: (control.cursos_ids || []).map(Number),
+  turno_id: control.turno_id ? Number(control.turno_id) : null,
   cuenta_alertas: control.cuenta_alertas !== false,
   activo: control.activo !== false,
   orden: Number(control.orden ?? ((index + 1) * 10))
@@ -73,7 +75,7 @@ const createControl = (lastControl, index) => {
 
 const PunctualitySettings = () => {
   const navigate = useNavigate();
-  const { logout } = useContext(AuthContext);
+  const { logout, user } = useContext(AuthContext);
   const { notify } = useFeedback();
   const [general, setGeneral] = useState({
     nombre_jornada: 'Jornada principal',
@@ -86,6 +88,7 @@ const PunctualitySettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  const [policies, setPolicies] = useState({ turnos: [], calendario: [], motivos: [] });
 
   useEffect(() => {
     const load = async () => {
@@ -284,6 +287,7 @@ const PunctualitySettings = () => {
                             <div className="settings-grid settings-grid--two">
                               <label className="settings-field"><span>Nombre visible</span><input maxLength="100" value={control.nombre} onChange={(event) => updateControl(index, { nombre: event.target.value })} /></label>
                               <div className="settings-field"><span>Tipo de control</span><AppSelect ariaLabel="Tipo de control" value={control.tipo} onChange={(value) => updateControl(index, { tipo: value })} options={CONTROL_TYPES} /></div>
+                              {policies.turnos.length > 0 && <div className="settings-field"><span>Turno o jornada</span><AppSelect ariaLabel="Turno del control" value={control.turno_id ? String(control.turno_id) : ''} onChange={(value) => updateControl(index, { turno_id: value ? Number(value) : null })} options={[{ value: '', label: 'Sin turno específico' }, ...policies.turnos.filter((item) => item.activo).map((item) => ({ value: String(item.id), label: item.nombre }))]} /></div>}
                             </div>
 
                             <div className="control-time-grid">
@@ -330,6 +334,8 @@ const PunctualitySettings = () => {
                   })}
                 </div>
               </section>
+
+              <PunctualityPoliciesPanel user={user} controls={controls} courses={courses} onPoliciesChange={setPolicies} />
 
               {validation && <div className="settings-validation" role="alert"><AlertTriangle size={19} /><span>{validation}</span></div>}
               <div className="settings-submit-row">
