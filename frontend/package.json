@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@radix-ui/react-select": "^2.3.3",
-    "@zxing/browser": "0.1.5",
+    "@zxing/browser": "0.2.1",
     "@zxing/library": "0.21.3",
     "axios": "^1.13.6",
     "driver.js": "^1.7.0",
