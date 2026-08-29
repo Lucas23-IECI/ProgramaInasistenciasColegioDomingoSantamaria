@@ -12,6 +12,7 @@ import ModuleHeader from './components/ModuleHeader';
 import AppSelect from './components/AppSelect';
 import { formatChilePhoneInput, formatDocumentInput } from './utils/personFormat';
 import { getStudentIdentifier, getStudentIdentifierLabel } from './utils/studentFormat';
+import { getApiErrorMessage } from './utils/apiError';
 
 const requestConfig = { withCredentials: true };
 const emptyPerson = { tipo_documento: 'RUT', documento: '', nombre_completo: '', telefono: '' };
@@ -90,7 +91,7 @@ const PorteriaWorkspace = () => {
       setVisits(visitResponse.data.rows || []);
       setWithdrawals(withdrawalResponse.data || []);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar Portería.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar Portería.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -108,7 +109,7 @@ const PorteriaWorkspace = () => {
         const response = await axios.get(`${API_URL}/visitas/apoderados/buscar`, { ...requestConfig, params: { q: guardianQuery.trim() } });
         setGuardianMatches(response.data || []);
       } catch (error) {
-        notify(error.response?.data?.message || 'No fue posible consultar la ficha de apoderados.', 'error');
+        notify(getApiErrorMessage(error, 'No fue posible consultar la ficha de apoderados.'), 'error');
       } finally {
         setGuardianSearching(false);
       }
@@ -126,7 +127,7 @@ const PorteriaWorkspace = () => {
         const response = await axios.get(`${API_URL}/visitas/estudiantes/buscar`, { ...requestConfig, params: { q: studentQuery.trim() } });
         setStudentMatches(response.data || []);
       } catch (error) {
-        notify(error.response?.data?.message || 'No fue posible buscar estudiantes.', 'error');
+        notify(getApiErrorMessage(error, 'No fue posible buscar estudiantes.'), 'error');
       }
     }, 250);
     return () => clearTimeout(timer);
@@ -182,7 +183,7 @@ const PorteriaWorkspace = () => {
       setVisitMatches(response.data || []);
       if (!response.data?.length) setVisitIdentified(true);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible buscar a la persona.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible buscar a la persona.'), 'error');
     }
   };
   const selectVisitPerson = (person) => {
@@ -201,7 +202,7 @@ const PorteriaWorkspace = () => {
       setVisitQuery(''); setVisitMatches([]); setVisitIdentified(false); setView('inside');
       await loadData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar la visita.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar la visita.'), 'error');
     } finally {
       setSavingVisit(false);
     }
@@ -214,7 +215,7 @@ const PorteriaWorkspace = () => {
       notify('Salida registrada.', 'success');
       await loadData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar la salida.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar la salida.'), 'error');
     }
   };
   const submitWithdrawal = async (event) => {
@@ -233,7 +234,7 @@ const PorteriaWorkspace = () => {
       setView('withdrawals');
       await loadData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar el retiro.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar el retiro.'), 'error');
     } finally {
       setSavingWithdrawal(false);
     }

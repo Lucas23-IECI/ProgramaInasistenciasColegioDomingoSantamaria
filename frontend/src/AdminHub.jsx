@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
-import DevelopmentBadge from './components/DevelopmentBadge';
+import RoleOverview from './components/RoleOverview';
 import { PERMISSIONS, hasAnyPermission, roleLabel } from './permissions';
 
 const ALL_MODULES = [
@@ -105,7 +105,6 @@ const ALL_MODULES = [
   },
   {
     key: 'seguimiento',
-    development: true,
     icon: BriefcaseBusiness,
     section: 'bienestar',
     category: 'Gestión preventiva',
@@ -122,10 +121,9 @@ const ALL_MODULES = [
   },
   {
     key: 'convivencia',
-    development: true,
     icon: ShieldCheck,
     section: 'bienestar',
-    category: 'Proteccion y bienestar',
+    category: 'Protección y bienestar',
     title: 'Convivencia escolar',
     description: 'Gestión reservada de situaciones, medidas, acuerdos y seguimientos.',
     path: '/admin/convivencia',
@@ -140,7 +138,6 @@ const ALL_MODULES = [
   },
   {
     key: 'chat',
-    development: true,
     icon: MessagesSquare,
     section: 'comunicacion',
     category: 'Comunicación segura',
@@ -152,7 +149,6 @@ const ALL_MODULES = [
   },
   {
     key: 'documentos',
-    development: true,
     icon: FolderArchive,
     section: 'documentacion',
     category: 'Expediente estudiantil',
@@ -244,7 +240,7 @@ const MODULE_SECTIONS = [
   },
   {
     key: 'bienestar',
-    title: 'Proteccion y bienestar',
+    title: 'Protección y bienestar',
     description: 'Casos reservados, medidas institucionales y seguimiento de convivencia escolar.'
   },
   {
@@ -264,12 +260,15 @@ const MODULE_SECTIONS = [
   }
 ];
 
-const formatCurrentDate = () => new Intl.DateTimeFormat('es-CL', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-}).format(new Date());
+const formatCurrentDate = () => {
+  const formatted = new Intl.DateTimeFormat('es-CL', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date());
+  return formatted.charAt(0).toLocaleUpperCase('es-CL') + formatted.slice(1);
+};
 
 const AdminHub = () => {
   const navigate = useNavigate();
@@ -328,6 +327,8 @@ const AdminHub = () => {
           </div>
         </section>
 
+        <RoleOverview user={user} navigate={navigate} />
+
         <section className="hub-modules" aria-labelledby="modules-title" data-tour="hub-modules">
           <div className="hub-section-heading">
             <h2 id="modules-title">{isReader ? '¿Qué necesitas registrar?' : 'Módulos de trabajo'}</h2>
@@ -351,7 +352,6 @@ const AdminHub = () => {
                       <div className="hub-module-icon"><module.icon size={22} /></div>
                       <span className="hub-module-category-row">
                         <span className="hub-module-category">{module.category}</span>
-                        {module.development && <DevelopmentBadge compact />}
                       </span>
                       <h3 className="hub-module-title">{module.title}</h3>
                       <p className="hub-module-desc">{module.description}</p>

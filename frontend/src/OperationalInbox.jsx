@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { useFeedback } from './context/FeedbackContext';
+import { getApiErrorMessage } from './utils/apiError';
 
 const API_URL = '/api';
 
@@ -98,7 +99,7 @@ const OperationalInbox = () => {
       const response = await axios.get(`${API_URL}/operaciones/bandeja`);
       setData(response.data);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cargar la bandeja.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar la bandeja.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -120,7 +121,7 @@ const OperationalInbox = () => {
       setObservations('');
       await load();
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cerrar la jornada.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cerrar la jornada.'), 'error');
     } finally {
       setClosing(false);
     }
@@ -140,7 +141,7 @@ const OperationalInbox = () => {
       setResolution(null);
       await load();
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible resolver la incidencia.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible resolver la incidencia.'), 'error');
     }
   };
 

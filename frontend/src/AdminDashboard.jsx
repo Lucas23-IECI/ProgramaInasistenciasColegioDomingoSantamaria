@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { getApiErrorMessage } from './utils/apiError';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
   AlertTriangle,
@@ -113,11 +114,15 @@ const AdminDashboard = () => {
   const requestedTo = searchParams.get('hasta') || '';
   const requestedCourseId = searchParams.get('curso_id') || '';
   const requestedJustified = searchParams.get('justificado') || '';
+  const requestedControlId = searchParams.get('control_id') || '';
+  const requestedStudentId = searchParams.get('alumno_id') || '';
+  const requestedMinutesFrom = searchParams.get('minutos_desde') || '';
+  const requestedMinutesTo = searchParams.get('minutos_hasta') || '';
   const historicalView = Boolean(requestedFrom && requestedTo);
   const [query, setQuery] = useState(() => searchParams.get('q') || '');
   const [severity, setSeverity] = useState(() => searchParams.get('severidad') || '');
   const [status, setStatus] = useState(() => searchParams.get('estado') || '');
-  const [controlFilter, setControlFilter] = useState('');
+  const [controlFilter, setControlFilter] = useState(() => requestedControlId);
   const [page, setPage] = useState(1);
   const [historicalTotal, setHistoricalTotal] = useState(0);
   const [historicalPages, setHistoricalPages] = useState(1);
@@ -173,6 +178,9 @@ const AdminDashboard = () => {
             severidad: severity || undefined,
             justificado: requestedJustified || undefined,
             control_id: controlFilter || undefined,
+            alumno_id: requestedStudentId || undefined,
+            minutos_desde: requestedMinutesFrom || undefined,
+            minutos_hasta: requestedMinutesTo || undefined,
             q: query || undefined,
             pagina: page,
             limite: PAGE_SIZE
@@ -207,12 +215,12 @@ const AdminDashboard = () => {
         return updatedSelection;
       });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar la operación del día.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar la operación del día.'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [controlFilter, historicalView, notify, page, query, requestedCourseId, requestedFrom, requestedJustified, requestedTo, severity, status]);
+  }, [controlFilter, historicalView, notify, page, query, requestedCourseId, requestedFrom, requestedJustified, requestedMinutesFrom, requestedMinutesTo, requestedStudentId, requestedTo, severity, status]);
 
   const loadPendingJustifications = useCallback(async () => {
     if (!canJustify) return;
@@ -237,7 +245,7 @@ const AdminDashboard = () => {
     } catch (error) {
       setPendingRows([]);
       setPendingTotal(0);
-      notify(error.response?.data?.message || 'No fue posible cargar las justificaciones pendientes.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar las justificaciones pendientes.'), 'error');
     } finally {
       setPendingLoading(false);
     }
@@ -272,7 +280,7 @@ const AdminDashboard = () => {
       const haystack = `${studentName(row)} ${getStudentIdentifier(row)} ${row.curso || ''}`.toLocaleLowerCase('es');
       return (!normalized || haystack.includes(normalized))
         && (!severity || row.severidad === severity)
-        && (!controlFilter || String(row.control_puntualidad_id) === String(controlFilter))
+        && (!controlFilter || (controlFilter === 'sin_control' ? !row.control_puntualidad_id : String(row.control_puntualidad_id) === String(controlFilter)))
         && (!status || (status === 'justificado' ? row.justificado : row.estado === status));
     });
   }, [controlFilter, historicalView, query, rows, severity, status]);
@@ -340,7 +348,7 @@ const AdminDashboard = () => {
       const response = await axios.get(`${API_URL}/puntualidad/registros/${selectedRow.id_registro}/historial`);
       setHistory(response.data || []);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cargar el historial.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar el historial.'), 'error');
     } finally {
       setHistoryLoading(false);
     }
@@ -374,7 +382,7 @@ const AdminDashboard = () => {
       anchor.remove();
       URL.revokeObjectURL(downloadUrl);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible descargar el documento.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible descargar el documento.'), 'error');
     } finally {
       setDownloadingDocument(false);
     }
@@ -428,7 +436,7 @@ const AdminDashboard = () => {
         setPendingRefreshToken((current) => current + 1);
       }
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible completar la acción.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible completar la acción.'), 'error');
     } finally {
       setSavingAction(false);
     }
@@ -475,7 +483,7 @@ const AdminDashboard = () => {
       XLSX.writeFile(workbook, reportFileName({ scope: scopeLabel, from: period.from, to: period.to }));
       notify(`Reporte generado con ${records.length} atraso${records.length === 1 ? '' : 's'}.`, 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible generar el reporte.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible generar el reporte.'), 'error');
     } finally {
       setGeneratingReport(false);
     }
@@ -520,7 +528,7 @@ const AdminDashboard = () => {
 
         <div className="calculation-notice"><ShieldCheck size={18} /><span>El sistema no presume asistencia ni ausencia: los indicadores consideran únicamente ingresos efectivamente registrados.</span></div>
 
-        {historicalView && <div className="historical-detail-notice"><BarChart3 size={20} /><div><strong>Detalle solicitado desde Estadísticas</strong><span>{requestedFrom} a {requestedTo}{requestedCourseId ? ` · ${requestedCourseId === 'sin_curso' ? 'Sin curso' : courses.find((course) => String(course.id_curso) === requestedCourseId)?.nombre_curso || 'Curso seleccionado'}` : ' · Toda la institución'}</span></div><button type="button" onClick={() => navigate('/admin/atrasos')}>Volver a hoy</button></div>}
+        {historicalView && <div className="historical-detail-notice"><BarChart3 size={20} /><div><strong>Detalle solicitado desde Estadísticas</strong><span>{requestedFrom} a {requestedTo}{requestedCourseId ? ` · ${requestedCourseId === 'sin_curso' ? 'Sin curso' : courses.find((course) => String(course.id_curso) === requestedCourseId)?.nombre_curso || 'Curso seleccionado'}` : ' · Toda la institución'}{requestedStudentId ? ' · Estudiante seleccionado' : ''}{requestedControlId ? ` · ${requestedControlId === 'sin_control' ? 'Sin control asociado' : 'Control horario seleccionado'}` : ''}{requestedMinutesFrom || requestedMinutesTo ? ` · ${requestedMinutesFrom || '0'} a ${requestedMinutesTo || 'más'} min` : ''}</span></div><button type="button" onClick={() => navigate('/admin/atrasos')}>Volver a hoy</button></div>}
 
         <section className="operation-section" data-tour="late-list">
           <div className="operation-heading">
@@ -532,7 +540,7 @@ const AdminDashboard = () => {
             <label className="operation-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, RUT o curso" /></label>
             <label><span>Estado</span><AppSelect ariaLabel="Filtrar por estado" value={status} onChange={setStatus} options={[{ value: '', label: 'Todos' }, { value: 'Presente', label: 'A tiempo' }, { value: 'Atrasado', label: 'Atrasados' }, { value: 'justificado', label: 'Justificados' }]} /></label>
             <label><span>Severidad</span><AppSelect ariaLabel="Filtrar por severidad" value={severity} onChange={setSeverity} options={[{ value: '', label: 'Todas' }, { value: 'Leve', label: 'Leve' }, { value: 'Grave', label: 'Grave' }]} /></label>
-            <label><span>Control horario</span><AppSelect ariaLabel="Filtrar por control horario" value={controlFilter} onChange={setControlFilter} options={[{ value: '', label: 'Todos los controles' }, ...(config?.controles || []).filter((control) => control.activo).map((control) => ({ value: String(control.id), label: control.nombre }))]} /></label>
+            <label><span>Control horario</span><AppSelect ariaLabel="Filtrar por control horario" value={controlFilter} onChange={setControlFilter} options={[{ value: '', label: 'Todos los controles' }, { value: 'sin_control', label: 'Sin control asociado' }, ...(config?.controles || []).filter((control) => control.activo).map((control) => ({ value: String(control.id), label: control.nombre }))]} /></label>
           </div>
 
           <div className="operation-table-wrap">
