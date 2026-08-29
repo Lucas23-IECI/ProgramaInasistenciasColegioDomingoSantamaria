@@ -11,6 +11,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=78 --test-coverage-branches=70 --test-coverage-functions=67",
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report",
     "test:performance": "node scripts/verify-performance-budget.mjs",

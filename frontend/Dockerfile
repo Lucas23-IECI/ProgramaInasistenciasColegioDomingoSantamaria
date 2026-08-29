@@ -8,15 +8,16 @@ RUN npm ci
 
 COPY . .
 
-# Registra vulnerabilidades altas/críticas pero no bloquea el build.
-# Una advisory nueva en el registry de npm no debe impedir el despliegue.
-RUN npm run audit:security || echo "⚠ audit:security reportó problemas (ver arriba). El build continúa."
+# Una vulnerabilidad alta/crítica impide reemplazar la versión que ya está activa.
+RUN npm run audit:security
+
+RUN npm run lint && npm test
 
 # VITE_API_URL=/api → nginx externo lo proxea al backend
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 
-RUN npm run build
+RUN npm run build && npm run test:performance
 
 # ── Etapa 2: Servir archivos estáticos ────────────────────────────────────────
 FROM nginx:stable-alpine
