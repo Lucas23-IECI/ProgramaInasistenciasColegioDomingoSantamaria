@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ConfigPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'frontend\frontend.https.conf')
 )
 
