@@ -25,7 +25,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\instalar-windows.ps1
 ```
 
-El instalador genera secretos aleatorios, detecta la IP del PC, crea la regla de firewall para el puerto 80, construye los contenedores y comprueba el frontend y la API.
+El instalador genera secretos aleatorios, detecta la IP del PC, crea la regla de firewall para el puerto 80, construye los contenedores y comprueba el frontend y la API. Esa primera apertura HTTP sirve para comprobar conectividad, pero no habilita instalación PWA, cámara ni avisos del navegador en otros equipos.
 
 Al terminar muestra dos direcciones:
 
@@ -34,15 +34,46 @@ Al terminar muestra dos direcciones:
 
 Las credenciales iniciales quedan en `credenciales-iniciales.txt`. Ese archivo no se versiona: debe copiarse a un lugar administrativo seguro, cambiar las claves iniciales y eliminar la copia del PC cuando ya no sea necesaria.
 
+## HTTPS obligatorio para instalar la aplicación
+
+La dirección recomendada para el uso cotidiano es `https://asistencia.ldsm.test`. HTTPS habilita la instalación como aplicación, la cámara y los avisos del navegador. El sistema puede seguir abriéndose por HTTP, pero el navegador bloqueará esas funciones; no se trata de un fallo de descarga.
+
+La preparación inicial la ejecuta Lucas o soporte, una sola vez, en PowerShell
+como administrador y dentro de la carpeta del proyecto:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\preparar-servidor-recomendado.ps1
+```
+
+El script detecta la IP, instala `mkcert` si falta, genera el certificado,
+configura producción, inicia HTTPS y habilita las actualizaciones posteriores.
+Conviene reservar esa IP para que el enlace cotidiano no cambie.
+
+Cada computador administrado debe:
+
+1. Confiar una sola vez en `certs\rootCA.pem`. Distribuya únicamente ese certificado público; nunca copie `rootCA-key.pem` ni `ldsm-lan-key.pem` a otros equipos.
+2. Abrir la IP HTTPS indicada por el script y comprobar que el navegador no muestre una advertencia.
+3. Opcionalmente, resolver `asistencia.ldsm.test` mediante DNS interno para usar un nombre estable.
+4. Recién entonces usar **Instalar aplicación** y habilitar cámara o avisos si la persona los necesita.
+
+No use excepciones del navegador, certificados vencidos ni opciones como “continuar de todos modos” como solución permanente.
+
+### Alternativas de certificado
+
+- **Recomendada para la red actual:** nombre interno estable, IP reservada, `mkcert` o una autoridad interna y distribución administrada de la raíz a los equipos del colegio.
+- **Mejor a largo plazo si el colegio ya administra dominio y DNS:** subdominio institucional y certificado de una autoridad pública, manteniendo el servidor protegido y sin exponer directamente la base de datos.
+- **Solo para pruebas en el mismo servidor:** `https://localhost`. No soluciona el acceso seguro desde otros computadores y no debe presentarse como despliegue institucional.
+
 ## Condiciones de red que debe confirmar el encargado técnico
 
-- La red de funcionarios debe poder alcanzar la IP del servidor por TCP 80.
+- La red de funcionarios debe poder alcanzar la IP del servidor por TCP 80 y 443.
 - El aislamiento de clientes Wi-Fi no debe bloquear la comunicación entre dispositivos autorizados.
 - El router o servidor DHCP debe reservar la IP del PC para que el enlace no cambie.
 - El PC no debe suspenderse durante la jornada ni cerrar Docker Desktop.
-- No se debe publicar el puerto 80 hacia Internet mediante redirección del router.
+- No se deben publicar los puertos 80, 443 ni 5432 hacia Internet mediante redirección directa del router.
 
-Si el establecimiento necesita acceso desde fuera de su red, debe agregarse HTTPS con un dominio institucional y `COOKIE_SECURE=true`. No corresponde exponer directamente el PC interno.
+Si el establecimiento necesita acceso desde fuera de su red, se requiere un diseño separado con dominio institucional, HTTPS, control de acceso y revisión técnica. No corresponde exponer directamente el PC interno.
 
 ## Comprobación
 
@@ -52,7 +83,17 @@ En el servidor:
 .\scripts\estado.ps1
 ```
 
-En un teléfono conectado a la misma red, abrir la dirección indicada por el instalador. Si aparece la pantalla pero el inicio de sesión falla, verificar que la dirección IP actual esté incluida en `CORS_ORIGIN` dentro de `.env` y reiniciar con `docker compose up -d`.
+En un teléfono conectado a la misma red, abrir la dirección HTTPS indicada por
+el script. Si aparece la pantalla pero el inicio de sesión falla, enviar la
+salida de `estado.ps1` a soporte; no editar `.env` ni los certificados.
+
+Antes de declarar el servidor listo para uso institucional, ejecutar:
+
+```powershell
+.\scripts\verificar-produccion.ps1
+```
+
+Todos los controles obligatorios deben aparecer como correctos. No publique una actualización si el script informa valores de desarrollo, cookies sin seguridad, contraseñas débiles u orígenes HTTP.
 
 ## Inicio automático y energía
 
@@ -65,13 +106,14 @@ Los contenedores tienen política `unless-stopped`, por lo que vuelven a iniciar
 
 ## Actualización controlada
 
-Antes de actualizar:
+Después de la preparación inicial, Andrés actualiza desde `main` con:
 
 ```powershell
-.\scripts\respaldo-ahora.ps1
-git pull --ff-only
-docker compose up -d --build
-.\scripts\estado.ps1
+git pull --ff-only origin main
 ```
+
+El `post-merge` ejecuta automáticamente el respaldo antes de modificar los
+servicios, construye las imágenes, aplica migraciones y comprueba salud y
+producción. Debe aparecer `Actualización HTTPS completada y saludable`.
 
 Nunca actualizar durante el horario de entrada de estudiantes. Conservar una copia de la versión anterior o una rama de respaldo hasta completar la comprobación.

@@ -12,44 +12,20 @@ Andrés no debe cambiar a `test`: esa rama es exclusivamente para desarrollo y
 pruebas. Tampoco debe volver a ejecutar el instalador ni cargar nuevamente el
 Excel por una actualización normal.
 
-Antes de actualizar, abrir PowerShell en la carpeta del sistema y crear un
-respaldo:
+Cuando Lucas confirme que la versión ya está publicada en `main`, abrir
+PowerShell dentro de la carpeta del sistema. La instalación queda preparada en
+`main`, por lo que Andrés ejecuta solamente:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\respaldo-ahora.ps1
-```
-
-Después comprobar que la carpeta continúa conectada correctamente al
-repositorio:
-
-```powershell
-git status
-git remote -v
-```
-
-Cuando Lucas confirme que `test` ya fue fusionada en `main`, ejecutar:
-
-```powershell
-git fetch origin
-git switch main
 git pull --ff-only origin main
 ```
 
-Reconstruir los servicios conservando la base y los volúmenes actuales:
-
-```powershell
-docker compose up -d --build
-.\scripts\estado.ps1
-```
-
-Si la instalación definitiva ya utiliza el archivo HTTPS adicional, usar en
-su lugar:
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
-.\scripts\estado.ps1
-```
+La instalación recomendada tiene un mecanismo local que, después del pull,
+ejecuta automáticamente respaldo, build, migraciones, inicio HTTPS y controles
+de salud. Esperar el mensaje `Actualización HTTPS completada y saludable`.
+Andrés no debe editar `.env`, regenerar certificados ni ejecutar variantes de
+Docker Compose. Si el pull no muestra la comprobación automática, detenerse y
+enviar la salida a Lucas.
 
 La actualización reconstruye la aplicación, pero conserva PostgreSQL, los
 documentos y los respaldos en sus volúmenes. No usar `docker compose down -v`.
@@ -72,10 +48,16 @@ un clon válido del repositorio.
 Registrar como evidencia la IP reservada, el nombre interno, la red desde la
 que se probó y el responsable técnico que hizo el cambio.
 
-## 3. Endurecer la configuración del colegio
+## 3. Endurecer la configuración del colegio — preparación de soporte
 
-Antes de iniciar el modo definitivo, actualizar el `.env` del servidor sin
-enviar sus valores por mensajería ni incorporarlos a Git:
+Esta sección la ejecuta Lucas o soporte una sola vez mediante:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\preparar-servidor-recomendado.ps1
+```
+
+El script actualiza el `.env` sin publicar sus valores y configura:
 
 - `NODE_ENV=production`.
 - `STRICT_ENV_VALIDATION=true`.
@@ -101,28 +83,23 @@ mantenimiento, después de un respaldo, actualizando de forma coordinada la
 clave del rol `ldsm_app` y el `.env`, y comprobando la restauración antes de
 cerrar el cambio.
 
-## 4. Instalar HTTPS confiable
+## 4. Instalar HTTPS confiable — preparación de soporte
 
-Generar una autoridad y un certificado propios del colegio. No reutilizar ni
-copiar la clave privada de otro computador.
-
-```powershell
-winget install --id FiloSottile.mkcert -e
-.\scripts\preparar-https-red-interna.ps1 -LanIp IP-DEL-SERVIDOR -InstalarAutoridadLocal
-```
-
-Configurar `asistencia.ldsm.test` en el DNS interno o en los equipos de prueba,
-incluyéndolo junto a la IP en el certificado. Después iniciar:
+El script recomendado genera una autoridad y un certificado propios de esta
+instalación. No reutiliza ni copia la clave privada de otro computador.
 
 ```powershell
-$env:HTTPS_CORS_ORIGIN='https://asistencia.ldsm.test,https://IP-DEL-SERVIDOR'
-docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
-.\scripts\estado.ps1
+.\scripts\preparar-servidor-recomendado.ps1
 ```
 
-Distribuir únicamente `rootCA.pem`. Importarlo en las autoridades raíz de
-confianza de cada PC y teléfono autorizado. La clave `rootCA-key.pem` y la
-clave del certificado permanecen exclusivamente en el servidor.
+El acceso directo por la IP detectada no requiere editar `hosts`. El nombre
+`asistencia.ldsm.test` queda como alternativa cuando el colegio disponga de DNS
+interno.
+
+Distribuir únicamente `certs\rootCA.pem`. Lucas o soporte lo importa una sola
+vez en las autoridades raíz de confianza de cada PC y teléfono autorizado. La
+clave `rootCA-key.pem` y la clave del certificado permanecen exclusivamente en
+el servidor. Git no puede realizar esta confianza en equipos remotos.
 
 ## 5. Probar dispositivos físicos
 
