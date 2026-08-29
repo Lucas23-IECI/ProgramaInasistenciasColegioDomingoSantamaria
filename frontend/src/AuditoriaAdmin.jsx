@@ -9,6 +9,7 @@ import { API_URL } from './config';
 import ModuleHeader from './components/ModuleHeader';
 import DateRangeField from './components/DateRangeField';
 import AppSelect from './components/AppSelect';
+import { getApiErrorMessage } from './utils/apiError';
 
 const PAGE_SIZE = 20;
 const toIsoDate = (date) => [
@@ -129,7 +130,7 @@ const AuditoriaAdmin = () => {
       setProfileSubject(response.data.profile || null);
       setProfileAccounts(response.data.profile_accounts || []);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible cargar la auditoría.');
+      setError(getApiErrorMessage(requestError, 'No fue posible cargar la auditoría.'));
     } finally {
       setLoading(false);
     }
@@ -167,7 +168,7 @@ const AuditoriaAdmin = () => {
       const suffix = scope ? `_${scope.nombre || scope.correo}`.replace(/[^a-zA-Z0-9_-]+/g, '_') : '';
       XLSX.writeFile(workbook, `auditoria${suffix}_${toIsoDate(new Date())}.xlsx`);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible exportar la actividad filtrada.');
+      setError(getApiErrorMessage(requestError, 'No fue posible exportar la actividad filtrada.'));
     }
   };
 

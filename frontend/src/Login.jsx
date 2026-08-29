@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, MapPin, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
+import { getApiErrorMessage } from './utils/apiError';
 
 const Login = () => {
   const [correo, setCorreo] = useState('');
@@ -27,7 +28,7 @@ const Login = () => {
       } else if (error.response?.status === 423) {
         setErrorMsg('La cuenta está bloqueada temporalmente por varios intentos fallidos.');
       } else {
-        setErrorMsg(error.response?.data?.message || 'No fue posible conectar con el sistema. Intenta nuevamente.');
+        setErrorMsg(getApiErrorMessage(error, 'No fue posible iniciar sesión.'));
       }
     } finally {
       setLoading(false);

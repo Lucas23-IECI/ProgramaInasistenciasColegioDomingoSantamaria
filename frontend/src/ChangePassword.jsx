@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
+import { getApiErrorMessage } from './utils/apiError';
 
 const PASSWORD_RULES = [
   { label: '12 caracteres como mínimo', test: (value) => value.length >= 12 },
@@ -39,7 +40,7 @@ const ChangePassword = () => {
       await changePassword(currentPassword, newPassword);
       navigate('/', { replace: true });
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible actualizar la contraseña.');
+      setError(getApiErrorMessage(requestError, 'No fue posible actualizar la contraseña.'));
     } finally {
       setSaving(false);
     }
