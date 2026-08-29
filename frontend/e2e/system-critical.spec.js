@@ -1,7 +1,9 @@
 /* global process */
 import { Buffer } from 'node:buffer';
+import fs from 'node:fs';
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { dismissReleaseNotes } from './helpers.js';
 
 const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@ldsm.local';
 const readerEmail = process.env.E2E_READER_EMAIL || (process.env.CI ? '' : 'lector@ldsm.local');
@@ -14,10 +16,7 @@ const login = async (page, email = adminEmail) => {
   await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: 'Ingresar al sistema' }).click();
   await expect(page).not.toHaveURL(/\/login$/);
-  const releaseNotes = page.getByRole('dialog').filter({ hasText: 'Novedades del sistema' });
-  if (await releaseNotes.isVisible().catch(() => false)) {
-    await releaseNotes.getByRole('button', { name: 'Cerrar novedades' }).click();
-  }
+  await dismissReleaseNotes(page);
 };
 
 const expectNoHorizontalOverflow = async (page) => {
@@ -67,6 +66,7 @@ test('gestión documental abre expedientes y se adapta a escritorio y móvil', a
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'Gestión documental', exact: true })).toBeVisible();
   await expect(page.getByText('Documentación estudiantil', { exact: true })).toBeVisible();
+  await expect(page.getByText('En desarrollo', { exact: true })).toHaveCount(0);
   await expectSpanishTextIsWellEncoded(page);
   await page.goto('/admin/documentos');
   await expect(page.getByRole('heading', { name: 'Gestión documental', exact: true })).toBeVisible();
@@ -92,6 +92,7 @@ test('la instalación PWA explica escritorio y móvil con identidad del colegio'
   await expect(dialog.getByAltText('Escudo del Liceo Domingo Santa María')).toBeVisible();
   await expect(dialog.getByText('Siempre disponible desde el navegador')).toBeVisible();
   await expect(dialog.getByText(/recibirá sus actualizaciones|Ya está instalada/)).toBeVisible();
+  await expect(dialog.getByText('En desarrollo', { exact: true })).toHaveCount(0);
   await expectSpanishTextIsWellEncoded(page);
   await expectNoHorizontalOverflow(page);
   const accessibility = await new AxeBuilder({ page }).include('.pwa-experience').withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -107,23 +108,24 @@ test('el changelog conserva controles visibles y contenido adaptable', async ({ 
   await page.getByRole('button', { name: 'Abrir menú de usuario' }).click();
   await page.getByRole('menuitem', { name: 'Novedades de la versión' }).click();
 
-  const dialog = page.getByRole('dialog', { name: /Gestión institucional, analítica y operación resiliente/ });
+  const dialog = page.locator('.release-notes[role="dialog"]');
   const body = dialog.locator('.release-notes__body');
-    await expect(dialog).toBeVisible();
-    const closeButton = dialog.getByRole('button', { name: 'Cerrar novedades' });
-    await expect(closeButton).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Entendido' })).toBeVisible();
-    await page.waitForTimeout(300);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Novedades del sistema', { exact: true })).toBeVisible();
+  const closeButton = dialog.getByRole('button', { name: 'Cerrar novedades' });
+  await expect(closeButton).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Entendido' })).toBeVisible();
+  await page.waitForTimeout(300);
 
-    const closeButtonIsTopmost = await closeButton.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const topmost = document.elementFromPoint(
-        rect.left + (rect.width / 2),
-        rect.top + (rect.height / 2),
-      );
-      return topmost === element || element.contains(topmost);
-    });
-    expect(closeButtonIsTopmost).toBe(true);
+  const closeButtonIsTopmost = await closeButton.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const topmost = document.elementFromPoint(
+      rect.left + (rect.width / 2),
+      rect.top + (rect.height / 2),
+    );
+    return topmost === element || element.contains(topmost);
+  });
+  expect(closeButtonIsTopmost).toBe(true);
 
   const geometry = await dialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -142,7 +144,7 @@ test('el changelog conserva controles visibles y contenido adaptable', async ({ 
   expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight + 1);
 
   await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(closeButton).toBeVisible();
+  await expect(closeButton).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Entendido' })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   const accessibility = await new AxeBuilder({ page }).include('.release-notes').withTags(['wcag2a', 'wcag2aa']).analyze();
@@ -164,6 +166,13 @@ test('seguimiento institucional conserva filtros, ayuda y adaptación responsive
   await login(page);
   await page.goto('/admin/seguimiento');
   await expect(page.getByRole('heading', { name: 'Seguimiento institucional' })).toBeVisible();
+  await page.getByRole('button', { name: 'Recorrido de seguimiento institucional' }).click();
+  const helpTour = page.locator('.driver-popover');
+  await expect(helpTour).toBeVisible();
+  await expect(helpTour).toContainText('Identificación del módulo');
+  await expect(helpTour).toContainText('1 de 5');
+  await page.keyboard.press('Escape');
+  await expect(helpTour).toHaveCount(0);
   await expect(page.getByLabel('Resumen de seguimiento')).toBeVisible();
   await expect(page.getByRole('button', { name: /Nuevo seguimiento/ })).toBeVisible();
   await page.getByRole('button', { name: /Configurar reglas/ }).click();
@@ -174,9 +183,28 @@ test('seguimiento institucional conserva filtros, ayuda y adaptación responsive
   await expect(automation.getByText('Avisar responsables')).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await automation.getByRole('button', { name: 'Cancelar' }).click();
+  await page.getByRole('button', { name: /Nuevo seguimiento/ }).click();
+  const newCase = page.getByRole('dialog', { name: 'Abrir caso institucional' });
+  await expect(newCase).toBeVisible();
+  let results = await new AxeBuilder({ page }).include('.follow-dialog').withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact))).toEqual([]);
+  await newCase.getByRole('button', { name: 'Cancelar' }).click();
+  const firstCase = page.locator('.follow-list > button').first();
+  if (await firstCase.isVisible().catch(() => false)) {
+    await firstCase.click();
+    const closeAction = page.getByRole('button', { name: 'Cerrar seguimiento' });
+    if (await closeAction.isVisible().catch(() => false)) {
+      await closeAction.click();
+      const closeDialog = page.getByRole('dialog', { name: 'Cerrar seguimiento' });
+      await expect(closeDialog).toContainText('las tareas pendientes se conservarán');
+      results = await new AxeBuilder({ page }).include('.follow-dialog').withTags(['wcag2a', 'wcag2aa']).analyze();
+      expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact))).toEqual([]);
+      await closeDialog.getByRole('button', { name: 'Cancelar' }).click();
+    }
+  }
   await expectSpanishTextIsWellEncoded(page);
   await expectNoHorizontalOverflow(page);
-  const results = await new AxeBuilder({ page }).include('.follow-page').withTags(['wcag2a', 'wcag2aa']).analyze();
+  results = await new AxeBuilder({ page }).include('.follow-page').withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact))).toEqual([]);
 });
 
@@ -414,7 +442,7 @@ test('recupera automáticamente una sección cuando su archivo versionado quedó
   expect(rejectedOnce).toBe(true);
 });
 
-test('la analítica institucional es explicable, exportable y adaptable', async ({ page }) => {
+test('la analítica institucional es explicable, exportable y adaptable', async ({ page }, testInfo) => {
   await login(page);
   await page.goto('/admin/analiticas');
   await expect(page.getByRole('heading', { name: 'Estadísticas de puntualidad' })).toBeVisible({ timeout: 20_000 });
@@ -423,6 +451,60 @@ test('la analítica institucional es explicable, exportable y adaptable', async 
   await expect(page.getByRole('heading', { name: 'Reportes automáticos' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'PDF' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excel' })).toBeVisible();
+
+  const courseBreakdownPanel = page.locator('[data-tour="analytics-breakdowns"] article').filter({
+    has: page.getByRole('heading', { name: 'Atrasos por curso', exact: true }),
+  });
+  const selectedCourse = (await courseBreakdownPanel.locator('.distribution-row--action strong').first().innerText()).trim();
+  await page.getByRole('combobox', { name: 'Filtrar por curso' }).click();
+  const courseOption = page.getByRole('option', { name: selectedCourse, exact: true });
+  const filteredInstitutionalResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith('/api/analitica/institucional') && Boolean(url.searchParams.get('id_curso'));
+  });
+  await courseOption.click();
+  await filteredInstitutionalResponse;
+  await expect(page.locator('[data-tour="analytics-institutional"] .analytics-scope-notice')).toContainText(selectedCourse);
+
+  const lineButton = page.getByRole('button', { name: 'Línea', exact: true });
+  const barsButton = page.getByRole('button', { name: 'Barras', exact: true });
+  await expect(lineButton).toHaveAttribute('aria-pressed', 'true');
+  await barsButton.click();
+  await expect(barsButton).toHaveAttribute('aria-pressed', 'true');
+  const firstDatum = page.locator('.daily-chart svg [role="button"]').first();
+  const chartHint = page.locator('.analytics-chart-hint');
+  const selection = page.locator('.daily-chart-selection');
+  await firstDatum.hover();
+  await expect(selection).toContainText(/atrasos? de \d+ ingresos?/u);
+  await chartHint.hover();
+  await expect(selection).toHaveText('Selecciona un punto o una barra para fijar su cantidad.');
+  await firstDatum.click();
+  await chartHint.hover();
+  await expect(selection).toContainText(/atrasos? de \d+ ingresos?/u);
+  await firstDatum.click();
+  await chartHint.hover();
+  await expect(selection).toHaveText('Selecciona un punto o una barra para fijar su cantidad.');
+  await firstDatum.focus();
+  await firstDatum.press('Enter');
+  await expect(selection).toContainText(/atrasos? de \d+ ingresos?/u);
+  await page.locator('.daily-chart-shell').screenshot({ path: testInfo.outputPath('analitica-barras.png') });
+
+  const downloadPromise = page.waitForEvent('download');
+  const exportRequestPromise = page.waitForRequest((request) => request.url().includes('/api/analitica/institucional/exportar'));
+  await page.getByRole('button', { name: 'PDF' }).click();
+  const exportRequest = await exportRequestPromise;
+  const exportUrl = new URL(exportRequest.url());
+  expect(exportUrl.searchParams.get('id_curso')).toBeTruthy();
+  expect(exportUrl.searchParams.get('desde')).toBeTruthy();
+  expect(exportUrl.searchParams.get('hasta')).toBeTruthy();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^analitica-institucional-.*\.pdf$/u);
+  const pdfPath = testInfo.outputPath('analitica-filtrada.pdf');
+  await download.saveAs(pdfPath);
+  const pdf = Buffer.from(fs.readFileSync(pdfPath));
+  expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+  expect(pdf.length).toBeGreaterThan(5_000);
+
   await expectNoHorizontalOverflow(page);
   await expectSpanishTextIsWellEncoded(page);
 });
@@ -473,6 +555,8 @@ test('las pantallas críticas no desbordan en móvil', async ({ page }, testInfo
     '/admin/familias',
     '/admin/gobierno-datos',
     '/admin/seguimiento',
+    '/admin/convivencia',
+    '/admin/documentos',
     '/chat',
     '/mi-perfil',
     '/directorio',
@@ -481,5 +565,14 @@ test('las pantallas críticas no desbordan en móvil', async ({ page }, testInfo
     await page.goto(route);
     await page.waitForLoadState('domcontentloaded');
     await expectNoHorizontalOverflow(page);
+  }
+
+  for (const width of [320, 375, 414, 768]) {
+    await page.setViewportSize({ width, height: width === 768 ? 900 : 844 });
+    for (const route of ['/admin/seguimiento', '/admin/convivencia', '/admin/documentos', '/admin/analiticas', '/chat']) {
+      await page.goto(route);
+      await page.waitForLoadState('domcontentloaded');
+      await expectNoHorizontalOverflow(page);
+    }
   }
 });

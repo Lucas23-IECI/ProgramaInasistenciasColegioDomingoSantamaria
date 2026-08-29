@@ -1,5 +1,6 @@
 /* global process */
 import { test, expect } from '@playwright/test';
+import { dismissReleaseNotes } from './helpers.js';
 
 const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@ldsm.local';
 const password = process.env.DEFAULT_USER_PASSWORD;
@@ -11,10 +12,7 @@ const login = async (page) => {
   await page.locator('input[type="password"]').fill(password);
   await page.getByRole('button', { name: 'Ingresar al sistema' }).click();
   await expect(page).not.toHaveURL(/\/login$/);
-  const releaseNotes = page.getByRole('dialog').filter({ hasText: 'Novedades del sistema' });
-  if (await releaseNotes.isVisible().catch(() => false)) {
-    await releaseNotes.getByRole('button', { name: 'Cerrar novedades' }).click();
-  }
+  await dismissReleaseNotes(page);
 };
 
 test('la justificación histórica expone una acción primaria horizontal y directa', async ({ page }, testInfo) => {
