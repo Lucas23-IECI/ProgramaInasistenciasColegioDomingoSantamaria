@@ -813,13 +813,46 @@ body.light-mode .analytics-page-v2 {
 .analytics-panel > header,
 .analytics-recurrence > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.2rem; }
 .panel-period { color: var(--op-muted); font-size: 0.76rem; font-weight: 720; }
+.daily-chart-shell { display: grid; gap: 0.7rem; min-width: 0; }
+.analytics-chart-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; min-width: 0; }
+.chart-view-switch { display: inline-grid; grid-template-columns: repeat(3, auto); border: 1px solid var(--op-line); border-radius: 7px; overflow: hidden; }
+.chart-view-switch button,
+.chart-values-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 0.38rem; min-height: 38px; padding: 0.45rem 0.68rem; color: var(--op-muted); background: var(--op-surface); border: 0; cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 800; }
+.chart-view-switch button + button { border-left: 1px solid var(--op-line); }
+.chart-view-switch button:hover,
+.chart-view-switch button.is-active,
+.chart-values-toggle:hover,
+.chart-values-toggle.is-active { color: var(--op-blue); background: var(--op-surface-2); }
+.chart-view-switch button:focus-visible,
+.chart-values-toggle:focus-visible,
+.chart-datum:focus-visible { outline: 3px solid color-mix(in srgb, var(--op-blue) 34%, transparent); outline-offset: -2px; }
+.chart-values-toggle { border: 1px solid var(--op-line); border-radius: 7px; }
+.analytics-chart-hint { flex: 1 1 250px; color: var(--op-muted); font-size: 0.76rem; line-height: 1.35; }
 .daily-chart { width: 100%; height: 290px; overflow: hidden; }
 .daily-chart svg { width: 100%; height: 100%; overflow: visible; }
 .chart-grid-line { stroke: var(--op-line-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart-area { fill: rgba(43, 119, 165, 0.1); }
 .chart-line { fill: none; stroke: var(--op-blue); stroke-width: 3; vector-effect: non-scaling-stroke; }
 .chart-point { fill: var(--op-surface); stroke: var(--op-blue); stroke-width: 3; vector-effect: non-scaling-stroke; }
+.chart-bar { fill: color-mix(in srgb, var(--op-blue) 72%, var(--op-surface)); transition: opacity 0.16s ease, fill 0.16s ease; }
+.chart-bar.is-active { fill: var(--op-navy); }
+.chart-hit-target { fill: transparent; stroke: transparent; cursor: pointer; }
+.chart-datum { cursor: pointer; }
+.chart-datum.is-active .chart-point { fill: var(--op-blue); }
+.chart-value-label { fill: var(--op-navy); font-size: 12px; font-weight: 850; pointer-events: none; }
+.chart-axis-label { fill: var(--op-muted); font-size: 11px; }
 .chart-label { fill: var(--op-muted); font-size: 13px; }
+.chart-tooltip { pointer-events: none; filter: drop-shadow(0 8px 14px rgba(17, 49, 68, 0.18)); }
+.chart-tooltip rect { fill: var(--op-navy); stroke: color-mix(in srgb, var(--op-navy) 76%, white); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart-tooltip text { fill: #fff; }
+.chart-tooltip__date { font-size: 12px; font-weight: 850; }
+.chart-tooltip__value { font-size: 11px; }
+.daily-chart-selection { min-height: 1.3rem; margin: 0; color: var(--op-muted); font-size: 0.76rem; }
+.daily-chart-table-wrap { max-height: 360px; overflow: auto; border: 1px solid var(--op-line); border-radius: 8px; }
+.daily-chart-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.daily-chart-table th { position: sticky; z-index: 1; top: 0; padding: 0.68rem 0.75rem; color: var(--op-navy); background: var(--op-surface-2); text-align: left; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.035em; }
+.daily-chart-table td { padding: 0.65rem 0.75rem; color: var(--op-text); border-top: 1px solid var(--op-line-soft); }
+.daily-chart-table tbody tr:hover { background: color-mix(in srgb, var(--op-blue) 5%, transparent); }
 .analytics-insight-panel > h2 { margin-bottom: 1.2rem; }
 .insight-stack { display: grid; }
 .insight-stack article { display: grid; grid-template-columns: 34px 1fr; gap: 0.7rem; padding: 1rem 0; color: var(--op-blue); border-bottom: 1px solid var(--op-line-soft); }
@@ -965,8 +998,12 @@ body.light-mode .analytics-page-v2 {
   .analytics-kpi-grid { grid-template-columns: 1fr; }
   .analytics-kpi:nth-child(n) { min-height: 112px; border-right: 0; border-bottom: 1px solid var(--op-line-soft); }
   .analytics-kpi:last-child { border-bottom: 0; }
-  .daily-chart { height: 230px; overflow-x: auto; }
-  .daily-chart svg { min-width: 620px; }
+  .analytics-chart-toolbar { align-items: stretch; }
+  .chart-view-switch { flex: 1 1 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .chart-values-toggle { flex: 1 1 100%; }
+  .analytics-chart-hint { flex-basis: 100%; }
+  .daily-chart { height: 250px; overflow-x: auto; overflow-y: hidden; }
+  .daily-chart svg { width: var(--daily-chart-min-width, 620px); min-width: var(--daily-chart-min-width, 620px); }
   .recurrence-table thead { display: none; }
   .recurrence-table,
   .recurrence-table tbody,

@@ -6,15 +6,18 @@ import { API_URL } from '../config';
 import AppSelect from './AppSelect';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import { AuthContext } from '../context/AuthContext';
+import { PwaContext } from '../context/PwaContext';
 import { hasPermission, hasRegistrationMethodPermission, PERMISSIONS } from '../permissions';
 import { getStudentIdentifier } from '../utils/studentFormat';
 import { REGISTRATION_METHODS, vibrateForRegistration } from '../utils/cameraScanner';
 import { countOfflineRegistrations, findOfflineStudent, flushOfflineRegistrations, queueOfflineRegistration, saveOfflineRoster } from '../pwa/offlineStore';
 import { notifyPwaSync, requestPwaNotifications } from '../pwa/registerServiceWorker';
 import { getRegistrationError } from '../utils/punctualityRegistration';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const BarcodeScanner = ({ tipoRegistro }) => {
   const { user } = useContext(AuthContext);
+  const pwa = useContext(PwaContext);
   const [inputValue, setInputValue] = useState('');
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -192,7 +195,9 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
   // Fetch courses for filter
   useEffect(() => {
-    axios.get(`${API_URL}/courses`).then(r => setCourses(r.data || [])).catch(() => {});
+    axios.get(`${API_URL}/courses`)
+      .then((response) => setCourses(response.data || []))
+      .catch((requestError) => setError(getApiErrorMessage(requestError, 'No fue posible cargar los cursos para filtrar la búsqueda.')));
   }, []);
 
   // Keep focus on input
@@ -305,7 +310,11 @@ const BarcodeScanner = ({ tipoRegistro }) => {
             const res = await axios.get(`${API_URL}/students/search`, { params: { q: val.trim() } });
             setSearchResults(res.data);
             setShowResults(res.data.length > 0);
-          } catch { setSearchResults([]); setShowResults(false); }
+          } catch (requestError) {
+            setSearchResults([]);
+            setShowResults(false);
+            setError(getApiErrorMessage(requestError, 'No fue posible buscar estudiantes.'));
+          }
         }
       }, 350);
     } else {
@@ -388,8 +397,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
           setInputValue('');
           setLoading(false);
         }
-      } catch {
-        setError('Error de conexión con el servidor.');
+      } catch (error) {
+        setError(getApiErrorMessage(error, 'No fue posible buscar a la persona.'));
         playBeep('error');
         setLoading(false);
       }
@@ -419,11 +428,19 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       });
 
       const foundStudent = res.data.alumno;
-      const isAlreadyReg = false;
       const calculatedStatus = res.data.statusPropuesto;
 
       setStudent(foundStudent);
-      setAlreadyRegistered(isAlreadyReg);
+      setAlreadyRegistered(false);
+
+      if (!res.data.control && !isManualControl) {
+        setError('No hay un control de puntualidad activo para este curso y horario.');
+        setLoading(false);
+        triggerFlash('error');
+        playBeep('error');
+        isProcessing.current = false;
+        return;
+      }
 
       if (calculatedStatus === 'Atrasado') {
         setRestricciones(['Ingreso Atrasado']);
@@ -431,28 +448,18 @@ const BarcodeScanner = ({ tipoRegistro }) => {
 
       setLoading(false);
 
-      if (!isAlreadyReg) {
-        // Confirmación antes de registrar
-        setPendingRegistration({ student: foundStudent, calculatedStatus, tipoRegistro, method });
-        pendingTimer.current = setTimeout(async () => {
-          setPendingRegistration(null);
-          await registerAttendance(foundStudent, calculatedStatus, method);
-          isProcessing.current = false;
-        }, 1500);
-      } else {
-        const horaReg = res.data.registroPrevio ? res.data.registroPrevio.hora.slice(0, 5) : '';
-        setError(`Ya registrado hoy (${res.data.registroPrevio?.estado || 'Presente'} a las ${horaReg})`);
-        triggerFlash('warning');
-        playBeep('warning');
+      // Confirmación antes de registrar; el backend determina si existe un duplicado real.
+      setPendingRegistration({ student: foundStudent, calculatedStatus, tipoRegistro, method });
+      pendingTimer.current = setTimeout(async () => {
+        setPendingRegistration(null);
+        await registerAttendance(foundStudent, calculatedStatus, method);
         isProcessing.current = false;
-      }
+      }, 1500);
     } catch (err) {
-      if (err.response && err.response.status === 404) {
-        setError('Código o RUT no encontrado en el sistema.');
-      } else if (err.response && err.response.status === 403) {
-        setError(err.response.data.message);
+      if (err.response?.status === 404) {
+        setError('No se encontró una persona activa con ese código o identificador.');
       } else {
-        setError('Error de conexión con el servidor.');
+        setError(getApiErrorMessage(err, 'No fue posible consultar a la persona.'));
       }
       triggerFlash('error');
       playBeep('error');
@@ -495,25 +502,25 @@ const BarcodeScanner = ({ tipoRegistro }) => {
       });
 
       const foundStudent = res.data.alumno;
-      const isAlreadyReg = false;
       const calculatedStatus = res.data.statusPropuesto;
 
       setStudent(foundStudent);
-      setAlreadyRegistered(isAlreadyReg);
+      setAlreadyRegistered(false);
+
+      if (!res.data.control && !isManualControl) {
+        setError('No hay un control de puntualidad activo para este curso y horario.');
+        triggerFlash('error');
+        playBeep('error');
+        return;
+      }
 
       if (calculatedStatus === 'Atrasado') {
         setRestricciones(['Ingreso Atrasado']);
       }
 
-      if (!isAlreadyReg) {
-        await registerAttendance(foundStudent, calculatedStatus, REGISTRATION_METHODS.MANUAL);
-      } else {
-        setError(`Ya registrado hoy.`);
-        triggerFlash('warning');
-        playBeep('warning');
-      }
-    } catch {
-      setError('Error al obtener estado del miembro.');
+      await registerAttendance(foundStudent, calculatedStatus, REGISTRATION_METHODS.MANUAL);
+    } catch (error) {
+      setError(getApiErrorMessage(error, 'No fue posible consultar el estado de la persona.'));
       playBeep('error');
     } finally {
       setLoading(false);
@@ -791,7 +798,8 @@ const BarcodeScanner = ({ tipoRegistro }) => {
         </div>
       )}
 
-      {isOffline && <div className="kiosk-offline-safe" role="status"><AlertCircle size={20} /><div><strong>Operación segura sin conexión</strong><span>Los ingresos se guardan en este dispositivo y se sincronizan automáticamente. Visitas, retiros y cambios administrativos permanecen bloqueados.</span></div>{notificationPermission === 'default' && <button type="button" onClick={enableSyncNotifications}><Bell size={16} /> Avisarme al sincronizar</button>}</div>}
+      {isOffline && <div className="kiosk-offline-safe" role="status" data-tour="scanner-offline-state"><AlertCircle size={20} /><div><strong>Operación segura sin conexión</strong><span>Los ingresos se guardan en este dispositivo y se sincronizan automáticamente. Visitas, retiros y cambios administrativos permanecen bloqueados.</span></div>{notificationPermission === 'default' && <button type="button" onClick={enableSyncNotifications}><Bell size={16} /> Avisarme al sincronizar</button>}<button type="button" onClick={pwa.openPwaDetails}><ShieldCheck size={16} /> Revisar bandeja</button></div>}
+      {!isOffline && offlinePending > 0 && <div className="kiosk-sync-pending" role="status" data-tour="scanner-offline-state"><Clock size={18} /><span><strong>{offlinePending}</strong> {offlinePending === 1 ? 'ingreso requiere' : 'ingresos requieren'} sincronización o revisión.</span><button type="button" onClick={pwa.openPwaDetails}>Abrir bandeja</button></div>}
 
       {/* Top bar: entry times & layout options */}
       <div className="kiosk-topbar">

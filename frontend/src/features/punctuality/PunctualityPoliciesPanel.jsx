@@ -4,6 +4,7 @@ import { CalendarDays, CheckCircle2, Clock3, GitCompareArrows, Plus, RefreshCw, 
 import { API_URL } from '../../config';
 import { useFeedback } from '../../context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from '../../permissions';
+import { getApiErrorMessage } from '../../utils/apiError';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (days) => { const value = new Date(); value.setDate(value.getDate() - days); return value.toISOString().slice(0, 10); };
@@ -19,16 +20,20 @@ const blankCommitment = () => ({ id_alumno: '', titulo: '', descripcion: '', fec
 const blankReason = () => ({ codigo: '', nombre: '', categoria: 'INSTITUCIONAL', requiere_detalle: true, excluye_alertas: false });
 
 function StudentPicker({ value, onChange, multiple = false }) {
+  const { notify } = useFeedback();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (query.trim().length < 2) return setResults([]);
       try { const response = await axios.get(`${API_URL}/students/search`, { params: { q: query.trim() } }); setResults(response.data || []); }
-      catch { setResults([]); }
+      catch (error) {
+        setResults([]);
+        notify(getApiErrorMessage(error, 'No fue posible buscar estudiantes.'), 'error');
+      }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [notify, query]);
   const selected = Array.isArray(value) ? value : value ? [value] : [];
   return <div className="policy-student-picker">
     <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar estudiante por nombre o identificador" />
@@ -56,6 +61,7 @@ export default function PunctualityPoliciesPanel({ user, controls, courses, onPo
   const [comparison, setComparison] = useState({ desde_1: daysAgo(60), hasta_1: daysAgo(31), desde_2: daysAgo(30), hasta_2: today(), curso_id: '' });
   const [comparisonResult, setComparisonResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const permissions = useMemo(() => ({
     shifts: hasPermission(user, PERMISSIONS.PUNCTUALITY_SHIFTS_MANAGE),
@@ -67,6 +73,7 @@ export default function PunctualityPoliciesPanel({ user, controls, courses, onPo
   }), [user]);
 
   const load = useCallback(async () => {
+    setLoadError('');
     try {
       const requests = [axios.get(`${API_URL}/puntualidad/politicas`)];
       const keys = ['policies'];
@@ -80,14 +87,18 @@ export default function PunctualityPoliciesPanel({ user, controls, courses, onPo
         if (keys[index] === 'contingencies') setContingencies(response.data || []);
         if (keys[index] === 'commitments') setCommitments(response.data || []);
       });
-    } catch (error) { notify(error.response?.data?.message || 'No fue posible cargar las políticas institucionales.', 'error'); }
+    } catch (error) {
+      const message = getApiErrorMessage(error, 'No fue posible cargar las políticas institucionales.');
+      setLoadError(message);
+      notify(message, 'error');
+    }
   }, [notify, onPoliciesChange, permissions]);
   useEffect(() => { load(); }, [load]);
 
   const submit = async (request, success, reset) => {
     setBusy(true);
     try { await request(); notify(success, 'success'); reset?.(); await load(); }
-    catch (error) { notify(error.response?.data?.message || 'No fue posible guardar el cambio.', 'error'); }
+    catch (error) { notify(getApiErrorMessage(error, 'No fue posible guardar el cambio.'), 'error'); }
     finally { setBusy(false); }
   };
   const tabs = [
@@ -103,6 +114,7 @@ export default function PunctualityPoliciesPanel({ user, controls, courses, onPo
 
   return <section className="settings-section policy-center">
     <div className="settings-section__heading policy-center__heading"><span>03</span><div><h2>Políticas institucionales</h2><p>Turnos, días especiales, excepciones, contingencias y seguimiento con trazabilidad.</p></div><button type="button" className="control-add-button" onClick={load}><RefreshCw size={17} /> Actualizar</button></div>
+    {loadError && <div className="settings-notice settings-notice--error" role="alert"><p><strong>No pudimos cargar las políticas institucionales.</strong> {loadError}</p><button type="button" className="control-add-button" onClick={load}><RefreshCw size={17} /> Reintentar</button></div>}
     <nav className="policy-tabs">{tabs.map(([id, label, Icon]) => <button type="button" aria-selected={active === id} key={id} onClick={() => setActive(id)}><Icon size={17} /> {label}</button>)}</nav>
 
     {active === 'turnos' && <div className="policy-layout"><form onSubmit={(event) => { event.preventDefault(); submit(() => axios.post(`${API_URL}/puntualidad/turnos`, shift), 'Turno creado y disponible para asignar controles.', () => setShift(blankShift())); }}><h3>Nuevo turno</h3><input placeholder="Código interno" value={shift.codigo} onChange={(event) => setShift({ ...shift, codigo: event.target.value })} required /><input placeholder="Nombre visible" value={shift.nombre} onChange={(event) => setShift({ ...shift, nombre: event.target.value })} required /><div className="policy-fields"><label>Inicio<input type="time" value={shift.hora_inicio} onChange={(event) => setShift({ ...shift, hora_inicio: event.target.value })} /></label><label>Término<input type="time" value={shift.hora_fin} onChange={(event) => setShift({ ...shift, hora_fin: event.target.value })} /></label></div><fieldset className="policy-course-selector"><legend>Cursos o niveles del turno</legend><p>Si no marcas cursos, se podrá usar en todo el establecimiento.</p>{courses.map((course) => <label key={course.id_curso}><input type="checkbox" checked={shift.cursos_ids.includes(Number(course.id_curso))} onChange={(event) => setShift({ ...shift, cursos_ids: event.target.checked ? [...shift.cursos_ids, Number(course.id_curso)] : shift.cursos_ids.filter((id) => id !== Number(course.id_curso)) })} />{course.nombre_curso}</label>)}</fieldset><button disabled={busy}><Plus size={17} /> Crear turno</button></form><div><h3>Turnos configurados</h3>{policies.turnos.map((item) => <article className="policy-row" key={item.id}><div><strong>{item.nombre}</strong><small>{String(item.hora_inicio).slice(0,5)}–{String(item.hora_fin).slice(0,5)} · {item.controles} controles · {item.cursos_ids?.length ? `${item.cursos_ids.length} cursos` : 'todos los cursos'}</small></div><span className={item.activo ? 'is-active' : ''}>{item.activo ? 'Activo' : 'Inactivo'}</span></article>)}</div></div>}
@@ -115,6 +127,6 @@ export default function PunctualityPoliciesPanel({ user, controls, courses, onPo
 
     {active === 'compromisos' && <div className="policy-layout"><form onSubmit={(event) => { event.preventDefault(); const payload = { ...commitment, id_alumno: commitmentStudent?.id_alumno }; submit(() => axios.post(`${API_URL}/puntualidad/compromisos`, payload), 'Compromiso de puntualidad creado.', () => { setCommitment(blankCommitment()); setCommitmentStudent(null); }); }}><h3>Nuevo compromiso</h3><StudentPicker value={commitmentStudent} onChange={setCommitmentStudent} /><input placeholder="Título" value={commitment.titulo} onChange={(event) => setCommitment({ ...commitment, titulo: event.target.value })} /><textarea placeholder="Acuerdo, meta y acompañamiento" value={commitment.descripcion} onChange={(event) => setCommitment({ ...commitment, descripcion: event.target.value })} /><div className="policy-fields"><label>Inicio<input type="date" value={commitment.fecha_inicio} onChange={(event) => setCommitment({ ...commitment, fecha_inicio: event.target.value })} /></label><label>Revisión<input type="date" value={commitment.fecha_revision} onChange={(event) => setCommitment({ ...commitment, fecha_revision: event.target.value })} /></label></div><button disabled={busy || !commitmentStudent}>Crear compromiso</button></form><div><h3>Seguimiento</h3>{commitments.map((item) => <article className="policy-row" key={item.id}><div><strong>{item.estudiante}</strong><small>{item.titulo} · revisión {String(item.fecha_revision).slice(0,10)}</small></div>{item.estado === 'ACTIVO' ? <button type="button" onClick={async () => { const accepted = await confirm({ title: 'Cerrar compromiso', message: 'Se registrará el resultado final sin eliminar el seguimiento.', confirmLabel: 'Cerrar como cumplido' }); if (accepted) submit(() => axios.patch(`${API_URL}/puntualidad/compromisos/${item.id}/cerrar`, { estado: 'CUMPLIDO', resultado: 'Compromiso revisado y cumplido según seguimiento institucional.' }), 'Compromiso cerrado.'); }}>Cerrar</button> : <span>{item.estado}</span>}</article>)}</div></div>}
 
-    {active === 'comparacion' && <div className="policy-comparison"><form onSubmit={(event) => { event.preventDefault(); setBusy(true); axios.get(`${API_URL}/puntualidad/comparacion-periodos`, { params: comparison }).then((response) => setComparisonResult(response.data)).catch((error) => notify(error.response?.data?.message || 'No fue posible comparar los períodos.', 'error')).finally(() => setBusy(false)); }}><h3>Comparar períodos equivalentes</h3><div className="policy-date-grid">{['desde_1','hasta_1','desde_2','hasta_2'].map((key) => <label key={key}>{key.replace('_',' ').replace('desde','Desde').replace('hasta','Hasta')}<input type="date" value={comparison[key]} onChange={(event) => setComparison({ ...comparison, [key]: event.target.value })} /></label>)}</div><select value={comparison.curso_id} onChange={(event) => setComparison({ ...comparison, curso_id: event.target.value })}><option value="">Todos los cursos</option>{courses.map((item) => <option key={item.id_curso} value={item.id_curso}>{item.nombre_curso}</option>)}</select><button disabled={busy}>Comparar con criterio explicable</button></form>{comparisonResult && <div><p className="policy-criterion">{comparisonResult.criterio}</p>{comparisonResult.resultados.slice(0,100).map((item) => <article className="policy-row" key={`${item.id_alumno}-${item.id_curso}`}><div><strong>{studentLabel(item)}</strong><small>{item.atrasos_1} → {item.atrasos_2} atrasos · {item.minutos_1} → {item.minutos_2} min</small></div><span className={item.mejoro ? 'is-active' : ''}>{item.mejoro ? 'Mejoró' : 'Sin mejora'}</span></article>)}</div>}</div>}
+    {active === 'comparacion' && <div className="policy-comparison"><form onSubmit={(event) => { event.preventDefault(); setBusy(true); axios.get(`${API_URL}/puntualidad/comparacion-periodos`, { params: comparison }).then((response) => setComparisonResult(response.data)).catch((error) => { setComparisonResult(null); notify(getApiErrorMessage(error, 'No fue posible comparar los períodos.'), 'error'); }).finally(() => setBusy(false)); }}><h3>Comparar períodos equivalentes</h3><div className="policy-date-grid">{['desde_1','hasta_1','desde_2','hasta_2'].map((key) => <label key={key}>{key.replace('_',' ').replace('desde','Desde').replace('hasta','Hasta')}<input type="date" value={comparison[key]} onChange={(event) => setComparison({ ...comparison, [key]: event.target.value })} /></label>)}</div><select value={comparison.curso_id} onChange={(event) => setComparison({ ...comparison, curso_id: event.target.value })}><option value="">Todos los cursos</option>{courses.map((item) => <option key={item.id_curso} value={item.id_curso}>{item.nombre_curso}</option>)}</select><button disabled={busy}>Comparar con criterio explicable</button></form>{comparisonResult && <div><p className="policy-criterion">{comparisonResult.criterio}</p>{comparisonResult.resultados.slice(0,100).map((item) => <article className="policy-row" key={`${item.id_alumno}-${item.id_curso}`}><div><strong>{studentLabel(item)}</strong><small>{item.atrasos_1} → {item.atrasos_2} atrasos · {item.minutos_1} → {item.minutos_2} min</small></div><span className={item.mejoro ? 'is-active' : ''}>{item.mejoro ? 'Mejoró' : 'Sin mejora'}</span></article>)}</div>}</div>}
   </section>;
 }

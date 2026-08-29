@@ -12,6 +12,7 @@ import { useFeedback } from './context/FeedbackContext';
 import TimeField from './components/TimeField';
 import AppSelect from './components/AppSelect';
 import PunctualityPoliciesPanel from './features/punctuality/PunctualityPoliciesPanel';
+import { getApiErrorMessage } from './utils/apiError';
 
 const DAYS = [
   { value: 1, label: 'Lu' }, { value: 2, label: 'Ma' }, { value: 3, label: 'Mi' },
@@ -109,7 +110,7 @@ const PunctualitySettings = () => {
         setExpandedId(normalized[0]?.id || 'new-0');
         setSavedAt(data.actualizado_en || null);
       } catch (error) {
-        notify(error.response?.data?.message || 'No fue posible cargar los controles horarios.', 'error');
+        notify(getApiErrorMessage(error, 'No fue posible cargar los controles horarios.'), 'error');
       } finally {
         setLoading(false);
       }
@@ -215,7 +216,7 @@ const PunctualitySettings = () => {
       setSavedAt(response.data.config.actualizado_en);
       notify('Jornada y controles guardados con versión histórica.', 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible guardar los controles horarios.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible guardar los controles horarios.'), 'error');
     } finally {
       setSaving(false);
     }
