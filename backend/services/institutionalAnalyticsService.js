@@ -15,9 +15,62 @@ const validatePeriod = (from, to) => {
 
 const queryRows = async (pool, text, params) => (await pool.query(text, params)).rows;
 
-const buildInstitutionalAnalytics = async (pool, { from, to }) => {
-  const period = validatePeriod(from, to);
+const normalizeAttendanceFilters = async (pool, { courseId, justified, severity } = {}) => {
+  let normalizedCourseId = null;
+  let courseName = null;
+  if (courseId !== undefined && courseId !== null && String(courseId).trim() !== '') {
+    normalizedCourseId = Number(courseId);
+    if (!Number.isSafeInteger(normalizedCourseId) || normalizedCourseId <= 0) {
+      throw Object.assign(new Error('El curso seleccionado no es válido.'), { status: 400 });
+    }
+    const course = await queryRows(pool, 'SELECT id_curso, nombre_curso FROM curso WHERE id_curso = $1 LIMIT 1', [normalizedCourseId]);
+    if (!course[0]) throw Object.assign(new Error('El curso seleccionado ya no se encuentra disponible.'), { status: 400 });
+    courseName = course[0].nombre_curso;
+  }
+
+  let normalizedJustified = null;
+  if (justified !== undefined && justified !== null && String(justified).trim() !== '') {
+    if (typeof justified === 'boolean') normalizedJustified = justified;
+    else if (['true', 'false'].includes(String(justified))) normalizedJustified = String(justified) === 'true';
+    else throw Object.assign(new Error('El filtro de justificación no es válido.'), { status: 400 });
+  }
+
+  const normalizedSeverity = severity === undefined || severity === null || String(severity).trim() === '' ? null : String(severity);
+  if (normalizedSeverity && !['Leve', 'Grave'].includes(normalizedSeverity)) {
+    throw Object.assign(new Error('La severidad seleccionada no es válida.'), { status: 400 });
+  }
+
+  return { courseId: normalizedCourseId, courseName, justified: normalizedJustified, severity: normalizedSeverity };
+};
+
+const buildAttendanceScope = (period, filters) => {
   const params = [period.from, period.to];
+  const conditions = [
+    'ar.fecha BETWEEN $1::date AND $2::date',
+    "ar.tipo_registro = 'Entrada'",
+    'ar.anulado = false'
+  ];
+  if (filters.courseId) {
+    params.push(filters.courseId);
+    conditions.push(`COALESCE(ar.id_curso_registro, am.id_curso) = $${params.length}`);
+  }
+  if (filters.justified !== null) {
+    params.push(filters.justified);
+    conditions.push(`ar.estado = 'Atrasado' AND ar.justificado = $${params.length}`);
+  }
+  if (filters.severity) {
+    params.push(filters.severity);
+    conditions.push(`ar.estado = 'Atrasado' AND ar.severidad = $${params.length}`);
+  }
+  return { params, where: conditions.join(' AND ') };
+};
+
+const buildInstitutionalAnalytics = async (pool, { from, to, courseId, justified, severity }) => {
+  const period = validatePeriod(from, to);
+  const filters = await normalizeAttendanceFilters(pool, { courseId, justified, severity });
+  const attendanceScope = buildAttendanceScope(period, filters);
+  const periodParams = [period.from, period.to];
+  const params = attendanceScope.params;
 
   const [summary] = await queryRows(pool, `
     SELECT COUNT(*) FILTER (WHERE ar.tipo_registro = 'Entrada')::int AS ingresos,
@@ -26,7 +79,8 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
            ROUND(AVG(ar.minutos_atraso) FILTER (WHERE ar.estado = 'Atrasado'), 1) AS promedio_minutos,
            COUNT(DISTINCT ar.id_alumno) FILTER (WHERE ar.estado = 'Atrasado')::int AS estudiantes_con_atrasos
     FROM attendance_registrations ar
-    WHERE ar.fecha BETWEEN $1::date AND $2::date AND ar.anulado = false
+    LEFT JOIN matricula_actual am ON am.id_alumno = ar.id_alumno
+    WHERE ${attendanceScope.where}
   `, params);
 
   const daily = await queryRows(pool, `
@@ -34,8 +88,12 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
            COUNT(ar.id_registro)::int AS ingresos,
            COUNT(ar.id_registro) FILTER (WHERE ar.estado = 'Atrasado')::int AS atrasos
     FROM generate_series($1::date, $2::date, interval '1 day') d
-    LEFT JOIN attendance_registrations ar ON ar.fecha = d::date
-      AND ar.tipo_registro = 'Entrada' AND ar.anulado = false
+    LEFT JOIN (
+      SELECT ar.*
+      FROM attendance_registrations ar
+      LEFT JOIN matricula_actual am ON am.id_alumno = ar.id_alumno
+      WHERE ${attendanceScope.where}
+    ) ar ON ar.fecha = d::date
     GROUP BY d ORDER BY d
   `, params);
 
@@ -45,20 +103,23 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
            COUNT(*) FILTER (WHERE ar.estado = 'Atrasado')::int AS atrasos,
            ROUND(100.0 * COUNT(*) FILTER (WHERE ar.estado = 'Atrasado') / NULLIF(COUNT(*), 0), 1) AS porcentaje_atrasos
     FROM attendance_registrations ar
-    WHERE ar.fecha BETWEEN $1::date AND $2::date AND ar.anulado = false AND ar.tipo_registro = 'Entrada'
+    LEFT JOIN matricula_actual am ON am.id_alumno = ar.id_alumno
+    WHERE ${attendanceScope.where}
     GROUP BY COALESCE(ar.curso_registro, 'Sin curso')
     ORDER BY atrasos DESC, curso
   `, params);
 
   const timeBlocks = await queryRows(pool, `
-    SELECT COALESCE(ar.control_nombre, 'Ingreso general') AS bloque,
+    SELECT ar.control_puntualidad_id AS control_id,
+           COALESCE(ar.control_nombre, 'Ingreso general') AS bloque,
            COALESCE(to_char(ar.hora_limite_aplicada, 'HH24:MI'), 'Sin límite') AS hora_limite,
            COUNT(*)::int AS ingresos,
            COUNT(*) FILTER (WHERE ar.estado = 'Atrasado')::int AS atrasos,
            ROUND(AVG(ar.minutos_atraso) FILTER (WHERE ar.estado = 'Atrasado'), 1) AS promedio_minutos
     FROM attendance_registrations ar
-    WHERE ar.fecha BETWEEN $1::date AND $2::date AND ar.anulado = false AND ar.tipo_registro = 'Entrada'
-    GROUP BY ar.control_nombre, ar.hora_limite_aplicada
+    LEFT JOIN matricula_actual am ON am.id_alumno = ar.id_alumno
+    WHERE ${attendanceScope.where}
+    GROUP BY ar.control_puntualidad_id, ar.control_nombre, ar.hora_limite_aplicada
     ORDER BY atrasos DESC, bloque
   `, params);
 
@@ -71,7 +132,8 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
              COUNT(*) FILTER (WHERE ar.fecha <= l.corte AND ar.estado = 'Atrasado')::int AS antes,
              COUNT(*) FILTER (WHERE ar.fecha > l.corte AND ar.estado = 'Atrasado')::int AS despues
       FROM attendance_registrations ar CROSS JOIN limits l
-      WHERE ar.fecha BETWEEN l.desde AND l.hasta AND ar.anulado = false AND ar.tipo_registro = 'Entrada'
+      LEFT JOIN matricula_actual am ON am.id_alumno = ar.id_alumno
+      WHERE ${attendanceScope.where}
       GROUP BY ar.id_alumno
     )
     SELECT c.id_alumno, concat_ws(' ', a.nombres, a.paterno, a.materno) AS estudiante,
@@ -103,7 +165,7 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
       COUNT(*) FILTER (WHERE despues = antes)::int AS sin_cambio,
       COUNT(*) FILTER (WHERE despues > antes)::int AS reincidieron
     FROM comparison
-  `, params);
+  `, periodParams);
 
   const guardianContacts = await queryRows(pool, `
     WITH contacted AS (
@@ -117,22 +179,22 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
            COUNT(*) FILTER (WHERE cc.estado = 'CERRADO')::int AS cerrados,
            ROUND(100.0 * COUNT(*) FILTER (WHERE cc.estado = 'CERRADO') / NULLIF(COUNT(*), 0), 1) AS porcentaje_cierre
     FROM contacted c JOIN convivencia_casos cc ON cc.id_caso = c.id_caso
-  `, params);
+  `, periodParams);
 
   const withdrawals = await queryRows(pool, `
-    SELECT COALESCE(rm.nombre, r.motivo, 'Sin motivo') AS motivo, COUNT(*)::int AS total,
+    SELECT r.motivo_codigo, COALESCE(rm.nombre, r.motivo, 'Sin motivo') AS motivo, COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE r.estado = 'ENTREGADO')::int AS entregados
     FROM retiros_alumno r LEFT JOIN retiro_motivos rm ON rm.codigo = r.motivo_codigo
     WHERE r.solicitado_en::date BETWEEN $1::date AND $2::date
-    GROUP BY COALESCE(rm.nombre, r.motivo, 'Sin motivo') ORDER BY total DESC, motivo
-  `, params);
+    GROUP BY r.motivo_codigo, COALESCE(rm.nombre, r.motivo, 'Sin motivo') ORDER BY total DESC, motivo
+  `, periodParams);
 
   const visitReasons = await queryRows(pool, `
-    SELECT COALESCE(vm.nombre, v.motivo_codigo) AS motivo, COUNT(*)::int AS total
+    SELECT v.motivo_codigo, COALESCE(vm.nombre, v.motivo_codigo) AS motivo, COUNT(*)::int AS total
     FROM visitas v LEFT JOIN visita_motivos vm ON vm.codigo = v.motivo_codigo
     WHERE v.ingreso_en::date BETWEEN $1::date AND $2::date
-    GROUP BY COALESCE(vm.nombre, v.motivo_codigo) ORDER BY total DESC, motivo
-  `, params);
+    GROUP BY v.motivo_codigo, COALESCE(vm.nombre, v.motivo_codigo) ORDER BY total DESC, motivo
+  `, periodParams);
 
   const [cases] = await queryRows(pool, `
     SELECT COUNT(*)::int AS total,
@@ -140,7 +202,7 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
            COUNT(*) FILTER (WHERE estado = 'CERRADO')::int AS resueltos,
            ROUND(AVG(EXTRACT(EPOCH FROM (cerrado_en - creado_en)) / 86400) FILTER (WHERE estado = 'CERRADO'), 1) AS promedio_dias_resolucion
     FROM convivencia_casos WHERE creado_en::date BETWEEN $1::date AND $2::date
-  `, params);
+  `, periodParams);
 
   const workload = await queryRows(pool, `
     SELECT COALESCE(NULLIF(trim(u.cargo), ''), p.nombre, 'Sin área asignada') AS area,
@@ -153,7 +215,7 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
     WHERE cc.creado_en::date BETWEEN $1::date AND $2::date
     GROUP BY COALESCE(NULLIF(trim(u.cargo), ''), p.nombre, 'Sin área asignada')
     ORDER BY casos DESC, area
-  `, params);
+  `, periodParams);
 
   const alerts = [];
   const delayRate = Number(summary?.ingresos) ? Number(((Number(summary.atrasos) / Number(summary.ingresos)) * 100).toFixed(1)) : 0;
@@ -176,6 +238,13 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
 
   return {
     periodo: period,
+    filtros: {
+      curso_id: filters.courseId,
+      curso: filters.courseName,
+      justificado: filters.justified,
+      severidad: filters.severity,
+      operacion_institucional: 'Visitas, retiros y Convivencia se agregan para toda la institución dentro del período seleccionado.'
+    },
     generado_en: new Date().toISOString(),
     resumen: { ...summary, tasa_atrasos: delayRate },
     tendencia_diaria: daily,
@@ -198,4 +267,4 @@ const buildInstitutionalAnalytics = async (pool, { from, to }) => {
   };
 };
 
-module.exports = { buildInstitutionalAnalytics, validatePeriod };
+module.exports = { buildInstitutionalAnalytics, validatePeriod, normalizeAttendanceFilters };

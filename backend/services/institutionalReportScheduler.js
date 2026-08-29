@@ -1,4 +1,5 @@
 const { buildInstitutionalAnalytics } = require('./institutionalAnalyticsService');
+const { buildReportArtifact, publicReportError } = require('./institutionalReportExecutionService');
 
 const iso = (date) => date.toISOString().slice(0, 10);
 const previousPeriod = (frequency, now = new Date()) => {
@@ -32,17 +33,22 @@ const runDueInstitutionalReports = async (pool, now = new Date()) => {
       const period = previousPeriod(report.frecuencia, now);
       try {
         const analytics = await buildInstitutionalAnalytics(client, period);
+        const artifact = await buildReportArtifact(analytics, report.formato, report.nombre);
         await client.query('BEGIN');
         await client.query(`
           INSERT INTO reportes_institucionales_ejecuciones
-            (id_reporte,nombre_reporte,frecuencia,formato,periodo_desde,periodo_hasta,resumen,generado_por)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        `, [report.id_reporte, report.nombre, report.frecuencia, report.formato, period.from, period.to, JSON.stringify(analytics), report.actualizado_por || report.creado_por]);
+            (id_reporte,nombre_reporte,frecuencia,formato,periodo_desde,periodo_hasta,resumen,generado_por,
+             archivo_nombre,archivo_mime,archivo_bytes)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        `, [report.id_reporte, report.nombre, report.frecuencia, report.formato, period.from, period.to,
+          JSON.stringify(analytics), report.actualizado_por || report.creado_por,
+          artifact.fileName, artifact.mime, artifact.buffer]);
         await client.query('UPDATE reportes_institucionales_programados SET ultima_ejecucion=CURRENT_TIMESTAMP, actualizado_en=CURRENT_TIMESTAMP WHERE id_reporte=$1', [report.id_reporte]);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => {});
-        await client.query(`INSERT INTO reportes_institucionales_ejecuciones (id_reporte,nombre_reporte,frecuencia,formato,periodo_desde,periodo_hasta,estado,error) VALUES ($1,$2,$3,$4,$5,$6,'ERROR',$7)`, [report.id_reporte, report.nombre, report.frecuencia, report.formato, period.from, period.to, error.message]);
+        await client.query(`INSERT INTO reportes_institucionales_ejecuciones (id_reporte,nombre_reporte,frecuencia,formato,periodo_desde,periodo_hasta,estado,error_publico) VALUES ($1,$2,$3,$4,$5,$6,'ERROR',$7)`, [report.id_reporte, report.nombre, report.frecuencia, report.formato, period.from, period.to, publicReportError(error)]);
+        console.error(`[REPORTES] ${report.id_reporte}: ${error.message}`);
       }
     }
     return due.rowCount;
