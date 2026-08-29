@@ -4,9 +4,10 @@ import { Bell, BellOff, Clock3, MessageCircle, Plus, Save, ShieldCheck, Trash2, 
 import { useFeedback } from '../context/FeedbackContext';
 import { requestPwaNotifications } from '../pwa/registerServiceWorker';
 import { PERMISSIONS, hasPermission } from '../permissions';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const API = '/api/chat';
-const messageOf = (error, fallback) => error.response?.data?.message || fallback;
+const messageOf = getApiErrorMessage;
 const localDateTime = (value) => {
   if (!value) return '';
   const date = new Date(value);

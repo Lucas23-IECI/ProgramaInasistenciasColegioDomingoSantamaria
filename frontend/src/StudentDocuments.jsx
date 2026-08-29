@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { getApiErrorMessage } from './utils/apiError';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -14,6 +15,7 @@ import {
   FileText,
   FolderArchive,
   History,
+  MessageSquareText,
   PenLine,
   Plus,
   RefreshCw,
@@ -28,7 +30,7 @@ import { useNavigate, useParams } from 'react-router';
 import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from './permissions';
-import DevelopmentBadge from './components/DevelopmentBadge';
+import { buildContextChatUrl } from './utils/chatContext';
 
 const API = '/api/documentos-estudiantes';
 const CATEGORIES = [
@@ -44,7 +46,7 @@ const SIGNATURES = [['REVISION', 'Revisión'], ['CONFORMIDAD', 'Conformidad'], [
 const labelFrom = (items, value) => items.find(([key]) => key === value)?.[1] || value || 'Sin definir';
 const formatDate = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium' }).format(new Date(`${String(value).slice(0, 10)}T12:00:00`)) : 'Sin vencimiento';
 const formatDateTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Sin fecha';
-const errorMessage = (error, fallback) => error?.response?.data?.message || fallback;
+const errorMessage = getApiErrorMessage;
 const today = () => new Date().toISOString().slice(0, 10);
 
 const readFile = (file) => new Promise((resolve, reject) => {
@@ -99,16 +101,21 @@ const StudentSearch = ({ onSelect, compact = false }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
   useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return undefined; }
+    if (query.trim().length < 2) { setResults([]); setSearchError(''); return undefined; }
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const response = await axios.get(`${API}/estudiantes/buscar`, { params: { q: query.trim() }, signal: controller.signal });
         setResults(response.data || []);
+        setSearchError('');
       } catch (error) {
-        if (error.code !== 'ERR_CANCELED') setResults([]);
+        if (error.code !== 'ERR_CANCELED') {
+          setResults([]);
+          setSearchError(errorMessage(error, 'No fue posible buscar estudiantes.'));
+        }
       } finally { setLoading(false); }
     }, 260);
     return () => { clearTimeout(timer); controller.abort(); };
@@ -119,7 +126,8 @@ const StudentSearch = ({ onSelect, compact = false }) => {
       {query.trim().length >= 2 && (
         <div className="docs-search-results" role="listbox">
           {loading && <p>Buscando estudiantes…</p>}
-          {!loading && results.length === 0 && <p>No se encontraron coincidencias.</p>}
+          {!loading && searchError && <p role="alert">{searchError}</p>}
+          {!loading && !searchError && results.length === 0 && <p>No se encontraron coincidencias.</p>}
           {results.map((student) => (
             <button key={student.id_alumno} type="button" onClick={() => { onSelect(student); setQuery(''); setResults([]); }}>
               <span><strong>{student.nombre}</strong><small>{student.curso} · {student.documento}</small></span><ChevronRight size={18} />
@@ -151,7 +159,10 @@ const Dashboard = ({ permissions }) => {
   const [summary, setSummary] = useState({});
   const [documents, setDocuments] = useState([]);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState({ q: '', categoria: '', estado: '', vencimiento: false });
+  const [filters, setFilters] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return { q: '', categoria: '', estado: params.get('estado') || '', vencimiento: params.get('vencimiento') === '30' };
+  });
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState([]);
   const [templateModal, setTemplateModal] = useState(false);
@@ -272,7 +283,7 @@ const StudentFile = ({ studentId, permissions }) => {
       await axios.post(`${API}/estudiantes/${studentId}/documentos`, { ...form, ...binary });
       setUploadModal(false); setForm(defaultForm()); setFile(null);
       notify('Documento incorporado con su primera versión.', 'success'); await load();
-    } catch (error) { notify(errorMessage(error, error.message || 'No fue posible incorporar el documento.'), 'error'); }
+    } catch (error) { notify(errorMessage(error, 'No fue posible incorporar el documento.'), 'error'); }
     finally { setSaving(false); }
   };
 
@@ -295,6 +306,7 @@ const StudentFile = ({ studentId, permissions }) => {
         <button type="button" className="docs-back" onClick={() => navigate('/admin/documentos')}><ArrowLeft size={18} /> Gestión documental</button>
         <div className="docs-student-hero__main"><span className="docs-student-avatar">{data.student.nombre.split(' ').slice(0, 2).map((part) => part[0]).join('')}</span><div><span className="section-kicker">Expediente documental</span><h2>{data.student.nombre}</h2><p>{data.student.curso} · {data.student.documento}</p></div></div>
         <div className="docs-student-hero__actions">
+          <button className="docs-secondary-button" onClick={() => navigate(buildContextChatUrl({ type: 'DOCUMENTO_ESTUDIANTE', id: studentId, name: data.student.nombre, origin: `/admin/documentos/estudiante/${studentId}`, originLabel: 'Volver al expediente' }))}><MessageSquareText size={18} /> Coordinar</button>
           {permissions.upload && <button className="docs-primary-button" onClick={() => setUploadModal(true)}><FilePlus2 size={18} /> Incorporar documento</button>}
           {permissions.templates && <button className="docs-secondary-button" onClick={() => setGenerateModal(true)}><Sparkles size={18} /> Generar PDF</button>}
         </div>
@@ -337,7 +349,7 @@ const DocumentDetail = ({ documentId, permissions }) => {
 
   const openEdit = () => { const doc = data.document; setForm({ titulo: doc.titulo, categoria: doc.categoria, estado: doc.estado, nivel_acceso: doc.nivel_acceso, vigente_desde: doc.vigente_desde?.slice(0, 10) || '', vence_en: doc.vence_en?.slice(0, 10) || '', descripcion: doc.descripcion || '', version_registro: doc.version_registro }); setModal('edit'); };
   const saveEdit = async () => { setSaving(true); try { await axios.patch(`${API}/documentos/${documentId}`, form); setModal(null); notify('Metadatos y vigencia actualizados.', 'success'); await load(); } catch (error) { notify(errorMessage(error, 'No fue posible actualizar la ficha.'), 'error'); } finally { setSaving(false); } };
-  const addVersion = async () => { setSaving(true); try { const binary = await readFile(file); await axios.post(`${API}/documentos/${documentId}/versiones`, { ...binary, notas_version: notes }); setModal(null); setFile(null); setNotes(''); notify('Nueva versión incorporada sin sobrescribir las anteriores.', 'success'); await load(); } catch (error) { notify(errorMessage(error, error.message || 'No fue posible crear la versión.'), 'error'); } finally { setSaving(false); } };
+  const addVersion = async () => { setSaving(true); try { const binary = await readFile(file); await axios.post(`${API}/documentos/${documentId}/versiones`, { ...binary, notas_version: notes }); setModal(null); setFile(null); setNotes(''); notify('Nueva versión incorporada sin sobrescribir las anteriores.', 'success'); await load(); } catch (error) { notify(errorMessage(error, 'No fue posible crear la versión.'), 'error'); } finally { setSaving(false); } };
   const runOcr = async (version) => { const accepted = await confirm({ title: 'Ejecutar OCR local', message: 'Se extraerá una propuesta de texto desde esta imagen. Ningún dato se aplicará automáticamente.', confirmLabel: 'Procesar imagen' }); if (!accepted) return; try { await axios.post(`${API}/versiones/${version.id_version}/ocr`); notify('OCR finalizado. Revisa la propuesta antes de aprobarla.', 'success'); await load(); } catch (error) { notify(errorMessage(error, 'No fue posible ejecutar el OCR.'), 'error'); } };
   const openOcr = (version) => { setOcrText(version.ocr_texto_propuesto || ''); setModal({ type: 'ocr', version }); };
   const reviewOcr = async (action) => { setSaving(true); try { await axios.post(`${API}/versiones/${modal.version.id_version}/ocr/revisar`, { accion: action, texto_revisado: ocrText }); setModal(null); notify(action === 'APROBAR' ? 'Texto OCR revisado y aprobado.' : 'Propuesta OCR rechazada.', 'success'); await load(); } catch (error) { notify(errorMessage(error, 'No fue posible guardar la revisión.'), 'error'); } finally { setSaving(false); } };
@@ -348,7 +360,7 @@ const DocumentDetail = ({ documentId, permissions }) => {
   const doc = data.document;
   return (
     <>
-      <section className="docs-detail-header" data-tour="documents-detail"><button type="button" className="docs-back" onClick={() => navigate(`/admin/documentos/estudiante/${data.student.id_alumno}`)}><ArrowLeft size={18} /> Expediente de {data.student.nombre}</button><div className="docs-detail-header__title"><span className="docs-detail-icon"><FileText size={28} /></span><div><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><h2>{doc.titulo}</h2><p>{data.student.curso} · {doc.nivel_acceso.replace('_', ' ')}</p></div><StatusBadge value={doc.estado} /></div><div className="docs-detail-actions">{permissions.manage && <button className="docs-secondary-button" onClick={openEdit}><PenLine size={17} /> Editar ficha</button>}{permissions.upload && <button className="docs-primary-button" onClick={() => setModal('version')}><Plus size={17} /> Nueva versión</button>}</div></section>
+      <section className="docs-detail-header" data-tour="documents-detail"><button type="button" className="docs-back" onClick={() => navigate(`/admin/documentos/estudiante/${data.student.id_alumno}`)}><ArrowLeft size={18} /> Expediente de {data.student.nombre}</button><div className="docs-detail-header__title"><span className="docs-detail-icon"><FileText size={28} /></span><div><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><h2>{doc.titulo}</h2><p>{data.student.curso} · {doc.nivel_acceso.replace('_', ' ')}</p></div><StatusBadge value={doc.estado} /></div><div className="docs-detail-actions"><button className="docs-secondary-button" onClick={() => navigate(buildContextChatUrl({ type: 'DOCUMENTO', id: documentId, name: doc.titulo, origin: `/admin/documentos/ficha/${documentId}`, originLabel: 'Volver al documento' }))}><MessageSquareText size={17} /> Coordinar</button>{permissions.manage && <button className="docs-secondary-button" onClick={openEdit}><PenLine size={17} /> Editar ficha</button>}{permissions.upload && <button className="docs-primary-button" onClick={() => setModal('version')}><Plus size={17} /> Nueva versión</button>}</div></section>
       <section className="docs-metadata"><div><span>Vigente desde</span><strong>{formatDate(doc.vigente_desde)}</strong></div><div><span>Vence</span><strong>{formatDate(doc.vence_en)}</strong></div><div><span>Creado</span><strong>{formatDateTime(doc.creado_en)}</strong></div><div><span>Registro de ficha</span><strong>v{doc.version_registro}</strong></div></section>
       {doc.descripcion && <p className="docs-description">{doc.descripcion}</p>}
       <section className="docs-timeline-section" data-tour="documents-versions"><div className="docs-section-heading"><div><span className="section-kicker">Archivo inmutable</span><h2>Historial de versiones</h2><p>Cada versión conserva su archivo, huella SHA-256, OCR y firmas.</p></div></div><div className="docs-version-list">{data.versions.map((version) => (
@@ -382,7 +394,7 @@ const StudentDocuments = () => {
   };
   return (
     <div className="docs-page">
-      <header className="docs-page-header" data-tour="page-header"><div className="docs-page-header__identity"><span className="docs-page-header__icon"><FolderArchive size={26} /></span><div><span className="section-kicker">Gestión institucional protegida</span><DevelopmentBadge /><h1>Gestión documental</h1><p>Expedientes, versiones, vigencias y documentos de cada estudiante.</p></div></div><button type="button" className="docs-secondary-button" onClick={() => navigate('/admin')}><ArrowLeft size={17} /> Panel principal</button></header>
+      <header className="docs-page-header" data-tour="page-header"><div className="docs-page-header__identity"><span className="docs-page-header__icon"><FolderArchive size={26} /></span><div><span className="section-kicker">Gestión institucional protegida</span><h1>Gestión documental</h1><p>Expedientes, versiones, vigencias y documentos de cada estudiante.</p></div></div><button type="button" className="docs-secondary-button" onClick={() => navigate('/admin')}><ArrowLeft size={17} /> Panel principal</button></header>
       <main className="docs-main">{documentId ? <DocumentDetail documentId={documentId} permissions={permissions} /> : studentId ? <StudentFile studentId={studentId} permissions={permissions} /> : <Dashboard permissions={permissions} />}</main>
     </div>
   );

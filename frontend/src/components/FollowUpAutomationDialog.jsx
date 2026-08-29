@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { Bot, Save, ShieldCheck, X } from 'lucide-react';
+import { AlertTriangle, Bot, RefreshCw, Save, ShieldCheck, X } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const API = '/api/seguimiento';
 const priorities = [['BAJA', 'Baja'], ['MEDIA', 'Media'], ['ALTA', 'Alta'], ['URGENTE', 'Urgente']];
-const messageOf = (error, fallback) => error.response?.data?.message || fallback;
+const messageOf = getApiErrorMessage;
 
 const Toggle = ({ checked, onChange, label, description }) => (
   <label className="follow-toggle">
@@ -18,19 +19,22 @@ const Toggle = ({ checked, onChange, label, description }) => (
 const FollowUpAutomationDialog = ({ onClose, onSaved }) => {
   const { notify } = useFeedback();
   const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
   useEffect(() => {
     let active = true;
+    setLoadError('');
     axios.get(`${API}/configuracion`)
-      .then((response) => { if (active) setData(response.data); })
-      .catch((error) => notify(messageOf(error, 'No fue posible cargar la configuración.'), 'error'));
+      .then((response) => { if (active) { setData(response.data); setLoadError(''); } })
+      .catch((error) => { if (active) { const message = messageOf(error, 'No fue posible cargar la configuración.'); setLoadError(message); notify(message, 'error'); } });
     const escape = (event) => { if (event.key === 'Escape' && !savingRef.current) onClose(); };
     document.addEventListener('keydown', escape);
     document.body.classList.add('modal-open');
     return () => { active = false; document.removeEventListener('keydown', escape); document.body.classList.remove('modal-open'); };
-  }, [notify, onClose]);
+  }, [loadAttempt, notify, onClose]);
 
   const updateConfiguration = (field, value) => setData((current) => ({
     ...current,
@@ -79,7 +83,7 @@ const FollowUpAutomationDialog = ({ onClose, onSaved }) => {
         <div><span className="section-kicker">Control institucional</span><h2 id="follow-automation-title">Reglas y automatización</h2><p>Define cuándo se revisa la información, quién recibe cada caso y cómo escala un vencimiento.</p></div>
         <button type="button" onClick={onClose} disabled={saving} aria-label="Cerrar configuración"><X /></button>
       </header>
-      {!data ? <div className="follow-state"><Bot size={28} /><p>Cargando reglas institucionales…</p></div> : <>
+      {!data && loadError ? <div className="follow-state" role="alert"><AlertTriangle size={28} /><h3>No pudimos cargar las reglas</h3><p>{loadError}</p><button type="button" className="app-action app-action--primary" onClick={() => setLoadAttempt((value) => value + 1)}><RefreshCw size={17} /> Reintentar</button></div> : !data ? <div className="follow-state"><Bot size={28} /><p>Cargando reglas institucionales…</p></div> : <>
         <section className="follow-automation__policy">
           <div className="follow-automation__intro"><ShieldCheck /><div><strong>Activación controlada</strong><p>Las reglas se pueden revisar manualmente en cualquier momento. La ejecución periódica solo opera al activar este control.</p></div></div>
           <div className="follow-automation__switches">

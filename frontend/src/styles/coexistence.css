@@ -100,6 +100,8 @@
 .coex-button--danger { background: var(--danger); color: #fff; }
 .coex-button--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 82%, #000); }
 
+.coex-automation-note { width: min(100%, 1780px); margin: 22px auto 0; }
+
 .coex-summary {
   display: grid;
   width: min(100%, 1780px);

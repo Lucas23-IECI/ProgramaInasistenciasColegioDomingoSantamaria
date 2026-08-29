@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { Archive, Play, Save, ShieldCheck, X } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const API = '/api/chat';
-const messageOf = (error, fallback) => error.response?.data?.message || fallback;
+const messageOf = getApiErrorMessage;
 
 const ChatRetentionDialog = ({ onClose }) => {
   const { notify, confirm } = useFeedback();

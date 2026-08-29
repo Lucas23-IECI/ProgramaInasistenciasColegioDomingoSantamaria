@@ -1,7 +1,9 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
+import { getApiErrorMessage } from './utils/apiError';
 import {
   ArrowLeft,
+  BarChart3,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -26,7 +28,7 @@ import { useNavigate, useParams } from 'react-router';
 import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from './permissions';
-import DevelopmentBadge from './components/DevelopmentBadge';
+import { buildContextChatUrl } from './utils/chatContext';
 
 const API = '/api/convivencia';
 
@@ -79,7 +81,7 @@ const toInputDateTime = () => {
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
   return now.toISOString().slice(0, 16);
 };
-const errorMessage = (error, fallback) => error?.response?.data?.message || fallback;
+const errorMessage = getApiErrorMessage;
 
 const Modal = ({ title, eyebrow, onClose, children, actions, wide = false }) => {
   const closeButtonRef = useRef(null);
@@ -135,6 +137,7 @@ const ParticipantComposer = ({ value, onChange, allowMany = true }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [role, setRole] = useState('INVOLUCRADO');
   const [externalName, setExternalName] = useState('');
   const [externalDetail, setExternalDetail] = useState('');
@@ -142,6 +145,7 @@ const ParticipantComposer = ({ value, onChange, allowMany = true }) => {
   useEffect(() => {
     if (mode !== 'INSTITUCIONAL' || query.trim().length < 2) {
       setResults([]);
+      setSearchError('');
       return undefined;
     }
     const controller = new AbortController();
@@ -150,8 +154,12 @@ const ParticipantComposer = ({ value, onChange, allowMany = true }) => {
       try {
         const response = await axios.get(`${API}/personas/buscar`, { params: { q: query.trim() }, signal: controller.signal });
         setResults(response.data || []);
+        setSearchError('');
       } catch (error) {
-        if (error.code !== 'ERR_CANCELED') setResults([]);
+        if (error.code !== 'ERR_CANCELED') {
+          setResults([]);
+          setSearchError(errorMessage(error, 'No fue posible buscar personas.'));
+        }
       } finally {
         setSearching(false);
       }
@@ -216,7 +224,8 @@ const ParticipantComposer = ({ value, onChange, allowMany = true }) => {
           {query.trim().length >= 2 && (
             <div className="coex-search-results" role="listbox" aria-label="Resultados">
               {searching && <p>Buscando…</p>}
-              {!searching && results.length === 0 && <p>No hay coincidencias.</p>}
+              {!searching && searchError && <p role="alert">{searchError}</p>}
+              {!searching && !searchError && results.length === 0 && <p>No hay coincidencias.</p>}
               {results.map((person) => (
                 <button key={`${person.tipo_persona}-${person.referencia_id}`} type="button" onClick={() => addResult(person)}>
                   <strong>{person.nombre}</strong><span>{person.detalle} · {person.tipo_persona === 'ESTUDIANTE' ? 'Estudiante' : 'Personal'}</span>
@@ -260,7 +269,21 @@ const CoexistenceList = () => {
   const canCreate = hasPermission(user, PERMISSIONS.COEXISTENCE_CREATE);
   const [summary, setSummary] = useState(null);
   const [data, setData] = useState({ items: [], total: 0, pagina: 1, limite: 20 });
-  const [filters, setFilters] = useState({ q: '', estado: '', prioridad: '', revision_pendiente: false, pagina: 1 });
+  const [filters, setFilters] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      q: params.get('q') || '',
+      estado: params.get('estado') || '',
+      prioridad: params.get('prioridad') || '',
+      revision_pendiente: params.get('revision_pendiente') === 'true',
+      activos: params.get('activos') === 'true',
+      contacto_apoderado: params.get('contacto_apoderado') === 'true',
+      desde: params.get('desde') || '',
+      hasta: params.get('hasta') || '',
+      area: params.get('area') || '',
+      pagina: 1
+    };
+  });
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -304,6 +327,8 @@ const CoexistenceList = () => {
   };
 
   const setFilter = (patch) => setFilters((current) => ({ ...current, ...patch, pagina: patch.pagina || 1 }));
+  const analysisFilter = Boolean(filters.desde || filters.hasta || filters.area || filters.contacto_apoderado || filters.activos);
+  const clearAnalysisFilter = () => setFilters((current) => ({ ...current, desde: '', hasta: '', area: '', contacto_apoderado: false, activos: false, pagina: 1 }));
   const createReady = form.titulo.trim().length >= 5
     && form.descripcion_inicial.trim().length >= 10
     && Boolean(form.fecha_situacion)
@@ -314,7 +339,7 @@ const CoexistenceList = () => {
       <header className="coex-page-header" data-tour="page-header">
         <div className="coex-page-header__identity">
           <span className="coex-page-header__icon"><ShieldCheck size={28} /></span>
-          <div><span className="section-kicker">Módulo reservado</span><DevelopmentBadge /><h1>Convivencia escolar</h1><p>Situaciones, medidas, acuerdos y seguimientos con acceso restringido.</p></div>
+          <div><span className="section-kicker">Módulo reservado</span><h1>Convivencia escolar</h1><p>Situaciones, medidas, acuerdos y seguimientos con acceso restringido.</p></div>
         </div>
         <div className="coex-page-header__actions">
           <span className="coex-private-badge"><LockKeyhole size={16} /> Información protegida</span>
@@ -324,20 +349,30 @@ const CoexistenceList = () => {
         </div>
       </header>
 
+      <section className="coex-privacy-notice coex-automation-note" data-tour="coexistence-alerts" aria-label="Avisos automáticos protegidos">
+        <CalendarClock size={21} aria-hidden="true" />
+        <div>
+          <strong>Avisos automáticos protegidos</strong>
+          <p>Una revisión vencida avisa a su responsable. Si un caso urgente queda sin una cuenta responsable activa, el aviso llega únicamente al equipo con permiso para consultar Convivencia.</p>
+        </div>
+      </section>
+
+      {analysisFilter && <section className="coex-privacy-notice coex-automation-note" aria-label="Filtro proveniente de Analítica"><BarChart3 size={21} aria-hidden="true" /><div><strong>Casos que componen el indicador</strong><p>{filters.desde && filters.hasta ? `${filters.desde} a ${filters.hasta}` : 'Período institucional'}{filters.area ? ` · Área: ${filters.area}` : ''}{filters.contacto_apoderado ? ' · Con entrevista a apoderado' : ''}{filters.activos ? ' · Solo casos activos' : ''}</p></div><button type="button" className="coex-button coex-button--secondary" onClick={clearAnalysisFilter}>Quitar filtro</button></section>}
+
       <section className="coex-summary" aria-label="Resumen de casos" data-tour="coexistence-summary">
-        <SummaryButton icon={FolderLock} value={summary?.activos} label="Casos activos" detail="Abiertos o en gestión" active={!filters.estado && !filters.revision_pendiente} onClick={() => setFilter({ estado: '', revision_pendiente: false })} />
-        <SummaryButton icon={Handshake} value={summary?.en_seguimiento} label="En seguimiento" detail="Con acciones en curso" active={filters.estado === 'EN_SEGUIMIENTO'} onClick={() => setFilter({ estado: 'EN_SEGUIMIENTO', revision_pendiente: false })} tone="blue" />
-        <SummaryButton icon={CalendarClock} value={summary?.revisiones_pendientes} label="Revisiones pendientes" detail="Con fecha vencida o para hoy" active={filters.revision_pendiente} onClick={() => setFilter({ estado: '', revision_pendiente: true })} tone="amber" />
-        <SummaryButton icon={CheckCircle2} value={summary?.cerrados_mes} label="Cerrados este mes" detail="Con cierre registrado" active={filters.estado === 'CERRADO'} onClick={() => setFilter({ estado: 'CERRADO', revision_pendiente: false })} tone="green" />
+        <SummaryButton icon={FolderLock} value={summary?.activos} label="Casos activos" detail="Abiertos o en gestión" active={filters.activos || (!filters.estado && !filters.revision_pendiente)} onClick={() => setFilter({ estado: '', revision_pendiente: false, activos: true })} />
+        <SummaryButton icon={Handshake} value={summary?.en_seguimiento} label="En seguimiento" detail="Con acciones en curso" active={filters.estado === 'EN_SEGUIMIENTO'} onClick={() => setFilter({ estado: 'EN_SEGUIMIENTO', revision_pendiente: false, activos: false })} tone="blue" />
+        <SummaryButton icon={CalendarClock} value={summary?.revisiones_pendientes} label="Revisiones pendientes" detail="Con fecha vencida o para hoy" active={filters.revision_pendiente} onClick={() => setFilter({ estado: '', revision_pendiente: true, activos: false })} tone="amber" />
+        <SummaryButton icon={CheckCircle2} value={summary?.cerrados_mes} label="Cerrados este mes" detail="Con cierre registrado" active={filters.estado === 'CERRADO'} onClick={() => setFilter({ estado: 'CERRADO', revision_pendiente: false, activos: false })} tone="green" />
       </section>
 
       <section className="coex-workspace" data-tour="coexistence-cases">
         <div className="coex-workspace__heading">
           <div><span className="section-kicker">Registro institucional</span><h2>Casos de convivencia</h2><p>{data.total} {data.total === 1 ? 'caso encontrado' : 'casos encontrados'}</p></div>
         </div>
-        <div className="coex-filters">
+        <div className="coex-filters" data-tour="coexistence-filters">
           <label className="coex-field coex-field--search"><span>Buscar caso o persona</span><div className="coex-input-icon"><Search size={18} /><input value={filters.q} onChange={(event) => setFilter({ q: event.target.value })} placeholder="Código, título o persona involucrada" /></div></label>
-          <label className="coex-field"><span>Estado</span><select value={filters.estado} onChange={(event) => setFilter({ estado: event.target.value, revision_pendiente: false })}>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label className="coex-field"><span>Estado</span><select value={filters.estado} onChange={(event) => setFilter({ estado: event.target.value, revision_pendiente: false, activos: false })}>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
           <label className="coex-field"><span>Prioridad</span><select value={filters.prioridad} onChange={(event) => setFilter({ prioridad: event.target.value })}><option value="">Todas</option>{PRIORITIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         </div>
 
@@ -506,6 +541,7 @@ const CoexistenceDetail = ({ caseId }) => {
           <div className="coex-case-header__status"><span className={`coex-priority coex-priority--${item.prioridad.toLowerCase()}`}>{labelFrom(PRIORITIES, item.prioridad)}</span><span className={`coex-state coex-state--${item.estado.toLowerCase()}`}>{labelFrom(STATES, item.estado)}</span></div>
         </div>
         <div className="coex-case-actions" data-tour="coexistence-actions">
+          <button type="button" className="coex-button coex-button--secondary" onClick={() => navigate(buildContextChatUrl({ type: 'CONVIVENCIA', id: caseId, name: `Caso reservado ${item.codigo}`, origin: `/admin/convivencia/${caseId}`, originLabel: 'Volver al caso reservado' }))}><MessageSquareText size={18} /> Coordinar por chat</button>
           {canManage && !closed && <button type="button" className="coex-button coex-button--secondary" onClick={() => { setCaseForm({ titulo: item.titulo, categoria: item.categoria, prioridad: item.prioridad, estado: item.estado, proxima_revision: item.proxima_revision ? String(item.proxima_revision).slice(0, 10) : '', responsable_usuario_id: item.responsable_usuario_id }); setDialog('edit'); }}>Editar ficha</button>}
           {canManage && !closed && <button type="button" className="coex-button coex-button--secondary" onClick={() => { setParticipantDraft([]); setDialog('participant'); }}><UserPlus size={18} /> Agregar persona</button>}
           {canManage && !closed && <button type="button" className="coex-button coex-button--primary" onClick={() => setDialog('event')}><Plus size={18} /> Registrar actuación</button>}
@@ -514,7 +550,7 @@ const CoexistenceDetail = ({ caseId }) => {
         </div>
       </header>
 
-      <section className="coex-case-facts">
+      <section className="coex-case-facts" data-tour="coexistence-facts">
         <div><small>Responsable</small><strong>{item.responsable_nombre || 'Sin asignar'}</strong></div>
         <div><small>Próxima revisión</small><strong>{formatDate(item.proxima_revision)}</strong></div>
         <div><small>Personas vinculadas</small><strong>{data.participants.length}</strong></div>
@@ -547,7 +583,7 @@ const CoexistenceDetail = ({ caseId }) => {
           </section>
         </div>
 
-        <aside className="coex-detail-aside">
+        <aside className="coex-detail-aside" data-tour="coexistence-protected-data">
           <section className="coex-side-section">
             <header><Users size={20} /><div><h2>Personas involucradas</h2><p>{data.participants.length} vinculadas</p></div></header>
             <div className="coex-people-list">
