@@ -108,3 +108,16 @@ test('los casos no se eliminan y los cerrados bloquean nuevas modificaciones', (
   assert.match(router, /no admite cambios mientras se encuentre cerrado o anulado/i);
   assert.match(router, /SELECT id_caso, codigo, estado, version FROM convivencia_casos[\s\S]*FOR UPDATE/);
 });
+
+test('el listado protegido acepta desgloses explicables provenientes de Analítica', () => {
+  const router = routeSource();
+  const start = router.indexOf("router.get('/casos'");
+  const end = router.indexOf("router.get('/casos/:caseId'", start);
+  const listRoute = router.slice(start, end);
+  assert.match(listRoute, /req\.query\.activos/u);
+  assert.match(listRoute, /req\.query\.contacto_apoderado/u);
+  assert.match(listRoute, /req\.query\.desde/u);
+  assert.match(listRoute, /req\.query\.hasta/u);
+  assert.match(listRoute, /perfil_responsable/u);
+  assert.match(listRoute, /cp\.rol_en_caso = 'APODERADO'/u);
+});
