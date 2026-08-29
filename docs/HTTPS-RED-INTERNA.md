@@ -5,7 +5,23 @@ certificado autofirmado sin confianza instalada también muestra una advertencia
 Para eliminarla de forma correcta, cada equipo debe confiar en una autoridad
 local y acceder mediante un nombre o una IP incluidos en el certificado.
 
-## Preparación del servidor Windows
+## Preparación inicial del servidor Windows
+
+Esta preparación se realiza una sola vez por Lucas o por soporte técnico, no
+como parte de cada actualización de Andrés. Automatiza la configuración segura,
+el certificado, el firewall, Docker y las actualizaciones posteriores.
+
+Desde PowerShell como administrador, dentro del proyecto:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\preparar-servidor-recomendado.ps1
+```
+
+El script detecta la IPv4 vigente. `-LanIp` solo es necesario si el servidor
+tiene varias redes. Requiere Internet únicamente si debe instalar `mkcert` por
+primera vez. Los pasos siguientes describen lo que automatiza y sirven para
+diagnóstico; Andrés no debe repetirlos en una actualización normal.
 
 1. Reserve una IP fija para el PC servidor en el router del colegio.
 2. Instale `mkcert`:
@@ -17,13 +33,13 @@ local y acceder mediante un nombre o una IP incluidos en el certificado.
 3. Desde la carpeta del proyecto, genere el certificado. Reemplace la IP:
 
    ```powershell
-   .\scripts\preparar-https-red-interna.ps1 -LanIp 192.168.50.28 -InstalarAutoridadLocal
+   .\scripts\preparar-https-red-interna.ps1 -LanIp 192.168.1.10 -InstalarAutoridadLocal
    ```
 
-4. Configure en el DNS local o en el archivo `hosts` de cada equipo:
+4. Opcionalmente, configure en el DNS local el nombre interno:
 
    ```text
-   192.168.50.28 asistencia.ldsm.test
+   192.168.1.10 asistencia.ldsm.test
    ```
 
 5. Inicie el sistema:
@@ -33,12 +49,13 @@ local y acceder mediante un nombre o una IP incluidos en el certificado.
    docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
    ```
 
-## Confianza en los equipos cliente
+## Confianza inicial en los equipos cliente
 
 El script indica la ruta de `rootCA.pem`. Ese archivo es un certificado público;
 la clave privada permanece en el servidor y nunca debe distribuirse.
 
-En cada PC Windows, importe `rootCA.pem` en:
+En cada PC Windows autorizado, Lucas o soporte importa una sola vez
+`certs\rootCA.pem` en:
 
 `Equipo local > Entidades de certificación raíz de confianza > Certificados`.
 
@@ -85,5 +102,19 @@ compruebe la fecha y hora del equipo, el nombre utilizado, la confianza de
 En la respuesta de `index.html`, la cabecera `Permissions-Policy` debe permitir
 `camera=(self)` y mantener deshabilitados el micrófono y la geolocalización.
 
-No active HSTS hasta confirmar que todos los equipos confían en la autoridad;
-así se conserva una ruta de recuperación durante la instalación.
+La configuración no activa HSTS durante esta etapa, para conservar una ruta de
+recuperación mientras se termina de confiar la autoridad en todos los equipos.
+
+## Actualizaciones posteriores
+
+La preparación instala un `post-merge` local. En `main`, un pull exitoso ejecuta
+automáticamente respaldo, build, migraciones, inicio HTTPS, estado y controles
+de producción. Andrés solo utiliza:
+
+```powershell
+git pull --ff-only origin main
+```
+
+Debe esperar el mensaje `Actualización HTTPS completada y saludable`. Si el
+hook informa un error, no debe editar `.env`, certificados ni Docker: debe
+conservar la salida y enviarla a soporte.

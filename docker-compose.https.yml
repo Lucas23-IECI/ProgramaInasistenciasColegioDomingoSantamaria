@@ -2,7 +2,7 @@ services:
   backend:
     environment:
       COOKIE_SECURE: "true"
-      CORS_ORIGIN: ${HTTPS_CORS_ORIGIN:-https://asistencia.ldsm.test},${CORS_ORIGIN}
+      CORS_ORIGIN: ${HTTPS_CORS_ORIGIN:-https://asistencia.ldsm.test}
 
   frontend:
     ports:
