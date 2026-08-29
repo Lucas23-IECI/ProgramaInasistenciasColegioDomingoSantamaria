@@ -38,9 +38,11 @@ const audit = (insertarAudit, queryable, req, action, entity, entityId, detail) 
 });
 
 const safeErrorResponse = (res, error, fallback) => {
-  const status = error.statusCode || (error.code === '23505' ? 409 : error.code === '23503' ? 409 : 500);
+  const candidate = Number(error?.statusCode);
+  const clientStatus = Number.isInteger(candidate) && candidate >= 400 && candidate < 500 ? candidate : null;
+  const status = clientStatus || (['23503', '23505'].includes(error.code) ? 409 : 500);
   if (status >= 500) console.error('[gestion-documental]', error.message);
-  return res.status(status).json({ message: status >= 500 ? fallback : error.message });
+  return res.status(status).json({ message: clientStatus ? error.message : fallback });
 };
 
 const studentDetailsQuery = `
@@ -193,7 +195,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
 
   router.get('/estudiantes/:studentId/expediente', verifyPermission('documents.view'), async (req, res) => {
     const studentId = positiveInteger(req.params.studentId);
-    if (!studentId) return res.status(400).json({ message: 'Estudiante inválido.' });
+    if (!studentId) return res.status(400).json({ message: 'Selecciona un estudiante válido para abrir su expediente.' });
     try {
       const student = await requireStudent(pool, studentId);
       const file = await pool.query('SELECT * FROM expedientes_documentales WHERE id_alumno = $1', [studentId]);
@@ -219,7 +221,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
 
   router.get('/documentos/:documentId', verifyPermission('documents.view'), async (req, res) => {
     const documentId = positiveInteger(req.params.documentId);
-    if (!documentId) return res.status(400).json({ message: 'Documento inválido.' });
+    if (!documentId) return res.status(400).json({ message: 'El documento seleccionado no es válido. Vuelve al expediente y ábrelo nuevamente.' });
     try {
       const document = await requireDocument(pool, documentId);
       const [student, versions] = await Promise.all([
@@ -291,6 +293,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
         alumno_id: studentId, categoria: category, estado: state, nivel_acceso: accessLevel, version: 1
       });
       await client.query('COMMIT');
+      storedName = null;
       res.status(201).json({ document: created.rows[0], version: version.rows[0] });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -303,7 +306,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
 
   router.post('/documentos/:documentId/versiones', verifyPermission('documents.upload'), async (req, res) => {
     const documentId = positiveInteger(req.params.documentId);
-    if (!documentId) return res.status(400).json({ message: 'Documento inválido.' });
+    if (!documentId) return res.status(400).json({ message: 'El documento seleccionado no es válido. Vuelve al expediente y ábrelo nuevamente.' });
     const client = await pool.connect();
     let storedName = null;
     try {
@@ -321,6 +324,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
       await client.query('UPDATE documentos_expediente SET actualizado_en = CURRENT_TIMESTAMP, actualizado_por = $2, version_registro = version_registro + 1 WHERE id_documento_expediente = $1', [documentId, req.user.id]);
       await audit(insertarAudit, client, req, 'VERSION_DOCUMENTAL_CREADA', 'documento_expediente', documentId, { version: version.rows[0].numero_version });
       await client.query('COMMIT');
+      storedName = null;
       res.status(201).json(version.rows[0]);
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -334,7 +338,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
   router.patch('/documentos/:documentId', verifyPermission('documents.manage'), async (req, res) => {
     const documentId = positiveInteger(req.params.documentId);
     const expectedVersion = positiveInteger(req.body.version_registro);
-    if (!documentId || !expectedVersion) return res.status(400).json({ message: 'Documento o versión de edición inválidos.' });
+    if (!documentId || !expectedVersion) return res.status(400).json({ message: 'El documento cambió o la versión abierta ya no es válida. Recarga la ficha antes de editar.' });
     const category = String(req.body.categoria || '').toUpperCase();
     const state = String(req.body.estado || '').toUpperCase();
     const accessLevel = String(req.body.nivel_acceso || '').toUpperCase();
@@ -368,7 +372,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
 
   router.get('/versiones/:versionId/descargar', verifyPermission('documents.view'), async (req, res) => {
     const versionId = positiveInteger(req.params.versionId);
-    if (!versionId) return res.status(400).json({ message: 'Versión inválida.' });
+    if (!versionId) return res.status(400).json({ message: 'La versión seleccionada no es válida. Recarga la ficha e inténtalo nuevamente.' });
     try {
       const result = await pool.query(`
         SELECT v.id_version, v.id_documento_expediente, jd.nombre_original, jd.nombre_almacenado
@@ -432,8 +436,8 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
   router.post('/estudiantes/:studentId/generar', verifyPermission('documents.templates'), async (req, res) => {
     const studentId = positiveInteger(req.params.studentId);
     const templateId = positiveInteger(req.body.id_plantilla);
-    if (!isoDate(req.body.vence_en)) return res.status(400).json({ message: 'La fecha de vencimiento no es valida.' });
-    if (!studentId || !templateId) return res.status(400).json({ message: 'Estudiante o plantilla inválidos.' });
+    if (!isoDate(req.body.vence_en)) return res.status(400).json({ message: 'Ingresa una fecha de vencimiento válida.' });
+    if (!studentId || !templateId) return res.status(400).json({ message: 'Selecciona un estudiante y una plantilla válidos antes de generar el documento.' });
     const client = await pool.connect();
     let storedName = null;
     try {
@@ -483,6 +487,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
         alumno_id: studentId, plantilla_codigo: template.codigo, version_id: version.rows[0].id_version
       });
       await client.query('COMMIT');
+      storedName = null;
       res.status(201).json({ document: created.rows[0], version: version.rows[0] });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -495,7 +500,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
 
   router.post('/versiones/:versionId/ocr', verifyPermission('documents.ocr'), async (req, res) => {
     const versionId = positiveInteger(req.params.versionId);
-    if (!versionId) return res.status(400).json({ message: 'Versión inválida.' });
+    if (!versionId) return res.status(400).json({ message: 'La versión seleccionada no es válida. Recarga la ficha e inténtalo nuevamente.' });
     try {
       const result = await pool.query(`
         SELECT v.id_version, v.id_documento_expediente, jd.mime_type, jd.nombre_almacenado
@@ -534,7 +539,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
   router.post('/versiones/:versionId/ocr/revisar', verifyPermission('documents.ocr'), async (req, res) => {
     const versionId = positiveInteger(req.params.versionId);
     const action = String(req.body.accion || '').toUpperCase();
-    if (!versionId || !['APROBAR', 'RECHAZAR'].includes(action)) return res.status(400).json({ message: 'Revisión OCR inválida.' });
+    if (!versionId || !['APROBAR', 'RECHAZAR'].includes(action)) return res.status(400).json({ message: 'Selecciona una versión disponible e indica si aprobarás o rechazarás la propuesta OCR.' });
     const reviewedText = normalizeOcrText(req.body.texto_revisado);
     if (action === 'APROBAR' && reviewedText.length < 2) return res.status(400).json({ message: 'La revisión aprobada necesita texto verificado.' });
     try {

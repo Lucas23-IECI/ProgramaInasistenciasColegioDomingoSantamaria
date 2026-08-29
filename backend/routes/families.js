@@ -46,7 +46,7 @@ const createFamiliesRouter = ({
 
   router.get('/:visitorId', async (req, res) => {
     const visitorId = parsePositiveId(req.params.visitorId);
-    if (!visitorId) return res.status(400).json({ message: 'Ficha inválida.' });
+    if (!visitorId) return res.status(400).json({ message: 'La ficha familiar seleccionada no es válida. Vuelve al listado y ábrela nuevamente.' });
     try {
       const [visitor, links] = await Promise.all([
         pool.query(`
@@ -150,7 +150,7 @@ const createFamiliesRouter = ({
     }
     const responsibility = clean(req.body?.tipo_responsabilidad, 30).toUpperCase();
     if (!['PRINCIPAL', 'SUPLENTE', 'AUTORIZADO'].includes(responsibility)) {
-      return res.status(400).json({ message: 'Tipo de responsabilidad inválido.' });
+      return res.status(400).json({ message: 'Selecciona una responsabilidad válida: principal, suplente o persona autorizada.' });
     }
     const client = await pool.connect();
     try {

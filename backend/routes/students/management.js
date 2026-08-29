@@ -165,7 +165,7 @@ app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students
         ORDER BY r.realizado_en DESC, r.id_regularizacion DESC
       `, [id])
     ]);
-    if (resA.rows.length === 0) return res.status(404).json({ message: 'Miembro no encontrado.' });
+    if (resA.rows.length === 0) return res.status(404).json({ message: 'El estudiante no existe o ya no está disponible. Recarga el listado.' });
 
     res.setHeader('Cache-Control', 'no-store, private');
     res.json({
@@ -176,7 +176,7 @@ app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students
         .map((regularization) => protectIdentityRegularization(regularization))
     });
   } catch (err) {
-    res.status(500).json({ message: 'Error al obtener detalles.' });
+    res.status(500).json({ message: 'No fue posible cargar la ficha completa del estudiante.' });
   }
 });
 
@@ -214,6 +214,7 @@ app.post(
 
     const client = await pool.connect();
     let createdDocument = null;
+    let committed = false;
     try {
       await client.query('BEGIN');
       createdDocument = await createDocument(client, {
@@ -251,6 +252,7 @@ app.post(
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
+      committed = true;
 
       res.json({
         message: 'El RUN quedó vinculado a la misma ficha y el IPE se conservó como identificador anterior.',
@@ -264,7 +266,7 @@ app.post(
       });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      if (createdDocument?.nombre_almacenado) {
+      if (!committed && createdDocument?.nombre_almacenado) {
         await removeStoredFile(createdDocument.nombre_almacenado).catch(() => {});
       }
       const statusByCode = {

@@ -71,7 +71,7 @@ app.get('/api/courses', verifyToken, async (req, res) => {
     const resC = await pool.query('SELECT * FROM curso ORDER BY nombre_curso ASC');
     res.json(resC.rows);
   } catch (err) {
-    res.status(500).json({ message: 'Error al obtener cursos.' });
+    res.status(500).json({ message: 'No fue posible cargar la lista de cursos.' });
   }
 });
 
@@ -120,7 +120,7 @@ app.get('/api/students', verifyToken, verifyAnyPermission(['students.view', 'stu
     const resStudents = await pool.query(query);
     res.json(resStudents.rows.map((student) => protectStudentRecord(student)));
   } catch (err) {
-    res.status(500).json({ message: 'Error al obtener miembros.' });
+    res.status(500).json({ message: 'No fue posible cargar el padrón de estudiantes.' });
   }
 });
 
@@ -168,7 +168,7 @@ app.get('/api/students/search', verifyToken, verifyAnyPermission([
     res.json(result.rows.map((student) => protectStudentRecord(student)));
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: 'Error en búsqueda' });
+    res.status(500).json({ message: 'No fue posible buscar estudiantes en este momento.' });
   }
 });
 
@@ -221,13 +221,13 @@ app.get('/api/students/scan/:barcode', verifyToken, verifyPermission('punctualit
         detail: { codigo_parcial: cleanBarcode.slice(-4), largo: cleanBarcode.length },
         userId: req.user.id
       });
-      return res.status(404).json({ message: 'Miembro no encontrado.' });
+      return res.status(404).json({ message: 'No se encontró una persona con ese código o identificador.' });
     }
 
     const alumno = result.rows[0];
 
     if (!alumno.alumno_activo) {
-      return res.status(403).json({ message: 'Miembro inactivo en el sistema.' });
+      return res.status(403).json({ message: 'La persona está inactiva y no puede registrar un ingreso. Revisa su ficha antes de continuar.' });
     }
 
     // 2. Check check-in limit
@@ -277,7 +277,7 @@ app.get('/api/students/scan/:barcode', verifyToken, verifyPermission('punctualit
 
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: 'Error al procesar escaneo.' });
+    res.status(500).json({ message: 'No fue posible consultar el código escaneado. No se registró ningún ingreso.' });
   }
 });
 
@@ -297,7 +297,7 @@ app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuali
     `;
     const result = await pool.query(query, [id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Miembro no encontrado.' });
+      return res.status(404).json({ message: 'La persona seleccionada no existe o ya no está disponible.' });
     }
 
     const alumno = result.rows[0];
@@ -345,7 +345,7 @@ app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuali
       control
     });
   } catch (err) {
-    res.status(500).json({ message: 'Error al obtener estado.' });
+    res.status(500).json({ message: 'No fue posible consultar el estado de registro de la persona.' });
   }
 });
 
@@ -355,7 +355,7 @@ app.get('/api/students/:id/status', verifyToken, verifyAnyPermission(['punctuali
 app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'), verifyPermission('punctuality.register.barcode'), async (req, res) => {
   const { id_alumno } = req.body;
   if (!id_alumno) {
-    return res.status(400).json({ message: 'ID del alumno es requerido.' });
+    return res.status(400).json({ message: 'Selecciona un estudiante válido para registrar el ingreso.' });
   }
   const client = await pool.connect();
   try {
@@ -370,7 +370,7 @@ app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'
     `, [id_alumno]);
     if (studentRes.rows.length === 0 || !studentRes.rows[0].activo) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Alumno activo no encontrado.' });
+      return res.status(404).json({ message: 'El estudiante no existe o está inactivo. Revisa su ficha antes de registrar el ingreso.' });
     }
     const configRes = await client.query('SELECT * FROM configuracion_asistencia LIMIT 1');
     const config = configRes.rows[0] || { hora_entrada: '08:00:00', hora_limite_atraso: '08:15:00' };
@@ -390,7 +390,10 @@ app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'
     const control = controlRes.rows[0];
     if (!control) {
       await client.query('ROLLBACK');
-      return res.status(409).json({ message: 'No hay un control horario activo para este curso.' });
+      return res.status(409).json({
+        code: 'SIN_CONTROL_HORARIO',
+        message: 'No hay un control de puntualidad activo para este curso y horario.'
+      });
     }
     const appliedConfig = {
       hora_entrada: control.hora_referencia,
@@ -448,7 +451,10 @@ app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'
         detail: { endpoint_legacy: true },
         userId: req.user.id
       });
-      return res.status(409).json({ message: 'Registro ya realizado hoy.' });
+      return res.status(409).json({
+        code: 'REGISTRO_DUPLICADO',
+        message: `Esta persona ya fue registrada en “${control.nombre}”.`
+      });
     }
     await insertarAudit(client, {
       usuario_id: req.user.id,
@@ -473,8 +479,13 @@ app.post('/api/asistencia', verifyToken, verifyPermission('punctuality.register'
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error(err.message);
-    if (err.code === '23505') return res.status(409).json({ message: 'Registro ya realizado hoy.' });
-    res.status(500).json({ message: 'Error al registrar el ingreso.' });
+    if (err.code === '23505') {
+      return res.status(409).json({
+        code: 'REGISTRO_DUPLICADO',
+        message: 'La persona ya fue registrada en este control horario.'
+      });
+    }
+    res.status(500).json({ message: 'No fue posible registrar el ingreso. Inténtalo nuevamente.' });
   } finally {
     client.release();
   }

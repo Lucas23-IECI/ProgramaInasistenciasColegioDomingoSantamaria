@@ -663,7 +663,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err.message);
-    res.status(500).json({ message: 'Error al sincronizar datos del colegio.' });
+    res.status(500).json({ message: 'No fue posible completar la sincronización del padrón estudiantil.' });
   } finally {
     client.release();
   }

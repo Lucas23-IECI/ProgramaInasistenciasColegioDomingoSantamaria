@@ -205,7 +205,7 @@ const createStudentGovernanceRouter = ({
 
   router.get('/imports/:id', verifyAnyPermission(['students.view', 'students.manage', 'students.import']), async (req, res) => {
     const id = parsePositiveId(req.params.id);
-    if (!id) return res.status(400).json({ message: 'Importación inválida.' });
+    if (!id) return res.status(400).json({ message: 'La importación seleccionada no es válida. Vuelve al historial y ábrela nuevamente.' });
     try {
       const [record, changes] = await Promise.all([
         pool.query(
