@@ -66,7 +66,7 @@ const registerAuthRoutes = (context) => {
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { correo, password } = req.body;
   if (!correo || !password) {
-    return res.status(400).json({ message: 'Correo y contraseña son requeridos.' });
+    return res.status(400).json({ message: 'Ingresa el correo y la contraseña.' });
   }
 
   try {
@@ -100,7 +100,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     if (user.bloqueado_hasta && new Date(user.bloqueado_hasta) > new Date()) {
-      return res.status(423).json({ message: 'Cuenta bloqueada temporalmente. Intente más tarde.' });
+      return res.status(423).json({ message: 'La cuenta está bloqueada temporalmente por varios intentos fallidos. Espera unos minutos antes de volver a intentarlo.' });
     }
 
     const validPass = await bcrypt.compare(password, user.password_hash);
@@ -147,7 +147,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     res.json({ user: toPublicUser(sessionUser) });
   } catch (err) {
     console.error(err.message);
-    res.status(500).json({ message: 'Error en el servidor.' });
+    res.status(500).json({ message: 'No fue posible iniciar sesión. Inténtalo nuevamente.' });
   }
 });
 
@@ -155,7 +155,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
   try {
     res.json({ user: toPublicUser(req.user) });
   } catch (err) {
-    res.status(500).json({ message: 'Error en el servidor.' });
+    res.status(500).json({ message: 'No fue posible verificar la sesión actual.' });
   }
 });
 
@@ -174,7 +174,7 @@ app.post('/api/auth/change-password', verifyToken, async (req, res) => {
     const userRes = await client.query('SELECT * FROM usuarios WHERE id = $1 FOR UPDATE', [req.user.id]);
     if (userRes.rows.length === 0 || !userRes.rows[0].activo) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
+      return res.status(404).json({ message: 'La cuenta ya no está disponible. Inicia sesión nuevamente.' });
     }
 
     const user = userRes.rows[0];
@@ -209,9 +209,9 @@ app.post('/api/auth/change-password', verifyToken, async (req, res) => {
       entidad_id: user.id,
       ip: getClientIp(req)
     });
+    const sessionUser = await attachPermissionProfile(client, updated.rows[0]);
     await client.query('COMMIT');
 
-    const sessionUser = await attachPermissionProfile(client, updated.rows[0]);
     setSessionCookie(res, sessionUser);
     res.json({ message: 'Contraseña actualizada.', user: toPublicUser(sessionUser) });
   } catch (err) {

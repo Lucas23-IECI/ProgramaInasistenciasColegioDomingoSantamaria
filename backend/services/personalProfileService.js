@@ -17,7 +17,7 @@ const cleanProfileText = (value, maxLength) => {
 
 const normalizeProfileStatus = (value) => {
   const normalized = String(value || 'SIN_ESTADO').trim().toUpperCase();
-  if (!PROFILE_STATUS.has(normalized)) throw new Error('El estado de disponibilidad no es valido.');
+  if (!PROFILE_STATUS.has(normalized)) throw new Error('El estado de disponibilidad no es válido.');
   return normalized;
 };
 

@@ -152,7 +152,7 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
       });
     } catch (err) {
       console.error('[audit:list]', err.message);
-      res.status(500).json({ message: 'Error al obtener auditoría.' });
+      res.status(500).json({ message: 'No fue posible cargar la actividad de auditoría.' });
     }
   });
 };

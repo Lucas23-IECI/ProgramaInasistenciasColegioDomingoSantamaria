@@ -305,14 +305,14 @@ app.get('/api/users', verifyToken, verifyPermission('users.manage'), async (req,
     res.json(users);
   } catch (err) {
     console.error('[users:list]', err.message);
-    res.status(500).json({ message: 'Error al obtener usuarios.' });
+    res.status(500).json({ message: 'No fue posible cargar las cuentas de usuario.' });
   }
 });
 
 app.post('/api/users', verifyToken, verifyPermission('users.manage'), async (req, res) => {
   const { correo, password, rol, nombre, cargo } = req.body;
   if (!correo || !password || !rol || !nombre || !cargo) {
-    return res.status(400).json({ message: 'Faltan campos requeridos.' });
+    return res.status(400).json({ message: 'Completa correo, contraseña temporal, perfil, nombre y cargo.' });
   }
   const normalizedEmail = normalizeEmail(correo);
   const emailError = validateEmail(normalizedEmail);
@@ -385,7 +385,7 @@ app.post('/api/users', verifyToken, verifyPermission('users.manage'), async (req
       return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     }
     console.error('[users:create]', err.message);
-    res.status(500).json({ message: 'Error al crear la cuenta.' });
+    res.status(500).json({ message: 'No fue posible crear la cuenta. Inténtalo nuevamente.' });
   } finally {
     client.release();
   }
@@ -408,7 +408,7 @@ app.put('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (
     const targetRes = await client.query('SELECT * FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
     if (targetRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
+      return res.status(404).json({ message: 'La cuenta seleccionada no existe o fue eliminada. Recarga el listado.' });
     }
     const target = targetRes.rows[0];
     if (!await getAccessProfile(client, rol, { includeInactive: target.rol === rol })) {
@@ -500,7 +500,7 @@ app.put('/api/users/:id', verifyToken, verifyPermission('users.manage'), async (
       return res.status(409).json({ message: 'Ya existe una cuenta con ese correo.' });
     }
     console.error('[users:update]', err.message);
-    res.status(500).json({ message: 'Error al actualizar usuario.' });
+    res.status(500).json({ message: 'No fue posible actualizar la cuenta de usuario.' });
   } finally {
     client.release();
   }
@@ -510,7 +510,7 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
   const { id } = req.params;
   const requestedStatus = forcedStatus === null ? req.body?.activo : forcedStatus;
   if (typeof requestedStatus !== 'boolean') {
-    return res.status(400).json({ message: 'El estado activo debe ser verdadero o falso.' });
+    return res.status(400).json({ message: 'Selecciona si la cuenta quedará activa o inactiva.' });
   }
   if (!requestedStatus && parseInt(id, 10) === req.user.id) {
     return res.status(409).json({ message: 'No puedes desactivar la cuenta con la que tienes la sesión iniciada.' });
@@ -522,7 +522,7 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
     const targetRes = await client.query('SELECT id, correo, rol, nombre, cargo, activo FROM usuarios WHERE id = $1 AND eliminado_en IS NULL FOR UPDATE', [id]);
     if (targetRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'Usuario no encontrado.' });
+      return res.status(404).json({ message: 'La cuenta seleccionada no existe o fue eliminada. Recarga el listado.' });
     }
     const target = targetRes.rows[0];
     const targetProfile = await attachPermissionProfile(client, target);
@@ -562,7 +562,7 @@ const setUserActiveStatus = async (req, res, forcedStatus = null) => {
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    res.status(500).json({ message: 'Error al cambiar el estado del usuario.' });
+    res.status(500).json({ message: 'No fue posible cambiar el estado de la cuenta.' });
   } finally {
     client.release();
   }

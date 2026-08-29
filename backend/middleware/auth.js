@@ -13,12 +13,17 @@ const verifyToken = async (req, res, next) => {
   const token = req.cookies.token; // Recupera desde HttpOnly Cookie
 
   if (!token) {
-    return res.status(401).json({ message: 'Se requiere una sesión autenticada.' });
+    return res.status(401).json({ message: 'Tu sesión no está disponible. Inicia sesión nuevamente.' });
+  }
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, JWT_SECRET);
+  } catch {
+    return res.status(401).json({ message: 'Tu sesión venció o ya no es válida. Inicia sesión nuevamente.' });
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-
     const userRes = await pool.query(
       `SELECT u.id, u.correo, u.rol, u.nombre, u.cargo, u.token_version, u.activo,
               u.debe_cambiar_password, p.nombre AS profile_name
@@ -28,23 +33,24 @@ const verifyToken = async (req, res, next) => {
       [decoded.id]
     );
     if (userRes.rows.length === 0) {
-      return res.status(401).json({ message: 'Usuario no encontrado' });
+      return res.status(401).json({ message: 'La cuenta asociada a esta sesión ya no está disponible. Inicia sesión nuevamente.' });
     }
 
     const currentUser = userRes.rows[0];
     if (!currentUser.activo) {
-      return res.status(401).json({ message: 'La cuenta se encuentra desactivada. Contacte a un administrador.' });
+      return res.status(401).json({ message: 'La cuenta está desactivada. Contacta a un administrador.' });
     }
 
     const currentVersion = currentUser.token_version;
     if ((decoded.token_version || 1) !== (currentVersion || 1)) {
-      return res.status(401).json({ message: 'Sesión invalidada por cambio de contraseña. Por favor, inicie sesión de nuevo.' });
+      return res.status(401).json({ message: 'La sesión terminó porque se actualizaron las credenciales de la cuenta. Inicia sesión nuevamente.' });
     }
 
     req.user = await attachPermissionProfile(pool, currentUser);
     next();
   } catch (err) {
-    return res.status(401).json({ message: 'Token de Cookie inválido o expirado' });
+    console.error('[sesion:validar]', err.message);
+    return res.status(503).json({ message: 'No fue posible comprobar tu sesión porque el servicio no está disponible temporalmente. Inténtalo nuevamente.' });
   }
 };
 
@@ -70,7 +76,7 @@ const verifyAnyPermission = (permissions) => {
 const verifyRole = (rolesAllowed) => {
   return (req, res, next) => {
     if (!req.user || !rolesAllowed.includes(req.user.rol)) {
-      return res.status(403).json({ message: 'No tienes permisos suficientes para esta acción' });
+      return res.status(403).json({ message: 'Tu cuenta no tiene permiso para realizar esta acción.' });
     }
     next();
   };

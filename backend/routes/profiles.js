@@ -19,6 +19,22 @@ const requestedOrCurrent = (body, key, currentValue) => (
   Object.prototype.hasOwnProperty.call(body || {}, key) ? body[key] : currentValue
 );
 
+const PROFILE_VALIDATION_MESSAGES = new Set([
+  'El estado de disponibilidad no es válido.',
+  'La vigencia del estado no es válida.',
+  'La vigencia del estado debe quedar en el futuro.',
+  'La vigencia del estado no puede superar 180 días.'
+]);
+
+const PROFILE_IMAGE_VALIDATION_MESSAGES = new Set([
+  'La imagen debe ser JPG, PNG o WEBP.',
+  'La imagen debe pesar como máximo 5 MB.',
+  'La imagen fuente es demasiado compleja para conservarla. Prueba con una imagen de menor tamaño.',
+  'Categoría de imagen no válida.',
+  'No fue posible leer la imagen.',
+  'No fue posible leer la imagen fuente.'
+]);
+
 const registerProfileRoutes = ({
   app,
   pool,
@@ -83,12 +99,12 @@ const registerProfileRoutes = ({
         detalle: { antes: before, despues: payload },
         ip: getClientIp(req)
       });
+      const profile = await getPersonalProfile(client, req.user.id, { includeContact: true, respectContactVisibility: false });
       await client.query('COMMIT');
-      const profile = await getPersonalProfile(pool, req.user.id, { includeContact: true, respectContactVisibility: false });
       res.json({ message: 'Perfil actualizado.', profile });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      if (/estado|vigencia/i.test(error.message)) return res.status(400).json({ message: error.message });
+      if (PROFILE_VALIDATION_MESSAGES.has(error.message)) return res.status(400).json({ message: error.message });
       console.error('[profile:update-me]', error.message);
       res.status(500).json({ message: 'No fue posible actualizar el perfil.' });
     } finally {
@@ -124,14 +140,14 @@ const registerProfileRoutes = ({
 
   app.get('/api/directory/staff/:userId', verifyToken, verifyPermission('profiles.directory.view'), async (req, res) => {
     const userId = Number.parseInt(req.params.userId, 10);
-    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'Cuenta no válida.' });
+    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'La cuenta seleccionada no es válida. Regresa al directorio y vuelve a abrirla.' });
     try {
       const profile = await getPersonalProfile(pool, userId, {
         includeContact: req.user.permissions.includes('profiles.contact.view'),
         updatedBy: req.user.id
       });
       if (!profile || (!profile.visible_directorio && !req.user.permissions.includes('profiles.manage'))) {
-        return res.status(404).json({ message: 'Perfil no encontrado.' });
+        return res.status(404).json({ message: 'El perfil no existe o ya no está visible en el directorio.' });
       }
       res.json({ profile });
     } catch (error) {
@@ -142,14 +158,14 @@ const registerProfileRoutes = ({
 
   app.patch('/api/profiles/:userId', verifyToken, verifyPermission('profiles.manage'), async (req, res) => {
     const userId = Number.parseInt(req.params.userId, 10);
-    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'Cuenta no válida.' });
+    if (!Number.isInteger(userId) || userId <= 0) return res.status(400).json({ message: 'La cuenta seleccionada no es válida. Regresa al listado y vuelve a abrirla.' });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const before = await getPersonalProfile(client, userId, { includeContact: true, updatedBy: req.user.id });
       if (!before) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Cuenta no encontrada.' });
+        return res.status(404).json({ message: 'La cuenta seleccionada no existe o fue eliminada. Recarga el listado.' });
       }
       const payload = normalizeManagedProfilePayload({
         area: requestedOrCurrent(req.body, 'area', before.area),
@@ -171,8 +187,8 @@ const registerProfileRoutes = ({
         detalle: { antes: before, despues: payload },
         ip: getClientIp(req)
       });
+      const profile = await getPersonalProfile(client, userId, { includeContact: true });
       await client.query('COMMIT');
-      const profile = await getPersonalProfile(pool, userId, { includeContact: true });
       res.json({ message: 'Configuración institucional actualizada.', profile });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -193,7 +209,11 @@ const registerProfileRoutes = ({
         userId: req.user.id
       });
     } catch (error) {
-      return res.status(400).json({ message: error.message });
+      if (PROFILE_IMAGE_VALIDATION_MESSAGES.has(error.message)) {
+        return res.status(400).json({ message: error.message });
+      }
+      console.error('[profile:image:process]', error.message);
+      return res.status(500).json({ message: 'No fue posible procesar la imagen. Prueba con otro archivo o inténtalo nuevamente.' });
     }
 
     const client = await pool.connect();
@@ -235,9 +255,9 @@ const registerProfileRoutes = ({
         detalle: { archivo_id: inserted.rows[0].id, reemplazo_archivo_id: previous?.id || null },
         ip: getClientIp(req)
       });
+      const profile = await getPersonalProfile(client, req.user.id, { includeContact: true, respectContactVisibility: false });
       await client.query('COMMIT');
       if (previous) removeProfileImageFiles(previous);
-      const profile = await getPersonalProfile(pool, req.user.id, { includeContact: true, respectContactVisibility: false });
       res.status(201).json({ message: category === 'avatar' ? 'Foto actualizada.' : 'Portada actualizada.', profile });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -280,9 +300,9 @@ const registerProfileRoutes = ({
         detalle: { archivo_id: previous?.id || null },
         ip: getClientIp(req)
       });
+      const profile = await getPersonalProfile(client, req.user.id, { includeContact: true, respectContactVisibility: false });
       await client.query('COMMIT');
       if (previous) removeProfileImageFiles(previous);
-      const profile = await getPersonalProfile(pool, req.user.id, { includeContact: true, respectContactVisibility: false });
       res.json({ message: 'Imagen eliminada.', profile });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
