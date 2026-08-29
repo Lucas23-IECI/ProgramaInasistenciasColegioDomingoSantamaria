@@ -888,6 +888,7 @@ export function StudentsView(controller) {
           openIdentityRegularization={openIdentityRegularization}
           openManualEditor={openManualEditor}
           formatNullable={formatNullable}
+          navigate={navigate}
         />
       )}
 

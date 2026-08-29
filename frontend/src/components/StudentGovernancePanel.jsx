@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { API_URL } from '../config';
 import { getStudentIdentifier, getStudentIdentifierLabel } from '../utils/studentFormat';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const reasonLabels = {
   MATRICULA_RECIENTE: 'Matrícula reciente',
@@ -78,7 +79,7 @@ const StudentGovernancePanel = ({
       setPending(pendingResponse.data?.students || []);
       setImports(importsResponse.data?.imports || []);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible cargar el control del padrón.');
+      setError(getApiErrorMessage(requestError, 'No fue posible cargar el control del padrón.'));
     } finally {
       setLoading(false);
     }
@@ -116,7 +117,7 @@ const StudentGovernancePanel = ({
       { primary_id: primary.id_alumno, duplicate_id: duplicate.id_alumno },
       { withCredentials: true }
     ).then((response) => setMergePreview(response.data))
-      .catch((requestError) => setError(requestError.response?.data?.message || 'No fue posible evaluar la fusión.'));
+      .catch((requestError) => setError(getApiErrorMessage(requestError, 'No fue posible evaluar la fusión.')));
   }, [primary, duplicate]);
 
   const qualityTotal = useMemo(() => (
@@ -130,7 +131,7 @@ const StudentGovernancePanel = ({
       const response = await axios.get(`${API_URL}/padron/imports/${id}`, { withCredentials: true });
       setImportDetail(response.data);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible abrir la importación.');
+      setError(getApiErrorMessage(requestError, 'No fue posible abrir la importación.'));
     }
   };
 
@@ -164,7 +165,7 @@ const StudentGovernancePanel = ({
       const blockers = requestError.response?.data?.blockers;
       setError(blockers?.length
         ? blockers.join(' ')
-        : requestError.response?.data?.message || 'No fue posible fusionar las fichas.');
+        : getApiErrorMessage(requestError, 'No fue posible fusionar las fichas.'));
     } finally {
       setMerging(false);
     }
@@ -194,7 +195,7 @@ const StudentGovernancePanel = ({
       window.URL.revokeObjectURL(url);
       setExportNotice('Exportación generada con identificadores estudiantiles completos. La descarga quedó registrada en auditoría.');
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible generar la exportación.');
+      setError(getApiErrorMessage(requestError, 'No fue posible generar la exportación.'));
     } finally {
       setExporting('');
     }

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import ModuleHeader from './components/ModuleHeader';
+import { getApiErrorMessage } from './utils/apiError';
 
 const LABELS = {
   RUT_TELEFONOS: 'RUT y teléfonos',
@@ -27,7 +28,7 @@ const DataGovernanceAdmin = () => {
       setData(response.data);
       setDrafts(Object.fromEntries(response.data.policies.map((policy) => [policy.categoria, { ...policy }])));
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cargar las políticas.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar las políticas.'), 'error');
     }
   }, [notify]);
   useEffect(() => { load(); }, [load]);
@@ -42,7 +43,7 @@ const DataGovernanceAdmin = () => {
       notify('Política documentada. La eliminación automática continúa deshabilitada.', 'success');
       await load();
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible guardar la política.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible guardar la política.'), 'error');
     } finally {
       setSaving('');
     }

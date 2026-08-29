@@ -5,6 +5,7 @@ import { API_URL } from '../config';
 import AppSelect from './AppSelect';
 import PassportMrzPanel from './PassportMrzPanel';
 import { formatChilePhoneInput } from '../utils/personFormat';
+import { getApiErrorMessage } from '../utils/apiError';
 import {
   MANUAL_IDENTITY_TYPES,
   countryOptions,
@@ -193,7 +194,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
       }
       onSaved(response.data?.message || 'Cambio guardado correctamente.');
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible guardar el cambio.');
+      setError(getApiErrorMessage(requestError, 'No fue posible guardar el cambio.'));
     } finally {
       setSaving(false);
     }

@@ -6,6 +6,7 @@ import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import ModuleHeader from './components/ModuleHeader';
 import AppSelect from './components/AppSelect';
+import { getApiErrorMessage } from './utils/apiError';
 
 const RESPONSIBILITIES = [
   { value: 'PRINCIPAL', label: 'Responsable principal' },
@@ -29,7 +30,7 @@ const FamilyDirectory = () => {
       const response = await axios.get('/api/familias', { params: { q: value.trim() } });
       setPeople(response.data);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible buscar las fichas.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible buscar las fichas.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -42,7 +43,7 @@ const FamilyDirectory = () => {
       const response = await axios.get(`/api/familias/${id}`);
       setSelected(response.data);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible abrir la ficha.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible abrir la ficha.'), 'error');
     }
   };
 
@@ -61,7 +62,7 @@ const FamilyDirectory = () => {
       updatePerson(response.data);
       notify('Ficha familiar actualizada.', 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar la ficha.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar la ficha.'), 'error');
     }
   };
 
@@ -76,7 +77,7 @@ const FamilyDirectory = () => {
       await openPerson(selected.person.id);
       setReasonByLink((current) => ({ ...current, [link.id]: '' }));
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar el vínculo.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar el vínculo.'), 'error');
     }
   };
 

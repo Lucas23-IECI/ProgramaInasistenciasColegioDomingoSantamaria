@@ -1,7 +1,8 @@
-import { X, User, GraduationCap, Activity, Clock, Pencil, Archive, RotateCcw, Fingerprint, FileDown, History } from 'lucide-react';
+import { X, User, GraduationCap, Activity, Clock, Pencil, Archive, RotateCcw, Fingerprint, FileDown, History, MessageSquareText } from 'lucide-react';
 import { StudentOriginBadge } from './StudentOriginBadge';
 import { getStudentIdentifier, getStudentIdentifierLabel } from '../../utils/studentFormat';
 import { API_URL } from '../../config';
+import { buildContextChatUrl } from '../../utils/chatContext';
 
 const identifierTypeLabel = {
   RUN_CHILE: 'RUN chileno',
@@ -40,7 +41,8 @@ export function StudentDetailDrawer({
   canRegularizeIdentity,
   openIdentityRegularization,
   openManualEditor,
-  formatNullable
+  formatNullable,
+  navigate
 }) {
   return <div className="student-detail-overlay" onClick={closeDetails}>
            <div className="student-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="student-detail-title" onClick={(e) => e.stopPropagation()}>
@@ -54,7 +56,7 @@ export function StudentDetailDrawer({
               </button>
 
               {loadingDetails ? (
-                 <div className="loader" style={{margin: '50px auto'}}>Atrayendo ficha del miembro...</div>
+                 <div className="loader" style={{margin: '50px auto'}}>Cargando ficha del estudiante…</div>
               ) : studentDetails ? (
                  <div className="fade-in">
                     {/* Header with Avatar and Basic Info */}
@@ -302,8 +304,11 @@ export function StudentDetailDrawer({
                       </div>
                     </div>
 
-                    {canManage && (
-                      <div className="student-detail-actions">
+                    <div className="student-detail-actions">
+                        <button type="button" className="is-secondary" onClick={() => navigate(buildContextChatUrl({ type: 'ESTUDIANTE', id: studentDetails.alumno.id_alumno, name: `${studentDetails.alumno.nombres} ${studentDetails.alumno.apellidos}`.trim(), origin: `/admin/estudiantes?estudiante_id=${studentDetails.alumno.id_alumno}`, originLabel: 'Volver a la ficha' }))}>
+                          <MessageSquareText size={17} /> Coordinar por chat
+                        </button>
+                      {canManage && <>
                         <button type="button" className="is-secondary" onClick={() => openManualEditor('edit', studentDetails)}>
                           <Pencil size={17} /> Editar ficha
                         </button>
@@ -316,8 +321,8 @@ export function StudentDetailDrawer({
                             <RotateCcw size={17} /> Reactivar matrícula
                           </button>
                         )}
-                      </div>
-                    )}
+                      </>}
+                    </div>
 
                  </div>
               ) : null}

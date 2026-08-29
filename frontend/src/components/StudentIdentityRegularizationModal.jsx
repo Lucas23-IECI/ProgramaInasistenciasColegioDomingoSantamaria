@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, FileCheck2, Fingerprint, Upload, X } from 
 import { API_URL } from '../config';
 import AppSelect from './AppSelect';
 import { formatRutInput, validateRutInput } from '../utils/personFormat';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const supportOptions = [
   { value: 'CEDULA_IDENTIDAD', label: 'Cédula de identidad' },
@@ -83,7 +84,7 @@ const StudentIdentityRegularizationModal = ({ state, onClose, onSaved }) => {
       );
       await onSaved(response.data.message);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || requestError.message || 'No fue posible regularizar la identidad.');
+      setError(getApiErrorMessage(requestError, 'No fue posible regularizar la identidad.'));
     } finally {
       setSaving(false);
     }

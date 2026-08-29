@@ -3,6 +3,7 @@ import axios from 'axios';
 import { AlertTriangle, CheckCircle2, ScanLine, ShieldCheck, X } from 'lucide-react';
 import { API_URL } from '../config';
 import { normalizeMrzInput, parsePassportTd3Mrz } from '../utils/passportMrz';
+import { getApiErrorMessage } from '../utils/apiError';
 
 const PassportMrzPanel = ({ onApply, onClose }) => {
   const [raw, setRaw] = useState('');
@@ -22,7 +23,7 @@ const PassportMrzPanel = ({ onApply, onClose }) => {
       }, { withCredentials: true });
       onApply(parsed);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No fue posible registrar la lectura MRZ.');
+      setError(getApiErrorMessage(requestError, 'No fue posible registrar la lectura MRZ.'));
     }
   };
 

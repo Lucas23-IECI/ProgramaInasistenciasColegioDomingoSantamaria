@@ -1,10 +1,11 @@
-import { useState, useEffect, useContext, useRef } from 'react';
+import { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
 import { API_URL } from '../../config';
 import { AuthContext } from '../../context/AuthContext';
 import { PERMISSIONS, hasPermission } from '../../permissions';
 import { mapGuardianRecord } from './studentUtils';
+import { getApiErrorMessage } from '../../utils/apiError';
 
 export function useStudentsController() {
 const { logout, user } = useContext(AuthContext);
@@ -121,7 +122,7 @@ const { logout, user } = useContext(AuthContext);
     }
   };
 
-  const openDetails = async (id) => {
+  const openDetails = useCallback(async (id) => {
     setSelectedStudentId(id);
     setLoadingDetails(true);
     setStudentDetails(null);
@@ -133,7 +134,12 @@ const { logout, user } = useContext(AuthContext);
     } finally {
       setLoadingDetails(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const requestedStudentId = new URLSearchParams(window.location.search).get('estudiante_id');
+    if (requestedStudentId) openDetails(requestedStudentId);
+  }, [openDetails]);
 
   const closeDetails = () => {
     setSelectedStudentId(null);
@@ -221,7 +227,7 @@ const { logout, user } = useContext(AuthContext);
       setImportPreview(previewResponse.data);
       setPreviewRows(previewResponse.data.rows || []);
     } catch (error) {
-      setUploadError(error.response?.data?.message || 'No fue posible recalcular la previsualización.');
+      setUploadError(getApiErrorMessage(error, 'No fue posible recalcular la previsualización.'));
     } finally {
       setSyncing(false);
     }
@@ -301,8 +307,9 @@ const { logout, user } = useContext(AuthContext);
       setTimeout(() => setToast(null), 4500);
     } catch (err) {
       console.error(err);
-      setUploadError(err.response?.data?.message || 'Falló la sincronización de miembros.');
-      setToast({ type: 'error', text: err.response?.data?.message || 'Falló la sincronización.' });
+      const message = getApiErrorMessage(err, 'No fue posible sincronizar los miembros.');
+      setUploadError(message);
+      setToast({ type: 'error', text: message });
       setTimeout(() => setToast(null), 4500);
     } finally {
       setSyncing(false);
@@ -385,7 +392,7 @@ const { logout, user } = useContext(AuthContext);
       setGuardianFileHash(hash);
     } catch (error) {
       console.error(error);
-      setGuardianError(error.message || 'No fue posible leer la ficha de apoderados.');
+      setGuardianError('No fue posible leer la ficha de apoderados. Revisa que el archivo tenga un formato compatible.');
     } finally {
       event.target.value = '';
     }
@@ -409,7 +416,7 @@ const { logout, user } = useContext(AuthContext);
       });
       setTimeout(() => setToast(null), 5000);
     } catch (error) {
-      const message = error.response?.data?.message || 'No fue posible sincronizar la ficha de apoderados.';
+      const message = getApiErrorMessage(error, 'No fue posible sincronizar la ficha de apoderados.');
       setGuardianError(message);
       setToast({ type: 'error', text: message });
       setTimeout(() => setToast(null), 5000);
