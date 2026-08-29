@@ -38,6 +38,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Después de instalar, `scripts\estado.ps1` comprueba los servicios y `scripts\respaldo-ahora.ps1` crea un respaldo inmediato.
 
+La preparación definitiva con HTTPS se ejecuta una sola vez por soporte:
+
+```powershell
+.\scripts\preparar-servidor-recomendado.ps1
+```
+
+Después, un `git pull --ff-only origin main` exitoso en `main` realiza
+automáticamente respaldo, reconstrucción, migraciones y comprobación de salud.
+
 ## Desarrollo local
 
 Con Docker Desktop iniciado:
