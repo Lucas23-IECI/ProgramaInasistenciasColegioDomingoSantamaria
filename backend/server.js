@@ -43,7 +43,7 @@ const { createPunctualityRouter } = require('./routes/punctuality');
 const { createPunctualityPoliciesRouter } = require('./routes/punctualityPolicies');
 const { createVisitsRouter } = require('./routes/visits');
 const { createVisitsExtendedRouter } = require('./routes/visitsExtended');
-const { createOperationsRouter } = require('./routes/operations');
+const { createOperationsRouter, readBackupStatus } = require('./routes/operations');
 const { createVisitSettingsRouter } = require('./routes/visitSettings');
 const { createFamiliesRouter } = require('./routes/families');
 const { createStudentGovernanceRouter } = require('./routes/studentGovernance');
@@ -52,10 +52,12 @@ const { createStudentDocumentsRouter } = require('./routes/studentDocuments');
 const { createAnalyticsRouter } = require('./routes/analytics');
 const { createFollowUpRouter } = require('./routes/followUp');
 const { createInternalChatRouter } = require('./routes/internalChat');
+const { createNotificationsRouter } = require('./routes/notifications');
 const { startInstitutionalReportScheduler } = require('./services/institutionalReportScheduler');
 const { startInstitutionalFollowUpScheduler } = require('./services/institutionalFollowUpService');
 const { createChatRealtimeHub } = require('./services/chatRealtimeHub');
 const { startChatRetentionScheduler } = require('./services/chatRetentionService');
+const { startOperationalAlertScheduler } = require('./services/operationalAlertService');
 const {
   syncInstitutionalChannels,
   startInstitutionalChannelSyncScheduler
@@ -142,7 +144,10 @@ app.use(cors({
       return callback(null, true);
     }
     console.error(`[CORS REJECTED] Origin: ${origin}`);
-    callback(new Error('Not allowed by CORS'));
+    const corsError = new Error('Origen HTTP no autorizado.');
+    corsError.code = 'CORS_ORIGIN_DENIED';
+    corsError.statusCode = 403;
+    callback(corsError);
   },
   credentials: true
 }));
@@ -818,6 +823,15 @@ app.use('/api/seguimiento', createFollowUpRouter({
   getClientIp
 }));
 
+app.use('/api/notificaciones', createNotificationsRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp,
+  realtimeHub: chatRealtimeHub
+}));
+
 app.use('/api/chat', createInternalChatRouter({
   pool,
   verifyToken,
@@ -950,6 +964,42 @@ registerUserRoutes(routeContext);
 registerAuditRoutes(routeContext);
 registerProfileRoutes(routeContext);
 
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    message: 'La función solicitada no está disponible. Actualiza la página y vuelve a intentarlo.'
+  });
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+
+  const malformedJson = error?.type === 'entity.parse.failed'
+    || (error instanceof SyntaxError && error?.status === 400 && Object.hasOwn(error, 'body'));
+  const requestTooLarge = error?.type === 'entity.too.large' || error?.status === 413;
+
+  console.error(`[API] ${req.method} ${req.originalUrl}:`, error?.message || error);
+
+  if (malformedJson) {
+    return res.status(400).json({
+      message: 'La solicitud contiene datos con un formato no válido. Recarga la página e inténtalo nuevamente.'
+    });
+  }
+  if (requestTooLarge) {
+    return res.status(413).json({
+      message: 'La información enviada es demasiado grande. Reduce el tamaño del archivo e inténtalo nuevamente.'
+    });
+  }
+  if (error?.code === 'CORS_ORIGIN_DENIED') {
+    return res.status(403).json({
+      message: 'Esta dirección no está autorizada para conectarse al sistema.'
+    });
+  }
+
+  return res.status(500).json({
+    message: 'El servidor no pudo completar la acción. Inténtalo nuevamente y, si continúa, informa qué estabas haciendo.'
+  });
+});
+
 const ensureBaseData = async (isNewSchema) => {
   await pool.query(`
     INSERT INTO configuracion_asistencia (hora_entrada, hora_limite_atraso)
@@ -972,11 +1022,11 @@ const ensureBaseData = async (isNewSchema) => {
   if (!isNewSchema) return;
   const hash = await bcrypt.hash(getDefaultUserPassword(), 12);
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'lector', 'Lector Puerta', 'Portería', true) ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'lector', 'Lector Puerta', 'Portería', true) ON CONFLICT (LOWER(correo)) WHERE eliminado_en IS NULL DO NOTHING",
     ['lector@ldsm.local', hash]
   );
   await pool.query(
-    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'admin', 'Administrador General', 'Administrador/a del sistema', true) ON CONFLICT (correo) DO NOTHING",
+    "INSERT INTO usuarios (correo, password_hash, rol, nombre, cargo, debe_cambiar_password) VALUES ($1, $2, 'admin', 'Administrador General', 'Administrador/a del sistema', true) ON CONFLICT (LOWER(correo)) WHERE eliminado_en IS NULL DO NOTHING",
     ['admin@ldsm.local', hash]
   );
 };
@@ -993,6 +1043,7 @@ const startServer = async () => {
     startInstitutionalFollowUpScheduler(pool);
     startChatRetentionScheduler(pool);
     startInstitutionalChannelSyncScheduler(pool);
+    startOperationalAlertScheduler(pool, { readBackupStatus, realtimeHub: chatRealtimeHub });
   });
 };
 
