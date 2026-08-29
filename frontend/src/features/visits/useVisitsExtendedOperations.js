@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import { API_URL } from "../../config";
 import { useFeedback } from "../../context/FeedbackContext";
+import { getApiErrorMessage } from "../../utils/apiError";
 
 const blankPreregistration = () => ({
   visitante: { tipo_documento: "RUT", documento: "", nombre_completo: "", telefono: "" },
@@ -58,7 +59,7 @@ export default function useVisitsExtendedOperations({ permissions }) {
       const results = await Promise.all(calls);
       setData((current) => results.reduce((next, response, index) => ({ ...next, [keys[index]]: response.data }), { ...current }));
     } catch (error) {
-      notify(error.response?.data?.message || "No fue posible cargar la operación ampliada.", "error");
+      notify(getApiErrorMessage(error, "No fue posible cargar la operación ampliada."), "error");
     } finally { setLoading(false); }
   }, [notify, permissions]);
 
@@ -69,17 +70,20 @@ export default function useVisitsExtendedOperations({ permissions }) {
       try {
         const response = await axios.get(`${API_URL}/visitas/visitantes-operativos`, { params: { q: visitorQuery.trim() } });
         setVisitorResults(response.data || []);
-      } catch { setVisitorResults([]); }
+      } catch (error) {
+        setVisitorResults([]);
+        notify(getApiErrorMessage(error, "No fue posible buscar personas."), "error");
+      }
     }, 250);
     return () => clearTimeout(timer);
-  }, [permissions.restrictions, visitorQuery]);
+  }, [notify, permissions.restrictions, visitorQuery]);
 
   const run = async (request, success, reset) => {
     setSaving(true);
     try {
       const response = await request(); notify(success, "success"); reset?.(response.data); await load(); return response.data;
     } catch (error) {
-      notify(error.response?.data?.message || "No fue posible completar la operación.", "error"); return null;
+      notify(getApiErrorMessage(error, "No fue posible completar la operación."), "error"); return null;
     } finally { setSaving(false); }
   };
   const createPreregistration = () => {
@@ -93,7 +97,7 @@ export default function useVisitsExtendedOperations({ permissions }) {
   const validateQr = async () => {
     setSaving(true);
     try { setQrResult((await axios.post(`${API_URL}/visitas/preinscripciones/validar`, { token: qrToken })).data); }
-    catch (error) { setQrResult(null); notify(error.response?.data?.message || "No fue posible validar el código.", "error"); }
+    catch (error) { setQrResult(null); notify(getApiErrorMessage(error, "No fue posible validar el código."), "error"); }
     finally { setSaving(false); }
   };
   const useQr = () => run(() => axios.post(`${API_URL}/visitas/preinscripciones/ingresar`, { token: qrToken }), "Entrada registrada desde la credencial temporal.", () => { setQrToken(""); setQrResult(null); });

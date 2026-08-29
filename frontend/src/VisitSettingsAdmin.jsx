@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import ModuleHeader from './components/ModuleHeader';
+import { getApiErrorMessage } from './utils/apiError';
 
 const CATALOGS = {
   'motivos-visita': {
@@ -45,7 +46,7 @@ const VisitSettingsAdmin = () => {
       });
       setDrafts(normalized);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cargar la configuración.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar la configuración.'), 'error');
     }
   }, [notify]);
 
@@ -73,7 +74,7 @@ const VisitSettingsAdmin = () => {
       setData((current) => ({ ...current, general: response.data }));
       notify('Reglas operativas actualizadas.', 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible guardar las reglas.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible guardar las reglas.'), 'error');
     } finally {
       setSavingAction('');
     }
@@ -92,7 +93,7 @@ const VisitSettingsAdmin = () => {
       notify('Elemento actualizado.', 'success');
       await load();
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar el elemento.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar el elemento.'), 'error');
     } finally {
       setSavingAction('');
     }
@@ -115,7 +116,7 @@ const VisitSettingsAdmin = () => {
       notify('Elemento creado.', 'success');
       await load();
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible crear el elemento.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible crear el elemento.'), 'error');
     } finally {
       setSavingAction('');
     }

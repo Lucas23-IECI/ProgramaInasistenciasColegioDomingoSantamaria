@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import {
   ArrowRight,
+  BarChart3,
   BadgeCheck,
   Ban,
   CheckCircle2,
@@ -12,8 +13,10 @@ import {
   FileText,
   History,
   IdCard,
+  Link2,
   LogOut,
   MapPin,
+  MessageSquareText,
   PackageCheck,
   RefreshCw,
   Search,
@@ -45,6 +48,7 @@ import {
   todayIso,
 } from "./visitModel";
 import VisitsExtendedPanel from "./VisitsExtendedPanel";
+import { buildContextChatUrl } from "../../utils/chatContext";
 
 const Metric = ({ icon: Icon, value, label, tone, note, onClick }) => (
   <button
@@ -262,7 +266,6 @@ export function VisitsView(controller) {
     catalogs,
     summary,
     visits,
-    withdrawals,
     refreshing,
     visitForm,
     setVisitForm,
@@ -321,8 +324,14 @@ export function VisitsView(controller) {
     executeAction,
     deliverStudent,
     filteredVisits,
+    filteredWithdrawals,
     exportReport,
     handleLogout,
+    requestedVisitId,
+    requestedWithdrawalId,
+    requestedFrom,
+    requestedTo,
+    requestedMotive,
   } = controller;
 
   return (
@@ -354,6 +363,14 @@ export function VisitsView(controller) {
             Actualizar
           </button>
         </ModuleHeader>
+
+        {(requestedFrom || requestedTo || requestedMotive) && (
+          <div className="historical-detail-notice">
+            <BarChart3 size={20} />
+            <div><strong>Detalle solicitado desde Analítica</strong><span>{requestedFrom && requestedTo ? `${requestedFrom} a ${requestedTo}` : 'Período seleccionado'}{requestedMotive ? ` · Motivo: ${catalogs.motivos.find((item) => item.codigo === requestedMotive)?.nombre || catalogs.motivos_retiro.find((item) => item.codigo === requestedMotive)?.nombre || requestedMotive}` : ''}</span></div>
+            <button type="button" onClick={() => navigate('/admin/visitas')}>Quitar filtro</button>
+          </div>
+        )}
 
         <section className="visits-overview" data-tour="visits-summary">
           <div className="visits-overview__heading">
@@ -1330,7 +1347,10 @@ export function VisitsView(controller) {
                     ? "Personas dentro del establecimiento"
                     : "Historial de visitas"}
                 </h2>
-                <p>{filteredVisits.length} registros visibles</p>
+                <p>
+                  {filteredVisits.length}{" "}
+                  {filteredVisits.length === 1 ? "registro visible" : "registros visibles"}
+                </p>
               </div>
               {canExport && tab === "historial" && (
                 <button
@@ -1342,6 +1362,22 @@ export function VisitsView(controller) {
                 </button>
               )}
             </header>
+            {requestedVisitId && (
+              <div className="visit-origin-focus" role="status">
+                <Link2 size={20} aria-hidden="true" />
+                <div>
+                  <strong>Antecedente exacto del seguimiento</strong>
+                  <span>Se muestra solamente la visita que dio origen al caso.</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => navigate("/admin/visitas?tab=historial")}
+                >
+                  Ver historial completo
+                </button>
+              </div>
+            )}
             {tab === "historial" && (
               <div className="visit-list-filters">
                 <label>
@@ -1380,7 +1416,7 @@ export function VisitsView(controller) {
                 </div>
               )}
               {filteredVisits.map((visit) => (
-                <article className="visit-record" key={visit.id}>
+                <article id={`visita-${visit.id}`} className="visit-record" key={visit.id} data-highlight={String(visit.id) === String(requestedVisitId) || undefined}>
                   <div className="visit-record__person">
                     <span className="visit-avatar">
                       {visit.visitante.nombre_completo
@@ -1414,6 +1450,9 @@ export function VisitsView(controller) {
                     {stateLabel(visit.estado)}
                   </span>
                   <div className="visit-record__actions">
+                    <button type="button" className="secondary-action" onClick={() => navigate(buildContextChatUrl({ type: "VISITA", id: visit.id, name: `Visita de ${visit.visitante.nombre_completo}`, origin: `/admin/visitas?tab=historial&visita_id=${visit.id}`, originLabel: "Volver a la visita" }))}>
+                      <MessageSquareText size={16} /> Coordinar
+                    </button>
                     {visit.estado === "DENTRO" && canCheckout && (
                       <button
                         type="button"
@@ -1473,8 +1512,24 @@ export function VisitsView(controller) {
                 </button>
               )}
             </header>
+            {requestedWithdrawalId && (
+              <div className="visit-origin-focus" role="status">
+                <Link2 size={20} aria-hidden="true" />
+                <div>
+                  <strong>Antecedente exacto del seguimiento</strong>
+                  <span>Se muestra solamente la solicitud de retiro que dio origen al caso.</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => navigate("/admin/visitas?tab=retiros")}
+                >
+                  Ver todos los retiros
+                </button>
+              </div>
+            )}
             <div className="withdrawal-records">
-              {withdrawals.length === 0 && (
+              {filteredWithdrawals.length === 0 && (
                 <div className="visit-empty">
                   <UserCheck size={38} />
                   <strong>No hay solicitudes registradas</strong>
@@ -1483,11 +1538,13 @@ export function VisitsView(controller) {
                   </span>
                 </div>
               )}
-              {withdrawals.map((withdrawal) => (
+              {filteredWithdrawals.map((withdrawal) => (
                 <article
+                  id={`retiro-${withdrawal.id}`}
                   className="withdrawal-record"
                   key={withdrawal.id}
                   data-state={withdrawal.estado}
+                  data-highlight={String(withdrawal.id) === String(requestedWithdrawalId) || undefined}
                 >
                   <div className="withdrawal-record__head">
                     <span
@@ -1540,6 +1597,9 @@ export function VisitsView(controller) {
                     </span>
                   </div>
                   <div className="withdrawal-record__actions">
+                    <button type="button" className="secondary-action" onClick={() => navigate(buildContextChatUrl({ type: "RETIRO", id: withdrawal.id, name: `Retiro de ${studentName(withdrawal.estudiante)}`, origin: `/admin/visitas?tab=retiros&retiro_id=${withdrawal.id}`, originLabel: "Volver al retiro" }))}>
+                      <MessageSquareText size={17} /> Coordinar
+                    </button>
                     {withdrawal.estado === "SOLICITADO" &&
                       canApproveWithdrawal && (
                         <>

@@ -1,10 +1,11 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
 import { API_URL } from '../../config';
 import { AuthContext } from '../../context/AuthContext';
 import { useFeedback } from '../../context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from '../../permissions';
+import { getApiErrorMessage } from '../../utils/apiError';
 import {
   emptyVisit,
   emptyWithdrawal,
@@ -54,6 +55,12 @@ const navigate = useNavigate();
         ? 'retiros'
         : 'autorizaciones';
   const requestedTab = new URLSearchParams(window.location.search).get('tab');
+  const requestedVisitId = new URLSearchParams(window.location.search).get('visita_id');
+  const requestedWithdrawalId = new URLSearchParams(window.location.search).get('retiro_id');
+  const requestedFrom = new URLSearchParams(window.location.search).get('desde') || '';
+  const requestedTo = new URLSearchParams(window.location.search).get('hasta') || '';
+  const requestedMotive = new URLSearchParams(window.location.search).get('motivo') || '';
+  const focusHandledRef = useRef(false);
   const [tab, setTab] = useState(requestedTab || initialTab);
   const [catalogs, setCatalogs] = useState({
     motivos: [],
@@ -103,9 +110,20 @@ const navigate = useNavigate();
         axios.get(`${API_URL}/visitas/catalogos`, requestConfig),
         axios.get(`${API_URL}/visitas/resumen`, requestConfig)
       ];
-      const visitIndex = canView ? requests.push(axios.get(`${API_URL}/visitas?limit=100`, requestConfig)) - 1 : -1;
+      const analysisParams = {
+        desde: requestedFrom || undefined,
+        hasta: requestedTo || undefined,
+        motivo_codigo: requestedMotive || undefined
+      };
+      const visitIndex = canView ? requests.push(axios.get(`${API_URL}/visitas`, {
+        ...requestConfig,
+        params: { limit: 100, ...analysisParams, id: requestedVisitId || undefined }
+      })) - 1 : -1;
       const withdrawalIndex = canSeeWithdrawals
-        ? requests.push(axios.get(`${API_URL}/visitas/retiros`, requestConfig)) - 1
+        ? requests.push(axios.get(`${API_URL}/visitas/retiros`, {
+          ...requestConfig,
+          params: { ...analysisParams, id: requestedWithdrawalId || undefined }
+        })) - 1
         : -1;
       const responses = await Promise.all(requests);
       setCatalogs(responses[0].data);
@@ -113,14 +131,24 @@ const navigate = useNavigate();
       if (visitIndex >= 0) setVisits(responses[visitIndex].data.rows || []);
       if (withdrawalIndex >= 0) setWithdrawals(responses[withdrawalIndex].data || []);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible cargar el módulo de visitas.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible cargar el módulo de visitas.'), 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canSeeWithdrawals, canView, notify]);
+  }, [canSeeWithdrawals, canView, notify, requestedFrom, requestedMotive, requestedTo, requestedVisitId, requestedWithdrawalId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (loading || focusHandledRef.current || (!requestedVisitId && !requestedWithdrawalId)) return;
+    const targetId = requestedVisitId ? `visita-${requestedVisitId}` : `retiro-${requestedWithdrawalId}`;
+    setTab(requestedVisitId ? 'historial' : 'retiros');
+    focusHandledRef.current = true;
+    requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [loading, requestedVisitId, requestedWithdrawalId]);
 
   useEffect(() => {
     if (studentQuery.trim().length < 2) {
@@ -136,7 +164,7 @@ const navigate = useNavigate();
         });
         setStudentResults(response.data);
       } catch (error) {
-        notify(error.response?.data?.message || 'No fue posible buscar estudiantes.', 'error');
+        notify(getApiErrorMessage(error, 'No fue posible buscar estudiantes.'), 'error');
       } finally {
         setStudentSearching(false);
       }
@@ -158,7 +186,7 @@ const navigate = useNavigate();
         });
         setAuthorizationStudentResults(response.data);
       } catch (error) {
-        notify(error.response?.data?.message || 'No fue posible buscar estudiantes.', 'error');
+        notify(getApiErrorMessage(error, 'No fue posible buscar estudiantes.'), 'error');
       } finally {
         setAuthorizationStudentSearching(false);
       }
@@ -179,7 +207,7 @@ const navigate = useNavigate();
       });
       setAuthorizations(response.data || []);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible consultar las autorizaciones.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible consultar las autorizaciones.'), 'error');
     } finally {
       setAuthorizationsLoading(false);
     }
@@ -216,7 +244,7 @@ const navigate = useNavigate();
         notify('Documento nuevo. Completa el nombre para crear la ficha.', 'info');
       }
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible buscar a la persona.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible buscar a la persona.'), 'error');
     } finally {
       setLookupLoading(false);
     }
@@ -233,7 +261,7 @@ const navigate = useNavigate();
       setTab('presentes');
       await fetchData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar la visita.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar la visita.'), 'error');
     } finally {
       setSavingVisit(false);
     }
@@ -251,7 +279,7 @@ const navigate = useNavigate();
       notify('Salida registrada.', 'success');
       await fetchData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar la salida.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar la salida.'), 'error');
     }
   };
 
@@ -277,7 +305,7 @@ const navigate = useNavigate();
       setTab('retiros');
       await fetchData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible registrar el retiro.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible registrar el retiro.'), 'error');
     } finally {
       setSavingWithdrawal(false);
     }
@@ -300,7 +328,7 @@ const navigate = useNavigate();
       setAuthorizationMatches([]);
       await loadAuthorizations(authorizationStudent);
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible guardar la autorización.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible guardar la autorización.'), 'error');
     } finally {
       setSavingAuthorization(false);
     }
@@ -330,7 +358,7 @@ const navigate = useNavigate();
       setActionReason('');
       await fetchData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible completar la acción.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible completar la acción.'), 'error');
     } finally {
       setSavingAction(false);
     }
@@ -348,11 +376,12 @@ const navigate = useNavigate();
       notify('Entrega registrada con fecha, hora y responsable.', 'success');
       await fetchData({ quiet: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible confirmar la entrega.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible confirmar la entrega.'), 'error');
     }
   };
 
   const filteredVisits = useMemo(() => visits.filter((visit) => {
+    if (requestedVisitId && String(visit.id) !== String(requestedVisitId)) return false;
     if (tab === 'presentes' && visit.estado !== 'DENTRO') return false;
     if (historyState && visit.estado !== historyState) return false;
     const query = historyQuery.trim().toLowerCase();
@@ -363,7 +392,11 @@ const navigate = useNavigate();
       visit.destino_nombre,
       visit.persona_contactada
     ].some((value) => String(value || '').toLowerCase().includes(query));
-  }), [historyQuery, historyState, tab, visits]);
+  }), [historyQuery, historyState, requestedVisitId, tab, visits]);
+
+  const filteredWithdrawals = useMemo(() => withdrawals.filter((withdrawal) => (
+    !requestedWithdrawalId || String(withdrawal.id) === String(requestedWithdrawalId)
+  )), [requestedWithdrawalId, withdrawals]);
 
   const downloadResponse = (data, contentType, fileName) => {
     const url = URL.createObjectURL(new Blob([data], { type: contentType }));
@@ -406,7 +439,7 @@ const navigate = useNavigate();
       );
       notify(`Reporte ${format.toUpperCase()} generado correctamente.`, 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible generar el reporte.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible generar el reporte.'), 'error');
     } finally {
       setExportingFormat('');
     }
@@ -438,6 +471,11 @@ const navigate = useNavigate();
     canSeeWithdrawals,
     initialTab,
     requestedTab,
+    requestedVisitId,
+    requestedWithdrawalId,
+    requestedFrom,
+    requestedTo,
+    requestedMotive,
     tab,
     setTab,
     catalogs,
@@ -520,6 +558,7 @@ const navigate = useNavigate();
     executeAction,
     deliverStudent,
     filteredVisits,
+    filteredWithdrawals,
     downloadResponse,
     exportReport,
     handleLogout
