@@ -32,6 +32,7 @@ import { useFeedback } from './context/FeedbackContext';
 import AppSelect from './components/AppSelect';
 import StaffAvatar from './components/StaffAvatar';
 import { PERMISSIONS, hasPermission } from './permissions';
+import { getApiErrorMessage } from './utils/apiError';
 import './styles/users-permissions.css';
 
 const emptyUserForm = { nombre: '', cargo: '', correo: '', password: '', rol: '', permissions: [] };
@@ -322,7 +323,7 @@ const UsuariosAdmin = () => {
       setUsuarios(usersResponse.data);
       setCatalog(catalogResponse.data);
     } catch (requestError) {
-      setError(requestError.response?.data?.message || 'No se pudo cargar la administración de usuarios.');
+      setError(getApiErrorMessage(requestError, 'No fue posible cargar la administración de usuarios.'));
     } finally {
       setLoading(false);
     }
@@ -387,7 +388,7 @@ const UsuariosAdmin = () => {
       closeEditor();
       await loadData();
     } catch (requestError) {
-      setFormError(requestError.response?.data?.message || 'No fue posible guardar la cuenta.');
+      setFormError(getApiErrorMessage(requestError, 'No fue posible guardar la cuenta.'));
     } finally { setSaving(false); }
   };
 
@@ -403,7 +404,7 @@ const UsuariosAdmin = () => {
       await loadData();
       await refreshUser();
     } catch (requestError) {
-      setFormError(requestError.response?.data?.message || 'No fue posible guardar el perfil.');
+      setFormError(getApiErrorMessage(requestError, 'No fue posible guardar el perfil.'));
     } finally { setSaving(false); }
   };
 
@@ -413,7 +414,7 @@ const UsuariosAdmin = () => {
       setConfirmStatus(null);
       notify(active ? 'Cuenta activada.' : 'Cuenta desactivada.', 'success');
       await loadData();
-    } catch (requestError) { notify(requestError.response?.data?.message || 'No fue posible cambiar el estado.', 'error'); }
+    } catch (requestError) { notify(getApiErrorMessage(requestError, 'No fue posible cambiar el estado.'), 'error'); }
   };
 
   const deleteUser = async () => {
@@ -426,7 +427,7 @@ const UsuariosAdmin = () => {
       closeEditor();
       await loadData();
     } catch (requestError) {
-      setFormError(requestError.response?.data?.message || 'No fue posible eliminar la cuenta.');
+      setFormError(getApiErrorMessage(requestError, 'No fue posible eliminar la cuenta.'));
     } finally { setSaving(false); }
   };
 
@@ -442,7 +443,7 @@ const UsuariosAdmin = () => {
       closeEditor();
       await loadData();
     } catch (requestError) {
-      setFormError(requestError.response?.data?.message || 'No fue posible cambiar el estado del perfil.');
+      setFormError(getApiErrorMessage(requestError, 'No fue posible cambiar el estado del perfil.'));
     } finally { setSaving(false); }
   };
 
@@ -458,7 +459,7 @@ const UsuariosAdmin = () => {
       navigate('/admin/usuarios');
       await loadData();
     } catch (requestError) {
-      setFormError(requestError.response?.data?.message || 'No fue posible eliminar el perfil.');
+      setFormError(getApiErrorMessage(requestError, 'No fue posible eliminar el perfil.'));
     } finally { setSaving(false); }
   };
 

@@ -26,6 +26,7 @@ import StaffAvatar from './components/StaffAvatar';
 import { PERMISSIONS, hasPermission } from './permissions';
 import { resolveApiAssetUrl } from './utils/apiAssetUrl';
 import { blobAsDataUrl, validateProfileImageFile } from './utils/profileImageEditor';
+import { getApiErrorMessage, getSafeErrorMessage } from './utils/apiError';
 
 const STATUS_OPTIONS = [
   ['SIN_ESTADO', 'Sin estado'],
@@ -115,7 +116,7 @@ const StaffProfile = ({ directoryMode = false }) => {
     setLoading(true);
     axios.get(endpoint)
       .then(({ data }) => { if (active) applyProfile(data.profile); })
-      .catch((error) => { if (active) notify(error.response?.data?.message || 'No fue posible cargar el perfil.', 'error'); })
+      .catch((error) => { if (active) notify(getApiErrorMessage(error, 'No fue posible cargar el perfil.'), 'error'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [endpoint, notify]);
@@ -152,7 +153,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       await refreshUser();
       notify('Perfil actualizado.', 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar el perfil.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar el perfil.'), 'error');
     } finally {
       setSaving(false);
     }
@@ -175,7 +176,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       notify(data.message, 'success');
       setImageEditor(null);
     } catch (error) {
-      const message = error.response?.data?.message || error.message || 'No fue posible guardar la imagen.';
+      const message = getApiErrorMessage(error, getSafeErrorMessage(error, 'No fue posible guardar la imagen.'));
       notify(message, 'error');
       throw new Error(message, { cause: error });
     } finally {
@@ -192,7 +193,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       await validateProfileImageFile(file);
       setImageEditor({ category, file });
     } catch (error) {
-      notify(error.message || 'La imagen seleccionada no es válida.', 'error');
+      notify(getSafeErrorMessage(error, 'La imagen seleccionada no es válida.'), 'error');
     }
   };
 
@@ -208,7 +209,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       const file = new File([response.data], `${category}-actual.webp`, { type: mimeType });
       setImageEditor({ category, file, existing: true });
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible abrir la imagen para editarla.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible abrir la imagen para editarla.'), 'error');
     } finally {
       setMediaLoading('');
     }
@@ -230,7 +231,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       await refreshUser();
       notify('Imagen eliminada.', 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible quitar la imagen.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible quitar la imagen.'), 'error');
     } finally {
       setSaving(false);
     }
@@ -244,7 +245,7 @@ const StaffProfile = ({ directoryMode = false }) => {
       applyProfile(data.profile);
       notify(data.message, 'success');
     } catch (error) {
-      notify(error.response?.data?.message || 'No fue posible actualizar la configuración institucional.', 'error');
+      notify(getApiErrorMessage(error, 'No fue posible actualizar la configuración institucional.'), 'error');
     } finally {
       setSaving(false);
     }

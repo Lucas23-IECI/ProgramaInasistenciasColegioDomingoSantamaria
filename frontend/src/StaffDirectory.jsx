@@ -6,6 +6,7 @@ import { API_URL } from './config';
 import { useFeedback } from './context/FeedbackContext';
 import ModuleHeader from './components/ModuleHeader';
 import StaffAvatar from './components/StaffAvatar';
+import { getApiErrorMessage } from './utils/apiError';
 
 const STATUS_LABELS = {
   SIN_ESTADO: 'Sin estado',
@@ -51,7 +52,7 @@ const StaffDirectory = () => {
           setTotal(Number.isInteger(data.total) ? data.total : (data.rows || []).length);
         })
         .catch((error) => {
-          if (error.code !== 'ERR_CANCELED') notify(error.response?.data?.message || 'No fue posible cargar el directorio.', 'error');
+          if (error.code !== 'ERR_CANCELED') notify(getApiErrorMessage(error, 'No fue posible cargar el directorio.'), 'error');
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);

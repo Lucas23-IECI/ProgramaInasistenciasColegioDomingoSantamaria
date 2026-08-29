@@ -14,6 +14,7 @@ import {
   ZoomIn
 } from 'lucide-react';
 import { createCroppedImageBlob, PROFILE_IMAGE_OUTPUTS } from '../utils/profileImageEditor';
+import { getSafeErrorMessage } from '../utils/apiError';
 
 const EDITOR_COPY = Object.freeze({
   avatar: {
@@ -137,7 +138,7 @@ const ProfileImageEditor = ({ category, file, onCancel, onSave }) => {
       });
       await onSave(blob, { crop, zoom, rotation, pixelCrop });
     } catch (saveError) {
-      setError(saveError.message || 'No fue posible guardar la imagen. Tus ajustes se conservaron.');
+      setError(getSafeErrorMessage(saveError, 'No fue posible guardar la imagen. Tus ajustes se conservaron.'));
     } finally {
       setPending(false);
     }
