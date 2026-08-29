@@ -357,9 +357,15 @@ const createVisitsRouter = ({
       q = '',
       desde = '',
       hasta = '',
+      motivo_codigo: motiveCode = '',
+      id = '',
       page = '1',
       limit = '30'
     } = req.query;
+    const requestedId = id ? parsePositiveId(id) : null;
+    if (id && !requestedId) {
+      return res.status(400).json({ message: 'La visita indicada no es válida.' });
+    }
     if ((desde && !isIsoDate(desde)) || (hasta && !isIsoDate(hasta))) {
       return res.status(400).json({ message: 'El período indicado no es válido.' });
     }
@@ -373,6 +379,11 @@ const createVisitsRouter = ({
     const conditions = [];
     const params = [];
     let index = 1;
+
+    if (requestedId) {
+      conditions.push(`v.id = $${index++}`);
+      params.push(requestedId);
+    }
 
     if (estado) {
       conditions.push(`v.estado = $${index++}`);
@@ -397,6 +408,10 @@ const createVisitsRouter = ({
     if (hasta) {
       conditions.push(`v.ingreso_en < ($${index++}::date + interval '1 day')`);
       params.push(hasta);
+    }
+    if (motiveCode) {
+      conditions.push(`v.motivo_codigo = $${index++}`);
+      params.push(sanitizeText(motiveCode, 40).toUpperCase());
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -529,9 +544,8 @@ const createVisitsRouter = ({
         },
         ip: getClientIp(req)
       });
+      const created = await client.query(`${visitSelect} WHERE v.id = $1`, [visitId]);
       await client.query('COMMIT');
-
-      const created = await pool.query(`${visitSelect} WHERE v.id = $1`, [visitId]);
       res.status(201).json(mapVisit(created.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -580,8 +594,8 @@ const createVisitsRouter = ({
         detalle: { estado_anterior: 'DENTRO', estado_nuevo: 'FINALIZADA' },
         ip: getClientIp(req)
       });
+      const updated = await client.query(`${visitSelect} WHERE v.id = $1`, [id]);
       await client.query('COMMIT');
-      const updated = await pool.query(`${visitSelect} WHERE v.id = $1`, [id]);
       res.json(mapVisit(updated.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});

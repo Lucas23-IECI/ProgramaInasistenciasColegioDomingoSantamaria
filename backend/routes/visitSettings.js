@@ -120,7 +120,7 @@ const createVisitSettingsRouter = ({
     const catalog = CATALOGS[req.params.catalogo];
     const payload = parseCatalogPayload(req.body);
     if (!catalog || payload.code.length < 2 || payload.name.length < 2) {
-      return res.status(400).json({ message: 'Catálogo o datos inválidos.' });
+      return res.status(400).json({ message: 'Selecciona un catálogo válido y completa el código y nombre del elemento.' });
     }
     const client = await pool.connect();
     try {
@@ -157,7 +157,7 @@ const createVisitSettingsRouter = ({
     const code = normalizeCode(req.params.codigo);
     const payload = parseCatalogPayload({ ...req.body, codigo: code });
     if (!catalog || !code || payload.name.length < 2) {
-      return res.status(400).json({ message: 'Catálogo o datos inválidos.' });
+      return res.status(400).json({ message: 'Selecciona un elemento válido y completa su código y nombre.' });
     }
     const client = await pool.connect();
     try {

@@ -198,7 +198,7 @@ const createOperationsRouter = ({
   });
 
   router.get('/cierres/:fecha', verifyPermission('operations.view'), async (req, res) => {
-    if (!isIsoDate(req.params.fecha)) return res.status(400).json({ message: 'Fecha inválida.' });
+    if (!isIsoDate(req.params.fecha)) return res.status(400).json({ message: 'La fecha indicada no es válida. Selecciona una fecha del calendario.' });
     try {
       const result = await pool.query(`
         SELECT c.*, u.nombre AS cerrado_por_nombre, u.correo AS cerrado_por_correo
@@ -217,7 +217,7 @@ const createOperationsRouter = ({
   router.post('/cierres', verifyPermission('operations.close'), async (req, res) => {
     const date = req.body?.fecha;
     const observations = String(req.body?.observaciones || '').trim().slice(0, 1000) || null;
-    if (date && !isIsoDate(date)) return res.status(400).json({ message: 'Fecha inválida.' });
+    if (date && !isIsoDate(date)) return res.status(400).json({ message: 'La fecha indicada no es válida. Selecciona una fecha del calendario.' });
 
     const client = await pool.connect();
     try {

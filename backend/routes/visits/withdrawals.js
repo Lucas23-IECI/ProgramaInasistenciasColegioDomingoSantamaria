@@ -33,11 +33,42 @@ const registerWithdrawalRoutes = (context) => {
     'withdrawals.authorizations'
   ]), async (req, res) => {
     const state = sanitizeText(req.query.estado, 20).toUpperCase();
+    const from = String(req.query.desde || '');
+    const to = String(req.query.hasta || '');
+    const motiveCode = sanitizeText(req.query.motivo_codigo, 40).toUpperCase();
+    const requestedId = req.query.id ? parsePositiveId(req.query.id) : null;
+    if (req.query.id && !requestedId) {
+      return res.status(400).json({ message: 'El retiro indicado no es válido.' });
+    }
+    if ((from && !isIsoDate(from)) || (to && !isIsoDate(to))) {
+      return res.status(400).json({ message: 'El período indicado no es válido.' });
+    }
+    if (from && to) {
+      const range = validateDateRange(from, to, { maxDays: 366 });
+      if (range.error) return res.status(400).json({ message: range.error });
+    }
     const conditions = [];
     const params = [];
+    let index = 1;
+    if (requestedId) {
+      conditions.push(`r.id = $${index++}`);
+      params.push(requestedId);
+    }
     if (state) {
-      conditions.push('r.estado = $1');
+      conditions.push(`r.estado = $${index++}`);
       params.push(state);
+    }
+    if (from) {
+      conditions.push(`r.solicitado_en >= $${index++}::date`);
+      params.push(from);
+    }
+    if (to) {
+      conditions.push(`r.solicitado_en < ($${index++}::date + interval '1 day')`);
+      params.push(to);
+    }
+    if (motiveCode) {
+      conditions.push(`r.motivo_codigo = $${index++}`);
+      params.push(motiveCode);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     try {
@@ -256,8 +287,8 @@ const registerWithdrawalRoutes = (context) => {
         },
         ip: getClientIp(req)
       });
+      const created = await client.query(`${withdrawalSelect} WHERE r.id = $1`, [withdrawalId]);
       await client.query('COMMIT');
-      const created = await pool.query(`${withdrawalSelect} WHERE r.id = $1`, [withdrawalId]);
       res.status(201).json(mapWithdrawal(created.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -444,12 +475,11 @@ const registerWithdrawalRoutes = (context) => {
         },
         ip: getClientIp(req)
       });
-      await client.query('COMMIT');
-
-      const created = await pool.query(
+      const created = await client.query(
         `${withdrawalSelect} WHERE r.id = ANY($1::bigint[]) ORDER BY r.id`,
         [createdIds]
       );
+      await client.query('COMMIT');
       res.status(201).json({
         message: createdIds.length === 1
           ? 'Retiro registrado y entregado con trazabilidad.'
@@ -518,8 +548,8 @@ const registerWithdrawalRoutes = (context) => {
         },
         ip: getClientIp(req)
       });
+      const updated = await client.query(`${withdrawalSelect} WHERE r.id = $1`, [id]);
       await client.query('COMMIT');
-      const updated = await pool.query(`${withdrawalSelect} WHERE r.id = $1`, [id]);
       res.json(mapWithdrawal(updated.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -561,8 +591,8 @@ const registerWithdrawalRoutes = (context) => {
         detalle: { id_alumno: locked.rows[0].id_alumno, visitante_id: locked.rows[0].visitante_id },
         ip: getClientIp(req)
       });
+      const updated = await client.query(`${withdrawalSelect} WHERE r.id = $1`, [id]);
       await client.query('COMMIT');
-      const updated = await pool.query(`${withdrawalSelect} WHERE r.id = $1`, [id]);
       res.json(mapWithdrawal(updated.rows[0]));
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
