@@ -226,7 +226,7 @@ Evidencia ejecutada:
   botones con nombre accesible, modo oscuro, ayuda contextual y regreso desde el terminal.
 - RUT y teléfono se formatean progresivamente; las operaciones no se habilitan hasta
   completar los datos requeridos.
-- HTTPS local responde correctamente y entrega CSP, HSTS, protección de marcos,
+- HTTPS local responde correctamente y entrega CSP, protección de marcos,
   `nosniff`, política de referencia y política de permisos.
 - El respaldo vigente se puede leer desde el backend sin exponer los archivos privados.
 - No existen claves privadas, archivos operacionales, referencias al pegado accidental
