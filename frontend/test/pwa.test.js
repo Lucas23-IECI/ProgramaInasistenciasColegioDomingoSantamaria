@@ -33,8 +33,11 @@ test('el service worker tolera respuestas consumidas y prioriza bundles vigentes
 test('las actualizaciones esperan confirmación y conservan la cola IndexedDB', () => {
   const worker = read('public/sw.js');
   const registration = read('src/pwa/registerServiceWorker.js');
+  const release = read('src/releaseNotes.js');
   const workerVersion = worker.match(/const APP_VERSION = '([^']+)'/u)?.[1];
+  const releaseVersion = release.match(/id: '([^']+)'/u)?.[1];
   assert.match(workerVersion, /^\d{4}\.\d{2}\.\d{2}-[a-z0-9-]+$/u);
+  assert.equal(workerVersion, releaseVersion);
   assert.match(worker, /event\.data\?\.type === 'SKIP_WAITING'/u);
   assert.doesNotMatch(worker, /cache\.addAll\(APP_SHELL\)\)\.then\(\(\) => self\.skipWaiting/u);
   assert.match(registration, /updateAvailable: true/u);
@@ -52,6 +55,8 @@ test('la instalación visible funciona en escritorio, Android e iOS con el escud
   assert.match(experience, /Agregar a pantalla de inicio/u);
   assert.match(experience, /escudo-ldsm-concepcion\.jpg/u);
   assert.match(experience, /Aplicación instalada/u);
+  assert.match(experience, /La instalación está bloqueada en esta dirección/u);
+  assert.match(experience, /No se descargó ningún archivo/u);
   assert.match(tools, /Instalar aplicación/u);
 });
 
@@ -63,6 +68,7 @@ test('nginx sirve correctamente el manifiesto, actualizaciones y cámara del mis
     assert.match(nginx, /Permissions-Policy "camera=\(self\), microphone=\(\), geolocation=\(\)"/u);
     assert.doesNotMatch(nginx, /camera=\(\)/u);
   }
+  assert.doesNotMatch(read('frontend.https.conf'), /Strict-Transport-Security/u);
 });
 
 test('la cola sin conexión es FIFO y elimina operaciones ya reconciliadas', () => {
@@ -72,6 +78,23 @@ test('la cola sin conexión es FIFO y elimina operaciones ya reconciliadas', () 
   assert.match(store, /isDuplicateRegistrationError\(error\)/u);
   assert.doesNotMatch(store, /error\?\.response\?\.status === 409/u);
   assert.match(store, /store\.delete\(item\.offline_operation_id\)/u);
+  assert.match(store, /punctualitySyncHistory/u);
+  assert.match(store, /sync_status === 'FALLIDO'/u);
+  assert.match(store, /retryOfflineRegistration/u);
+  assert.match(store, /getOfflineQueueSnapshot/u);
+});
+
+test('la PWA muestra una bandeja paginada y permite reintentos seguros', () => {
+  const experience = read('src/components/PwaExperience.jsx');
+  const panel = read('src/components/OfflineSyncPanel.jsx');
+  assert.match(experience, /<OfflineSyncPanel/u);
+  assert.match(panel, /Bandeja de sincronización/u);
+  assert.match(panel, /Pendientes/u);
+  assert.match(panel, /Con error/u);
+  assert.match(panel, /Sincronizados/u);
+  assert.match(panel, /Página \{page\} de \{pages\}/u);
+  assert.match(panel, /retryOfflineRegistration/u);
+  assert.match(panel, /sin crear duplicados/u);
 });
 
 test('solo el terminal de puntualidad incorpora la cola diferida', () => {
@@ -79,6 +102,7 @@ test('solo el terminal de puntualidad incorpora la cola diferida', () => {
   assert.match(scanner, /queueOfflineRegistration/u);
   assert.match(scanner, /Pendiente de sincronización/u);
   assert.match(scanner, /flushOfflineRegistrations/u);
+  assert.match(scanner, /Revisar bandeja/u);
   assert.doesNotMatch(read('src/VisitsAdmin.jsx'), /queueOfflineRegistration/u);
 });
 
