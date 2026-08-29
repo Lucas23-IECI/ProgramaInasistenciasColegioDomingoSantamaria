@@ -1,5 +1,5 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { BellRing, Check, CircleHelp, ContactRound, Download, KeyRound, LogOut, MessageCircle, Moon, Newspaper, RefreshCw, Smartphone, Sun, UserRound } from 'lucide-react';
+import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react';
+import { CircleHelp, ContactRound, Download, KeyRound, LogOut, MessageCircle, Moon, Newspaper, RefreshCw, Smartphone, Sun, UserRound, WifiOff } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
@@ -9,6 +9,8 @@ import { useReleaseNotes } from '../context/ReleaseNotesContext';
 import StaffAvatar from './StaffAvatar';
 import { PwaContext } from '../context/PwaContext';
 import { showChatNotification, subscribeToChatRealtime } from '../pwa/chatRealtime';
+
+const NotificationCenter = lazy(() => import('./NotificationCenter'));
 
 const initialsFrom = (value) => String(value || 'Usuario')
   .split(/\s+/)
@@ -26,10 +28,8 @@ const GlobalTools = () => {
   const pwa = useContext(PwaContext);
   const [menuOpen, setMenuOpen] = useState(false);
   const [unreadChat, setUnreadChat] = useState(0);
-  const [followNotifications, setFollowNotifications] = useState([]);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
   const menuRef = useRef(null);
-  const notificationsRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const context = location.pathname === '/admin'
@@ -37,6 +37,17 @@ const GlobalTools = () => {
     : location.pathname === '/' || location.pathname === '/scanner'
       ? 'kiosk'
       : 'module';
+
+  useEffect(() => {
+    const markOnline = () => setOnline(true);
+    const markOffline = () => setOnline(false);
+    window.addEventListener('online', markOnline);
+    window.addEventListener('offline', markOffline);
+    return () => {
+      window.removeEventListener('online', markOnline);
+      window.removeEventListener('offline', markOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -70,27 +81,6 @@ const GlobalTools = () => {
     return () => { active = false; unsubscribe(); clearInterval(timer); };
   }, [user]);
 
-  useEffect(() => {
-    if (!user || !hasPermission(user, PERMISSIONS.FOLLOW_UP_VIEW)) return undefined;
-    let active = true;
-    const refresh = () => fetch('/api/seguimiento/notificaciones', { credentials: 'include', cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : [])
-      .then((data) => { if (active) setFollowNotifications(Array.isArray(data) ? data : []); })
-      .catch(() => {});
-    refresh();
-    const timer = setInterval(refresh, 60000);
-    const visibility = () => { if (document.visibilityState === 'visible') refresh(); };
-    document.addEventListener('visibilitychange', visibility);
-    return () => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', visibility); };
-  }, [user]);
-
-  useEffect(() => {
-    if (!notificationsOpen) return undefined;
-    const close = (event) => { if (!notificationsRef.current?.contains(event.target)) setNotificationsOpen(false); };
-    document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
-  }, [notificationsOpen]);
-
   if (!user) return null;
 
   const handleLogout = () => {
@@ -99,18 +89,14 @@ const GlobalTools = () => {
     navigate('/login');
   };
 
-  const openFollowNotification = async (notification) => {
-    if (!notification.leida_en) {
-      await fetch(`/api/seguimiento/notificaciones/${notification.id_notificacion}/leer`, { method: 'PATCH', credentials: 'include' }).catch(() => {});
-      setFollowNotifications((current) => current.map((item) => item.id_notificacion === notification.id_notificacion ? { ...item, leida_en: new Date().toISOString() } : item));
-    }
-    setNotificationsOpen(false);
-    navigate(notification.enlace || '/admin/seguimiento');
-  };
-
-  const unreadFollow = followNotifications.filter((notification) => !notification.leida_en).length;
-
   return (
+    <>
+    {!online && (
+      <aside className="global-connectivity-alert" role="status" aria-live="polite">
+        <WifiOff size={18} />
+        <span><strong>Sin conexión con la red</strong><small>Solo el terminal de puntualidad puede guardar ingresos pendientes. Las demás operaciones esperan hasta recuperar la conexión.</small></span>
+      </aside>
+    )}
     <nav className="global-tools" data-context={context} aria-label="Herramientas globales" data-tour="global-tools">
       <button
         type="button"
@@ -143,15 +129,9 @@ const GlobalTools = () => {
           {unreadChat > 0 && <span className="global-tool-badge">{unreadChat > 99 ? '99+' : unreadChat}</span>}
         </button>
       )}
-      {hasPermission(user, PERMISSIONS.FOLLOW_UP_VIEW) && (
-        <div className="global-notifications" ref={notificationsRef}>
-          <button type="button" className="global-tool-button global-tool-button--notifications" onClick={() => setNotificationsOpen((open) => !open)} aria-expanded={notificationsOpen} aria-label={`Avisos de seguimiento${unreadFollow ? `, ${unreadFollow} sin leer` : ''}`} title="Avisos de seguimiento">
-            <BellRing size={19} />
-            {unreadFollow > 0 && <span className="global-tool-badge">{unreadFollow > 99 ? '99+' : unreadFollow}</span>}
-          </button>
-          {notificationsOpen && <section className="global-notifications-panel" aria-label="Avisos de seguimiento"><header><div><span className="section-kicker">Seguimiento</span><h2>Avisos asignados</h2></div><span>{unreadFollow} sin leer</span></header><div>{followNotifications.length === 0 ? <p className="global-notifications-panel__empty">No tienes avisos pendientes.</p> : followNotifications.slice(0, 12).map((notification) => <button type="button" key={notification.id_notificacion} className={notification.leida_en ? '' : 'is-unread'} onClick={() => openFollowNotification(notification)}><span>{notification.leida_en ? <Check size={15} /> : <BellRing size={15} />}</span><div><strong>{notification.titulo}</strong><p>{notification.detalle}</p><time>{new Intl.DateTimeFormat('es-CL', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.creada_en))}</time></div></button>)}</div><footer><button type="button" onClick={() => { setNotificationsOpen(false); navigate('/admin/seguimiento'); }}>Abrir Seguimiento institucional</button></footer></section>}
-        </div>
-      )}
+      <Suspense fallback={null}>
+        <NotificationCenter user={user} />
+      </Suspense>
       {(pwa.updateAvailable || !pwa.installed) && (
         <button
           type="button"
@@ -210,6 +190,7 @@ const GlobalTools = () => {
         )}
       </div>
     </nav>
+    </>
   );
 };
 

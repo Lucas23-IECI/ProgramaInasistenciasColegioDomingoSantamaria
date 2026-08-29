@@ -79,6 +79,7 @@ export const PERMISSIONS = {
   CHAT_URGENT: 'chat.urgent',
   CHAT_ATTACH: 'chat.attach',
   CHAT_MODERATE: 'chat.moderate',
+  NOTIFICATIONS_SEND: 'notifications.send',
 };
 
 export const ADMIN_MODULE_PERMISSIONS = [
@@ -152,6 +153,7 @@ export const ADMIN_MODULE_PERMISSIONS = [
   PERMISSIONS.CHAT_URGENT,
   PERMISSIONS.CHAT_ATTACH,
   PERMISSIONS.CHAT_MODERATE,
+  PERMISSIONS.NOTIFICATIONS_SEND,
 ];
 
 export const hasPermission = (user, permission) => Array.isArray(user?.permissions)
