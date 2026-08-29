@@ -1,12 +1,12 @@
-import { BarChart3, ClipboardList, ContactRound, FolderArchive, HeartHandshake, Image, MessageCircle, ScanText, ShieldCheck, UserRound, UsersRound, Wifi } from 'lucide-react';
+import { BarChart3, BellRing, ClipboardList, ContactRound, FolderArchive, HeartHandshake, Image, MessageCircle, ScanText, ShieldCheck, UserRound, UsersRound, Wifi } from 'lucide-react';
 
 // Cambia este identificador cada vez que una actualización deba anunciarse al iniciar.
 export const CURRENT_RELEASE = {
-  id: '2026.08.09-seguimiento-chat-v1',
+  id: '2026.08.28-cierre-operativo-v1',
   label: 'Actualización de agosto 2026',
-  date: '9 de agosto de 2026',
-  title: 'Gestión institucional, analítica y operación resiliente',
-  summary: 'El sistema incorpora seguimiento institucional coordinado, chat interno vinculado al trabajo, perfiles personales, convivencia protegida, expedientes documentales y operación resiliente.',
+  date: '28 de agosto de 2026',
+  title: 'Analítica, alertas y continuidad verificables',
+  summary: 'El sistema conecta la analítica con sus registros, conserva reportes descargables, amplía alertas y notificaciones auditables, y permite revisar la cola segura de Portería durante cortes de conexión.',
   sections: [
     {
       icon: UserRound,
@@ -56,7 +56,7 @@ export const CURRENT_RELEASE = {
     {
       icon: Wifi,
       title: 'Aplicación instalable y continuidad de Portería',
-      description: 'Puede instalarse con el escudo oficial en computador o celular, avisa cuando existe una nueva versión y permite encolar temporalmente registros de puntualidad durante cortes breves sin duplicarlos.',
+      description: 'Puede instalarse con el escudo oficial, avisa cuando existe una nueva versión y muestra una bandeja con ingresos pendientes, fallidos y sincronizados, incluido el reintento seguro sin duplicarlos.',
     },
     {
       icon: ClipboardList,
@@ -66,7 +66,12 @@ export const CURRENT_RELEASE = {
     {
       icon: MessageCircle,
       title: 'Chat interno vinculado al trabajo',
-      description: 'Crea conversaciones directas, grupos y canales; menciona al equipo, fija antecedentes, envía mensajes urgentes y reutiliza la conversación asociada a cada seguimiento.',
+      description: 'Crea conversaciones directas, grupos y canales; separa mensajes por día, muestra mejor los no leídos y guarda cada adjunto junto con su mensaje para evitar registros incompletos.',
+    },
+    {
+      icon: BellRing,
+      title: 'Notificaciones dirigidas al equipo',
+      description: 'Dirección puede enviar avisos a personas seleccionadas. Cada destinatario los ve dentro de la aplicación y puede habilitar avisos del navegador cuando el sistema usa HTTPS.',
     },
   ],
 };

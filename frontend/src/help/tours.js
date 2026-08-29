@@ -12,7 +12,7 @@ const commonToolsStep = {
   element: '[data-tour="global-tools"]',
   popover: {
     title: 'Herramientas globales',
-    description: 'Desde aquí puedes repetir esta ayuda, cambiar el tema visual y administrar tu sesión.',
+    description: 'Desde aquí puedes repetir esta ayuda, cambiar el tema, abrir el chat y las notificaciones, instalar la aplicación o administrar tu sesión según tus permisos.',
     side: 'bottom',
     align: 'end',
   },
@@ -96,6 +96,14 @@ const tours = {
         popover: {
           title: 'Panel institucional',
           description: 'Este espacio resume el contexto de trabajo y los módulos disponibles para tu perfil.',
+          side: 'bottom',
+        },
+      },
+      {
+        element: '[data-tour="role-overview"]',
+        popover: {
+          title: 'Prioridades de tu jornada',
+          description: 'Resume tareas reales según tu cargo y permisos. Dirección también compara las dos mitades del mes y puede abrir el historial completo de avisos enviados.',
           side: 'bottom',
         },
       },
@@ -209,9 +217,58 @@ const tours = {
     steps: [commonHeaderStep, {
       element: '[data-tour="analytics-filters"]',
       popover: {
-        title: 'Filtros del análisis',
-        description: 'Ajusta el período, curso y clasificación para actualizar todos los indicadores.',
+        title: 'Período y filtros',
+        description: 'El período se aplica a toda la página. Curso, justificación y severidad filtran los indicadores de puntualidad y las exportaciones; visitas, retiros y Convivencia permanecen institucionales dentro de esas mismas fechas.',
         side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="analytics-summary"]',
+      popover: {
+        title: 'Resumen de puntualidad registrada',
+        description: 'Estos indicadores cuentan únicamente ingresos realmente registrados. Los cuatro se pueden abrir y conservan el período, curso, justificación y severidad visibles.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="analytics-daily-chart"]',
+      popover: {
+        title: 'Evolución diaria interactiva',
+        description: 'Cambia entre línea, barras o tabla. Puedes mostrar cantidades, fijar un día con clic, toque o Enter y luego abrir exactamente sus registros.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="analytics-breakdowns"]',
+      popover: {
+        title: 'Distribución y cursos',
+        description: 'Compara rangos de minutos y cursos. Cada fila abre los registros exactos que la componen; la lista de cursos se pagina cuando supera ocho resultados.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="analytics-recurrence"]',
+      popover: {
+        title: 'Recurrencia observada',
+        description: 'Muestra estudiantes con atrasos dentro del alcance activo. “Ver registros” abre solamente los ingresos de esa persona en el período; no es un diagnóstico ni una inferencia de asistencia.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="analytics-institutional"]',
+      popover: {
+        title: 'Analítica institucional explicable',
+        description: 'Reúne puntualidad filtrada, visitas, retiros y Convivencia. Sus indicadores y barras abren las listas reales filtradas; cada módulo vuelve a comprobar tus permisos antes de mostrar datos.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="analytics-export"]',
+      popover: {
+        title: 'Exportar el alcance actual',
+        description: 'PDF y Excel conservan el período, curso, justificación y severidad visibles. El archivo declara también qué secciones siguen mostrando totales institucionales.',
+        side: 'left',
+      },
+    }, {
+      element: '[data-tour="analytics-schedules"]',
+      popover: {
+        title: 'Reportes automáticos',
+        description: 'Programa un informe del período anterior cerrado. El historial conserva resultado y archivo; permite descargar ejecuciones correctas y reintentar fallos con una causa clara. No reutiliza filtros temporales de pantalla.',
+        side: 'top',
       },
     }, commonToolsStep],
   },
@@ -303,7 +360,7 @@ const tours = {
       element: '[data-tour="visits-list"]',
       popover: {
         title: 'Personas dentro',
-        description: 'Registra la salida desde esta lista. El sistema conserva la hora, la cuenta responsable y la trazabilidad.',
+        description: 'Registra la salida desde esta lista. Si llegas desde Seguimiento, la pantalla aísla la visita o el retiro exacto y ofrece volver al historial completo sin perder trazabilidad.',
         side: 'top',
       },
     }, {
@@ -317,18 +374,39 @@ const tours = {
   },
   '/admin/convivencia': {
     title: 'Recorrido de convivencia escolar',
-    steps: [commonHeaderStep, {
+    steps: [{
+      element: '[data-tour="page-header"]',
+      popover: {
+        title: 'Convivencia escolar protegida',
+        description: 'Este módulo reúne situaciones, actuaciones y documentos reservados. Las acciones disponibles dependen de tus permisos y cada modificación queda trazada.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="coexistence-alerts"]',
+      popover: {
+        title: 'Avisos automáticos y privados',
+        description: 'Las revisiones vencidas avisan al responsable. Un caso urgente sin una cuenta responsable activa avisa solamente a quienes pueden consultar Convivencia. El sistema evita repetir el mismo aviso mientras el problema siga abierto.',
+        side: 'bottom',
+      },
+    }, {
       element: '[data-tour="coexistence-summary"]',
       popover: {
-        title: 'Situacion protegida de los casos',
-        description: 'Los indicadores abren los casos activos, urgentes o con revisión pendiente sin exponer antecedentes a perfiles no autorizados.',
+        title: 'Situación protegida de los casos',
+        description: 'Los indicadores filtran casos activos, en seguimiento, con revisión pendiente o cerrados durante el mes. Las cifras no exponen antecedentes a perfiles no autorizados.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="coexistence-filters"]',
+      popover: {
+        title: 'Búsqueda y filtros',
+        description: 'Busca por código, título o persona vinculada y combina estado y prioridad. El resumen y los filtros siempre actúan sobre la misma bandeja paginada.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="coexistence-cases"]',
       popover: {
         title: 'Bandeja institucional',
-        description: 'Busca y filtra casos por estado o prioridad. Solo las cuentas con permisos explícitos pueden consultar esta información.',
+        description: 'Abre la ficha reservada para revisar responsable, próxima revisión y actividad. Solo las cuentas con permisos explícitos pueden consultar esta información.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -339,14 +417,14 @@ const tours = {
       element: '[data-tour="documents-summary"]',
       popover: {
         title: 'Estado de los expedientes',
-        description: 'Revisa documentos activos, vencimientos, propuestas OCR pendientes y versiones que todavía no tienen firma interna.',
+        description: 'Revisa documentos activos, vencimientos, propuestas OCR pendientes y versiones sin firma interna. Un documento vencido o próximo a vencer puede abrir un único seguimiento y aviso vigente, con enlace a su ficha.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="documents-student-search"]',
       popover: {
         title: 'Expediente por estudiante',
-        description: 'Busca a una persona para consultar, incorporar o generar documentos dentro de su expediente protegido.',
+        description: 'Busca a una persona para consultar o incorporar archivos protegidos. Los PDF generados desde plantilla nacen pendientes y deben revisarse antes de marcarlos vigentes o firmarlos.',
         side: 'bottom',
       },
     }, {
@@ -426,6 +504,13 @@ const tours = {
   '/admin/seguimiento': {
     title: 'Recorrido de seguimiento institucional',
     steps: [commonHeaderStep, {
+      element: '[data-tour="follow-automation-actions"]',
+      popover: {
+        title: 'Reglas con confirmación explícita',
+        description: 'Configura umbrales, plazos, responsables y escalamiento. “Revisar ahora” solo previsualiza las condiciones detectadas; los casos se crean o actualizan después de una confirmación separada.',
+        side: 'bottom',
+      },
+    }, {
       element: '[data-tour="follow-summary"]',
       popover: {
         title: 'Prioridades operativas',
@@ -447,14 +532,14 @@ const tours = {
       element: '[data-tour="chat-sidebar"]',
       popover: {
         title: 'Conversaciones institucionales',
-        description: 'Busca conversaciones o mensajes y crea comunicaciones directas, grupales o vinculadas al trabajo según tus permisos.',
+        description: 'Busca conversaciones o mensajes y crea comunicaciones directas, grupales, canales o chats vinculados al trabajo según tus permisos. La política de retención permanece desactivada hasta que se apruebe y guarde expresamente.',
         side: 'right',
       },
     }, {
       element: '[data-tour="chat-thread"]',
       popover: {
         title: 'Coordinación con trazabilidad',
-        description: 'Envía mensajes, menciona integrantes, fija antecedentes relevantes y ajusta tus notificaciones sin usar cuentas personales.',
+        description: 'Envía mensajes, adjunta archivos, menciona integrantes y fija antecedentes. Un chat contextual identifica el registro relacionado y permite volver directamente al estudiante, visita, retiro, caso o documento original.',
         side: 'left',
       },
     }, commonToolsStep],
@@ -465,7 +550,7 @@ const tours = {
       element: '[data-tour="scanner-status"]',
       popover: {
         title: 'Elige cómo registrar',
-        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según los permisos de tu cuenta.',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos.',
         side: 'bottom',
       },
     }, {
@@ -490,7 +575,7 @@ const tours = {
       element: '[data-tour="scanner-status"]',
       popover: {
         title: 'Elige cómo registrar',
-        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según los permisos de tu cuenta.',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos.',
         side: 'bottom',
       },
     }, {
@@ -515,19 +600,40 @@ export const getTourForPath = (pathname) => {
   if (/^\/admin\/usuarios\/[^/]+$/.test(pathname)) return profileDetailTour;
   if (/^\/admin\/convivencia\/\d+$/.test(pathname)) return {
     title: 'Recorrido del caso de convivencia',
-    steps: [commonHeaderStep, {
+    steps: [{
+      element: '[data-tour="page-header"]',
+      popover: {
+        title: 'Ficha reservada del caso',
+        description: 'El encabezado identifica el código, categoría, prioridad y estado sin sacar información del entorno protegido.',
+        side: 'bottom',
+      },
+    }, {
       element: '[data-tour="coexistence-actions"]',
       popover: {
-        title: 'Acciones controladas',
-        description: 'Edita, cierra o reabre el caso según tus permisos. Cada cambio queda trazado sin copiar relatos sensibles en la auditoría general.',
+        title: 'Acciones y coordinación',
+        description: 'Según tus permisos puedes coordinar por chat, editar la ficha, registrar actuaciones, adjuntar documentos o cerrar y reabrir el caso. Cada cambio queda trazado sin copiar relatos sensibles en la auditoría general.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="coexistence-facts"]',
+      popover: {
+        title: 'Responsabilidad y próxima revisión',
+        description: 'Aquí se muestran la cuenta responsable, la próxima revisión, las personas vinculadas y la actividad. Estos datos determinan cuándo corresponde emitir un aviso automático.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="coexistence-timeline"]',
       popover: {
         title: 'Historial del caso',
-        description: 'Registra medidas, entrevistas, mediaciones, acuerdos, seguimientos, derivaciones y revisiones en orden cronologico.',
+        description: 'Registra medidas, entrevistas, mediaciones, acuerdos, seguimientos, derivaciones y revisiones en orden cronológico. Una nueva fecha de revisión reemplaza el vencimiento anterior.',
         side: 'top',
+      },
+    }, {
+      element: '[data-tour="coexistence-protected-data"]',
+      popover: {
+        title: 'Personas y documentos protegidos',
+        description: 'Las personas vinculadas y los archivos permanecen dentro del caso. La descarga exige permiso específico y deja trazabilidad institucional.',
+        side: 'left',
       },
     }, commonToolsStep],
   };
@@ -537,7 +643,7 @@ export const getTourForPath = (pathname) => {
       element: '[data-tour="documents-student-file"]',
       popover: {
         title: 'Ficha documental del estudiante',
-        description: 'Consulta la identidad, incorpora archivos protegidos o genera un PDF desde una plantilla institucional.',
+        description: 'Consulta la identidad, coordina por chat, incorpora archivos protegidos o genera un PDF pendiente de revisión desde una plantilla institucional.',
         side: 'bottom',
       },
     }, {
@@ -573,7 +679,7 @@ export const getTourForPath = (pathname) => {
       element: '[data-tour="follow-detail"]',
       popover: {
         title: 'Historia completa del caso',
-        description: 'Consulta el motivo, la prioridad y la línea de tiempo; registra notas, tareas, contactos y acuerdos antes de cerrar o escalar el seguimiento.',
+        description: 'Consulta el motivo, la prioridad, el antecedente exacto y la línea de tiempo. Desde aquí puedes volver al registro de origen, coordinar por chat, notificar al responsable y registrar notas, tareas, contactos o acuerdos antes de cerrar o escalar.',
         side: 'top',
       },
     }, commonToolsStep],

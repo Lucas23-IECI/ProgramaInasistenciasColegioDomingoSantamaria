@@ -1,8 +1,19 @@
-import { createContext, useCallback, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router';
-import { driver } from 'driver.js';
-import 'driver.js/dist/driver.css';
 import { getTourForPath } from '../help/tours';
+import { useFeedback } from './FeedbackContext';
+
+let loadDriverPromise;
+const loadTourDriver = () => {
+  loadDriverPromise ||= Promise.all([
+    import('driver.js'),
+    import('driver.js/dist/driver.css'),
+  ]).then(([module]) => module.driver).catch((error) => {
+    loadDriverPromise = undefined;
+    throw error;
+  });
+  return loadDriverPromise;
+};
 
 const HelpTourContext = createContext({
   available: false,
@@ -11,10 +22,23 @@ const HelpTourContext = createContext({
 
 export const HelpTourProvider = ({ children }) => {
   const location = useLocation();
+  const { notify } = useFeedback();
+  const isStartingRef = useRef(false);
   const tour = useMemo(() => getTourForPath(location.pathname), [location.pathname]);
 
-  const startTour = useCallback(() => {
-    if (!tour?.steps?.length) return;
+  const startTour = useCallback(async () => {
+    if (!tour?.steps?.length || isStartingRef.current) return;
+    isStartingRef.current = true;
+
+    let driver;
+    try {
+      driver = await loadTourDriver();
+    } catch {
+      notify('No fue posible abrir la ayuda. Comprueba la conexión y vuelve a intentarlo.', 'error');
+      return;
+    } finally {
+      isStartingRef.current = false;
+    }
 
     const instance = driver({
       animate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -39,7 +63,7 @@ export const HelpTourProvider = ({ children }) => {
     });
 
     instance.drive();
-  }, [location.pathname, tour]);
+  }, [location.pathname, notify, tour]);
 
   const value = useMemo(() => ({
     available: Boolean(tour?.steps?.length),
