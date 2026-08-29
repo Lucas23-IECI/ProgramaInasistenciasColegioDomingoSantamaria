@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   MANUAL_IDENTITY_TYPES,
@@ -7,6 +10,8 @@ import {
   resolveManualIdentityCountry,
   validateManualIdentityForm,
 } from '../src/utils/studentIdentity.js';
+
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 test('el alta manual formatea RUN y conserva documentos extranjeros', () => {
   assert.equal(
@@ -47,4 +52,12 @@ test('admite un país no listado mediante su código ISO alfa-3', () => {
 
   assert.equal(validateManualIdentityForm(form), '');
   assert.equal(resolveManualIdentityCountry(form), 'DEU');
+});
+
+test('el lector MRZ funciona localmente sin subir imágenes ni abrir la cámara', () => {
+  const source = fs.readFileSync(
+    path.join(testDirectory, '..', 'src', 'components', 'PassportMrzPanel.jsx'),
+    'utf8'
+  );
+  assert.doesNotMatch(source, /FormData|type="file"|getUserMedia/u);
 });

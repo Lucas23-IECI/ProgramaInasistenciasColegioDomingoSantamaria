@@ -29,6 +29,8 @@ test('el terminal bloquea entradas online sin control y conserva la selección m
   assert.match(source, /const canAttemptRegistration = isOffline \|\| Boolean\(controlState\.actual \|\| isManualControl\)/u);
   assert.match(source, /disabled=\{!canAttemptRegistration\}/u);
   assert.match(source, /Selecciona un control horario para habilitar el registro/u);
+  assert.match(source, /!res\.data\.control && !isManualControl/u);
+  assert.doesNotMatch(source, /Ya registrado hoy/u);
 });
 
 test('la analítica pagina todos los cursos y enlaza sus atrasos al detalle', () => {

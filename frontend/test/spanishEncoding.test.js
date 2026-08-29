@@ -43,7 +43,7 @@ const incorrectSpanishPhrases = [
 const collectFiles = (directory, output = []) => {
   if (!fs.existsSync(directory)) return output;
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
+    if (entry.isDirectory() && (excludedDirectories.has(entry.name) || entry.name.startsWith('dist-'))) continue;
     const absolute = path.join(directory, entry.name);
     if (entry.isDirectory()) collectFiles(absolute, output);
     else if (extensions.has(path.extname(entry.name).toLowerCase())) output.push(absolute);
