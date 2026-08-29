@@ -1,32 +1,56 @@
 const ACTIVE_CASE_STATES = ['ABIERTO', 'ASIGNADO', 'EN_CONTACTO', 'EN_SEGUIMIENTO', 'ESCALADO'];
 const PRIORITY_RANK = { BAJA: 1, MEDIA: 2, ALTA: 3, URGENTE: 4 };
 
-const signal = ({ rule, key, dedupeKey = null, entityType, entityId, studentId = null, occurrences = 1, title, reason, data = {} }) => ({
+const originForSignal = (entityType, entityId, studentId = null) => {
+  const value = encodeURIComponent(String(entityId));
+  const studentValue = studentId ? encodeURIComponent(String(studentId)) : null;
+  const origins = {
+    ESTUDIANTE: { etiqueta: 'Ficha del estudiante', enlace: `/admin/estudiantes?estudiante_id=${value}` },
+    FAMILIA: { etiqueta: 'Ficha familiar', enlace: `/admin/familias?estudiante_id=${studentValue || value}` },
+    VISITA: { etiqueta: 'Registro de visita', enlace: `/admin/visitas?tab=historial&visita_id=${value}` },
+    RETIRO: { etiqueta: 'Solicitud de retiro', enlace: `/admin/visitas?tab=retiros&retiro_id=${value}` },
+    REGISTRO_PUNTUALIDAD: { etiqueta: 'Ingreso procesado', enlace: `/admin/atrasos?registro_id=${value}` },
+    CONFLICTO_IDENTIDAD: { etiqueta: 'Conflicto de identidad', enlace: `/admin/gobierno-datos?conflicto_id=${value}` },
+    POSIBLE_DUPLICADO: { etiqueta: 'Gobierno de datos', enlace: `/admin/gobierno-datos?estudiante_id=${studentValue || value}` },
+    DOCUMENTO_ESTUDIANTE: { etiqueta: 'Documento del expediente', enlace: `/admin/documentos/ficha/${value}` },
+    CONVIVENCIA: { etiqueta: 'Caso reservado de Convivencia', enlace: `/admin/convivencia/${value}`, permiso: 'convivencia.view' }
+  };
+  return origins[entityType] || { etiqueta: 'Registro de origen', enlace: studentValue ? `/admin/estudiantes?estudiante_id=${studentValue}` : null };
+};
+
+const signal = ({ rule, key, dedupeKey = null, entityType, entityId, studentId = null, relatedStudentIds = [], occurrences = 1, title, reason, data = {} }) => ({
   rule,
   key: String(key),
   dedupeKey,
   entityType,
   entityId: String(entityId),
   studentId,
+  relatedStudentIds: [...new Set(relatedStudentIds.map(Number).filter(Number.isSafeInteger))],
   occurrences: Number(occurrences) || 1,
   title,
   reason,
-  data
+  data: { ...data, origen: data.origen || originForSignal(entityType, entityId, studentId) }
 });
 
 const collectSignals = async (queryable, rules) => {
   const latenessRules = [...rules.values()].filter((rule) => (
     rule.activa && rule.tipo_senal === 'ATRASOS' && Number(rule.ventana_dias) > 0
   ));
+  const documentWindowDays = Math.max(1, Number(rules.get('DOCUMENTO_POR_VENCER')?.ventana_dias) || 30);
   const [
     manualStudents,
     withoutCourse,
     withoutGuardian,
+    familyContactIncomplete,
     withdrawals,
     openVisits,
     openWithdrawals,
     pendingJustifications,
-    identityConflicts
+    identityConflicts,
+    expiredDocuments,
+    expiringDocuments,
+    possibleDuplicates,
+    criticalCoexistence
   ] = await Promise.all([
     queryable.query(`
       SELECT a.id_alumno, trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
@@ -50,6 +74,25 @@ const collectSignals = async (queryable, rules) => {
           WHERE p.id_alumno = a.id_alumno AND p.activo = true
             AND p.vigente_desde <= CURRENT_DATE
             AND (p.vigente_hasta IS NULL OR p.vigente_hasta >= CURRENT_DATE)
+        )
+    `),
+    queryable.query(`
+      SELECT a.id_alumno, trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
+      FROM alumno a
+      WHERE a.activo = true AND a.rol = 'Estudiante' AND a.fusionado_en_id IS NULL
+        AND EXISTS (
+          SELECT 1 FROM personas_autorizadas_retiro p
+          WHERE p.id_alumno = a.id_alumno AND p.activo = true
+            AND p.vigente_desde <= CURRENT_DATE
+            AND (p.vigente_hasta IS NULL OR p.vigente_hasta >= CURRENT_DATE)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM personas_autorizadas_retiro p
+          JOIN visitantes v ON v.id = p.visitante_id
+          WHERE p.id_alumno = a.id_alumno AND p.activo = true
+            AND p.vigente_desde <= CURRENT_DATE
+            AND (p.vigente_hasta IS NULL OR p.vigente_hasta >= CURRENT_DATE)
+            AND COALESCE(NULLIF(trim(v.telefono), ''), NULLIF(trim(v.telefono_emergencia), '')) IS NOT NULL
         )
     `),
     queryable.query(`
@@ -89,6 +132,44 @@ const collectSignals = async (queryable, rules) => {
       LEFT JOIN alumno a ON a.id_alumno = c.id_alumno
       WHERE c.accion = 'CONFLICTO'
         AND c.creado_en >= CURRENT_TIMESTAMP - INTERVAL '90 days'
+    `),
+    queryable.query(`
+      SELECT d.id_documento_expediente, e.id_alumno, d.titulo, d.vence_en,
+             trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
+      FROM documentos_expediente d
+      JOIN expedientes_documentales e ON e.id_expediente = d.id_expediente
+      JOIN alumno a ON a.id_alumno = e.id_alumno
+      WHERE d.estado <> 'ARCHIVADO' AND d.vence_en < CURRENT_DATE
+        AND a.activo = true AND a.fusionado_en_id IS NULL
+    `),
+    queryable.query(`
+      SELECT d.id_documento_expediente, e.id_alumno, d.titulo, d.vence_en,
+             (d.vence_en - CURRENT_DATE)::int AS dias_restantes,
+             trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) AS estudiante
+      FROM documentos_expediente d
+      JOIN expedientes_documentales e ON e.id_expediente = d.id_expediente
+      JOIN alumno a ON a.id_alumno = e.id_alumno
+      WHERE d.estado <> 'ARCHIVADO' AND d.vence_en >= CURRENT_DATE
+        AND d.vence_en <= CURRENT_DATE + ($1::int * INTERVAL '1 day')
+        AND a.activo = true AND a.fusionado_en_id IS NULL
+    `, [documentWindowDays]),
+    queryable.query(`
+      SELECT lower(trim(concat_ws(' ', nombres, paterno, materno))) AS nombre_normalizado,
+             fecha_nacimiento, array_agg(id_alumno ORDER BY id_alumno) AS estudiantes_ids,
+             min(trim(concat_ws(' ', nombres, paterno, materno))) AS estudiante
+      FROM alumno
+      WHERE activo = true AND rol = 'Estudiante' AND fusionado_en_id IS NULL
+        AND fecha_nacimiento IS NOT NULL
+      GROUP BY lower(trim(concat_ws(' ', nombres, paterno, materno))), fecha_nacimiento
+      HAVING COUNT(*) > 1
+    `),
+    queryable.query(`
+      SELECT c.id_caso, c.codigo, c.prioridad, c.proxima_revision,
+             min(p.estudiante_id) FILTER (WHERE p.tipo_persona = 'ESTUDIANTE' AND p.activo = true) AS id_alumno
+      FROM convivencia_casos c
+      LEFT JOIN convivencia_participantes p ON p.id_caso = c.id_caso
+      WHERE c.estado NOT IN ('CERRADO', 'ANULADO') AND c.prioridad IN ('ALTA', 'URGENTE')
+      GROUP BY c.id_caso
     `)
   ]);
 
@@ -146,6 +227,11 @@ const collectSignals = async (queryable, rules) => {
     studentId: row.id_alumno, title: `Ficha familiar incompleta · ${row.estudiante}`,
     reason: 'No existe una persona responsable o autorizada vigente asociada al estudiante.'
   }));
+  for (const row of familyContactIncomplete.rows) results.push(signal({
+    rule: 'CONTACTO_FAMILIAR_INCOMPLETO', key: `estudiante:${row.id_alumno}`, entityType: 'FAMILIA', entityId: row.id_alumno,
+    studentId: row.id_alumno, title: `Contacto familiar incompleto · ${row.estudiante}`,
+    reason: 'La ficha familiar tiene personas autorizadas vigentes, pero ninguna registra un teléfono de contacto.'
+  }));
   for (const row of withdrawals.rows) results.push(signal({
     rule: 'RETIROS_REITERADOS', key: `estudiante:${row.id_alumno}`, entityType: 'ESTUDIANTE', entityId: row.id_alumno,
     studentId: row.id_alumno, occurrences: row.total, title: `Retiros anticipados reiterados · ${row.estudiante}`,
@@ -171,6 +257,35 @@ const collectSignals = async (queryable, rules) => {
     studentId: row.id_alumno, title: `Conflicto de identidad${row.estudiante ? ` · ${row.estudiante}` : ''}`,
     reason: row.mensaje || 'Una importación detectó identificadores incompatibles y requiere revisión humana.'
   }));
+  for (const row of expiredDocuments.rows) results.push(signal({
+    rule: 'DOCUMENTO_VENCIDO', key: `documento:${row.id_documento_expediente}`, entityType: 'DOCUMENTO_ESTUDIANTE', entityId: row.id_documento_expediente,
+    studentId: row.id_alumno, title: `Documento vencido · ${row.estudiante}`,
+    reason: `“${row.titulo}” venció el ${row.vence_en.toISOString?.().slice(0, 10) || row.vence_en}.`,
+    data: { documento_titulo: row.titulo, vence_en: row.vence_en }
+  }));
+  for (const row of expiringDocuments.rows) results.push(signal({
+    rule: 'DOCUMENTO_POR_VENCER', key: `documento:${row.id_documento_expediente}`, entityType: 'DOCUMENTO_ESTUDIANTE', entityId: row.id_documento_expediente,
+    studentId: row.id_alumno, title: `Documento próximo a vencer · ${row.estudiante}`,
+    reason: `“${row.titulo}” vence en ${row.dias_restantes} ${Number(row.dias_restantes) === 1 ? 'día' : 'días'}.`,
+    data: { documento_titulo: row.titulo, vence_en: row.vence_en, dias_restantes: Number(row.dias_restantes) }
+  }));
+  for (const row of possibleDuplicates.rows) {
+    const studentIds = (row.estudiantes_ids || []).map(Number).filter(Number.isSafeInteger);
+    if (studentIds.length < 2) continue;
+    results.push(signal({
+      rule: 'POSIBLE_DUPLICADO_ESTUDIANTE', key: `grupo:${studentIds.join('-')}`, entityType: 'POSIBLE_DUPLICADO', entityId: studentIds[0],
+      studentId: studentIds[0], relatedStudentIds: studentIds, occurrences: studentIds.length,
+      title: `Posible ficha duplicada · ${row.estudiante}`,
+      reason: `${studentIds.length} fichas activas comparten nombre completo y fecha de nacimiento; requieren comparación humana antes de cualquier fusión.`,
+      data: { estudiantes_ids: studentIds, fecha_nacimiento: row.fecha_nacimiento }
+    }));
+  }
+  for (const row of criticalCoexistence.rows) results.push(signal({
+    rule: 'CONVIVENCIA_CRITICA', key: `caso:${row.id_caso}`, entityType: 'CONVIVENCIA', entityId: row.id_caso,
+    studentId: row.id_alumno, title: `Coordinación reservada requerida · ${row.codigo || `Caso ${row.id_caso}`}`,
+    reason: `Convivencia Escolar mantiene una situación ${String(row.prioridad).toLowerCase()} activa que requiere coordinación institucional autorizada.`,
+    data: { codigo: row.codigo, prioridad: row.prioridad, proxima_revision: row.proxima_revision }
+  }));
   return results;
 };
 
@@ -187,15 +302,40 @@ const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
       entidad_tipo = EXCLUDED.entidad_tipo,
       entidad_id = EXCLUDED.entidad_id,
       id_alumno = EXCLUDED.id_alumno,
+      ciclo_deteccion = CASE
+        WHEN seguimiento_senales.activa THEN seguimiento_senales.ciclo_deteccion
+        ELSE seguimiento_senales.ciclo_deteccion + 1
+      END,
       activa = true,
       ocurrencias = EXCLUDED.ocurrencias,
+      detectada_primera_en = CASE
+        WHEN seguimiento_senales.activa THEN seguimiento_senales.detectada_primera_en
+        ELSE CURRENT_TIMESTAMP
+      END,
       detectada_ultima_en = CURRENT_TIMESTAMP,
       resuelta_en = NULL,
       datos = EXCLUDED.datos
-    RETURNING id_senal, id_caso
+    RETURNING id_senal, id_caso, ciclo_deteccion
   `, [item.rule, item.key, item.entityType, item.entityId, item.studentId, item.occurrences, JSON.stringify(item.data)]);
   let caseId = signalResult.rows[0].id_caso;
   let created = false;
+  if (caseId) {
+    const linkedCase = await client.query('SELECT estado FROM seguimiento_casos WHERE id_caso = $1', [caseId]);
+    if (!linkedCase.rowCount || ['CERRADO', 'ANULADO'].includes(linkedCase.rows[0].estado)) caseId = null;
+    else if (linkedCase.rows[0].estado === 'RESUELTO') {
+      await client.query(`
+        UPDATE seguimiento_casos
+        SET estado = 'ABIERTO', resultado_final = NULL,
+            fecha_limite = CURRENT_DATE + ($2::int * INTERVAL '1 day'),
+            actualizado_en = CURRENT_TIMESTAMP, actualizado_por = $3, version = version + 1
+        WHERE id_caso = $1
+      `, [caseId, rule.plazo_dias, actorId]);
+      await client.query(`
+        INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
+        VALUES ($1, 'REACTIVACION_AUTOMATICA', 'La condición volvió a estar activa', $2, $3::jsonb, $4)
+      `, [caseId, item.reason, JSON.stringify({ regla: item.rule, ciclo: signalResult.rows[0].ciclo_deteccion }), actorId]);
+    }
+  }
   if (!caseId) {
     const createdCase = await client.query(`
       INSERT INTO seguimiento_casos (
@@ -216,31 +356,32 @@ const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
     caseId = createdCase.rows[0].id_caso;
     created = createdCase.rows[0].creado;
     await client.query('UPDATE seguimiento_senales SET id_caso = $1 WHERE id_senal = $2', [caseId, signalResult.rows[0].id_senal]);
-    if (item.studentId) {
+    const linkedStudentIds = [...new Set([item.studentId, ...(item.relatedStudentIds || [])].map(Number).filter(Number.isSafeInteger))];
+    for (const studentId of linkedStudentIds) {
       await client.query(`
         INSERT INTO seguimiento_caso_estudiantes (id_caso, id_alumno, relacion, agregado_por)
-        VALUES ($1, $2, 'PRINCIPAL', $3) ON CONFLICT DO NOTHING
-      `, [caseId, item.studentId, actorId]);
+        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+      `, [caseId, studentId, studentId === item.studentId ? 'PRINCIPAL' : 'RELACIONADO', actorId]);
     }
     if (created) await client.query(`
       INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
       VALUES ($1, 'APERTURA_AUTOMATICA', 'Caso abierto por regla institucional', $2, $3::jsonb, $4)
     `, [caseId, item.reason, JSON.stringify({ regla: item.rule, ocurrencias: item.occurrences }), actorId]);
   }
-  return { caseId, created };
+  return { caseId, created, detectionCycle: signalResult.rows[0].ciclo_deteccion };
 };
 
 const insertNotification = async (client, {
-  userId, type, title, detail, link, dedupeKey
+  userId, type, title, detail, link, dedupeKey, priority = 'IMPORTANTE'
 }) => {
   if (!userId) return false;
   const result = await client.query(`
     INSERT INTO notificaciones_internas (
-      usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe
-    ) VALUES ($1, 'SEGUIMIENTO', $2, $3, $4, $5, $6)
+      usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe, prioridad
+    ) VALUES ($1, 'SEGUIMIENTO', $2, $3, $4, $5, $6, $7)
     ON CONFLICT (usuario_id, clave_dedupe) WHERE clave_dedupe IS NOT NULL DO NOTHING
     RETURNING id_notificacion
-  `, [userId, type, title, detail, link, dedupeKey]);
+  `, [userId, type, title, detail, link, dedupeKey, priority]);
   return result.rowCount > 0;
 };
 
@@ -282,7 +423,7 @@ const selectEscalationRecipients = async (client, ruleCode) => {
 };
 
 const operateCases = async (client, rules, configuration, actorId = null) => {
-  const result = { assigned: 0, escalated: 0, notified: 0 };
+  const result = { assigned: 0, escalated: 0, taskReminders: 0, notified: 0 };
   if (configuration.asignacion_automatica) {
     const unassigned = await client.query(`
       SELECT c.id_caso, c.titulo, c.regla_codigo, r.responsable_perfil_codigo,
@@ -318,7 +459,8 @@ const operateCases = async (client, rules, configuration, actorId = null) => {
           title: 'Nuevo seguimiento asignado',
           detail: item.titulo,
           link: `/admin/seguimiento/${item.id_caso}`,
-          dedupeKey: `seguimiento:${item.id_caso}:asignacion:${userId}`
+          dedupeKey: `seguimiento:${item.id_caso}:asignacion:${userId}`,
+          priority: 'IMPORTANTE'
         });
         if (inserted) result.notified += 1;
       }
@@ -377,10 +519,39 @@ const operateCases = async (client, rules, configuration, actorId = null) => {
             title: 'Seguimiento fuera de plazo',
             detail: groupNames ? `${item.titulo} · Aviso para ${groupNames}` : item.titulo,
             link: `/admin/seguimiento/${item.id_caso}`,
-            dedupeKey: `seguimiento:${item.id_caso}:escalamiento:${recipient.userId}`
+            dedupeKey: `seguimiento:${item.id_caso}:escalamiento:${recipient.userId}`,
+            priority: 'URGENTE'
           });
           if (inserted) result.notified += 1;
         }
+      }
+    }
+  }
+  if (configuration.notificaciones_activas) {
+    const overdueTasks = await client.query(`
+      SELECT t.id_tarea, t.titulo, t.prioridad, t.fecha_limite,
+             c.id_caso, c.titulo AS caso_titulo,
+             COALESCE(t.responsable_usuario_id, c.responsable_usuario_id) AS destinatario_id
+      FROM seguimiento_tareas t
+      JOIN seguimiento_casos c ON c.id_caso = t.id_caso
+      WHERE t.estado IN ('PENDIENTE', 'EN_PROGRESO') AND t.fecha_limite < CURRENT_DATE
+        AND c.estado = ANY($1::varchar[])
+        AND COALESCE(t.responsable_usuario_id, c.responsable_usuario_id) IS NOT NULL
+      ORDER BY t.fecha_limite, t.id_tarea
+    `, [ACTIVE_CASE_STATES]);
+    for (const task of overdueTasks.rows) {
+      const inserted = await insertNotification(client, {
+        userId: task.destinatario_id,
+        type: 'TAREA_VENCIDA',
+        title: 'Tarea de seguimiento fuera de plazo',
+        detail: `${task.titulo} · ${task.caso_titulo}`,
+        link: `/admin/seguimiento/${task.id_caso}`,
+        dedupeKey: `seguimiento:tarea:${task.id_tarea}:vencida:${String(task.fecha_limite).slice(0, 10)}`,
+        priority: ['ALTA', 'URGENTE'].includes(task.prioridad) ? 'URGENTE' : 'IMPORTANTE'
+      });
+      if (inserted) {
+        result.taskReminders += 1;
+        result.notified += 1;
       }
     }
   }

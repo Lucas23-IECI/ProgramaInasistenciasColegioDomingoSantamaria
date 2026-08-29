@@ -14,13 +14,15 @@ const CONTACT_RESULTS = new Set(['CONTACTADO', 'SIN_RESPUESTA', 'REPROGRAMADO', 
 const AGREEMENT_STATES = new Set(['VIGENTE', 'CUMPLIDO', 'INCUMPLIDO', 'ANULADO']);
 const clean = (value, max = 300) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 const narrative = (value, max = 12000) => String(value || '').trim().slice(0, max);
-const id = (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+const id = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const isoDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(String(value));
 
 const safeError = (res, error, fallback) => {
-  const status = error.statusCode || (error.code === '23505' ? 409 : 500);
+  const candidate = Number(error?.statusCode);
+  const clientStatus = Number.isInteger(candidate) && candidate >= 400 && candidate < 500 ? candidate : null;
+  const status = clientStatus || (error.code === '23505' ? 409 : 500);
   if (status >= 500) console.error('[seguimiento]', error.message);
-  res.status(status).json({ message: status >= 500 ? fallback : error.message });
+  res.status(status).json({ message: clientStatus ? error.message : fallback });
 };
 
 const loadCase = async (queryable, caseId, lock = false) => {
@@ -42,6 +44,31 @@ const loadCase = async (queryable, caseId, lock = false) => {
     throw error;
   }
   return result.rows[0];
+};
+
+const loadEditableCase = async (queryable, caseId) => {
+  const current = await loadCase(queryable, caseId, true);
+  if (['CERRADO', 'ANULADO'].includes(current.estado)) {
+    const error = new Error('El seguimiento está cerrado. Reábrelo antes de incorporar nuevos antecedentes.');
+    error.statusCode = 409;
+    throw error;
+  }
+  return current;
+};
+
+const inTransaction = async (pool, work) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const addEvent = (client, { caseId, type, title, detail = null, metadata = {}, userId = null }) => client.query(`
@@ -164,22 +191,25 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
       return res.status(400).json({ message: 'El intervalo debe estar entre 5 minutos y 24 horas.' });
     }
     try {
-      const result = await pool.query(`
+      const result = await inTransaction(pool, async (client) => {
+        const updated = await client.query(`
         UPDATE seguimiento_configuracion SET
           automatizacion_activa = $1, intervalo_minutos = $2,
           asignacion_automatica = $3, escalamiento_automatico = $4,
           notificaciones_activas = $5, actualizada_por = $6,
           actualizada_en = CURRENT_TIMESTAMP
         WHERE id_configuracion = 1 RETURNING *
-      `, [Boolean(req.body.automatizacion_activa), interval,
+        `, [Boolean(req.body.automatizacion_activa), interval,
         Boolean(req.body.asignacion_automatica), Boolean(req.body.escalamiento_automatico),
         Boolean(req.body.notificaciones_activas), req.user.id]);
-      await insertarAudit(pool, {
-        usuario_id: req.user.id, usuario_correo: req.user.correo,
-        accion: 'CONFIGURAR_SEGUIMIENTO_AUTOMATICO', entidad: 'seguimiento_configuracion',
-        entidad_id: 1, detalle: result.rows[0], ip: getClientIp(req)
+        await insertarAudit(client, {
+          usuario_id: req.user.id, usuario_correo: req.user.correo,
+          accion: 'CONFIGURAR_SEGUIMIENTO_AUTOMATICO', entidad: 'seguimiento_configuracion',
+          entidad_id: 1, detalle: updated.rows[0], ip: getClientIp(req)
+        });
+        return updated.rows[0];
       });
-      res.json(result.rows[0]);
+      res.json(result);
     } catch (error) { safeError(res, error, 'No fue posible guardar la configuración de seguimiento.'); }
   });
 
@@ -355,8 +385,9 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
       if (studentId) await client.query(`INSERT INTO seguimiento_caso_estudiantes (id_caso, id_alumno, relacion, agregado_por) VALUES ($1,$2,'PRINCIPAL',$3)`, [caseId, studentId, req.user.id]);
       await addEvent(client, { caseId, type: 'APERTURA_MANUAL', title: 'Seguimiento abierto manualmente', detail: reason, userId: req.user.id });
       await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'CREAR_SEGUIMIENTO', entidad: 'seguimiento_caso', entidad_id: caseId, detalle: { prioridad: priority, estudiante_id: studentId }, ip: getClientIp(req) });
+      const response = await loadCase(client, caseId);
       await client.query('COMMIT');
-      res.status(201).json(await loadCase(pool, caseId));
+      res.status(201).json(response);
     } catch (error) { await client.query('ROLLBACK'); safeError(res, error, 'No fue posible crear el seguimiento.'); } finally { client.release(); }
   });
 
@@ -364,16 +395,23 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
     try {
       const caseId = id(req.params.caseId);
       const item = await loadCase(pool, caseId);
-      const [students, tasks, notes, contacts, agreements, documents, timeline] = await Promise.all([
+      const [students, tasks, notes, contacts, agreements, documents, timeline, signals] = await Promise.all([
         pool.query(`SELECT ce.*, trim(concat_ws(' ', a.nombres,a.paterno,a.materno)) AS nombre, cr.nombre_curso FROM seguimiento_caso_estudiantes ce JOIN alumno a ON a.id_alumno=ce.id_alumno LEFT JOIN matricula_actual m ON m.id_alumno=a.id_alumno LEFT JOIN curso cr ON cr.id_curso=m.id_curso WHERE ce.id_caso=$1 ORDER BY ce.relacion, nombre`, [caseId]),
         pool.query(`SELECT t.*, u.nombre AS responsable_nombre FROM seguimiento_tareas t LEFT JOIN usuarios u ON u.id=t.responsable_usuario_id WHERE t.id_caso=$1 ORDER BY CASE t.estado WHEN 'PENDIENTE' THEN 1 WHEN 'EN_PROGRESO' THEN 2 ELSE 3 END, t.fecha_limite, t.creada_en`, [caseId]),
         pool.query(`SELECT n.*, u.nombre AS autor_nombre FROM seguimiento_notas n JOIN usuarios u ON u.id=n.creada_por WHERE n.id_caso=$1 ORDER BY n.creada_en DESC`, [caseId]),
         pool.query(`SELECT c.*, u.nombre AS registrado_por_nombre FROM seguimiento_contactos c JOIN usuarios u ON u.id=c.registrado_por WHERE c.id_caso=$1 ORDER BY c.realizado_en DESC`, [caseId]),
         pool.query(`SELECT a.*, u.nombre AS registrado_por_nombre FROM seguimiento_acuerdos a JOIN usuarios u ON u.id=a.registrado_por WHERE a.id_caso=$1 ORDER BY a.registrado_en DESC`, [caseId]),
         pool.query(`SELECT sd.*, d.nombre_original,d.mime_type,d.tamano_bytes,d.fecha_creacion,u.nombre AS creado_por_nombre FROM seguimiento_documentos sd JOIN justification_documents d ON d.id_documento=sd.id_documento LEFT JOIN usuarios u ON u.id=sd.creado_por WHERE sd.id_caso=$1 AND sd.activo=true ORDER BY sd.creado_en DESC`, [caseId]),
-        pool.query(`SELECT e.*, u.nombre AS realizado_por_nombre FROM seguimiento_eventos e LEFT JOIN usuarios u ON u.id=e.realizado_por WHERE e.id_caso=$1 ORDER BY e.realizado_en DESC,e.id_evento DESC`, [caseId])
+        pool.query(`SELECT e.*, u.nombre AS realizado_por_nombre FROM seguimiento_eventos e LEFT JOIN usuarios u ON u.id=e.realizado_por WHERE e.id_caso=$1 ORDER BY e.realizado_en DESC,e.id_evento DESC`, [caseId]),
+        pool.query(`SELECT s.id_senal, s.regla_codigo, s.entidad_tipo, s.entidad_id, s.activa,
+                           s.ocurrencias, s.detectada_primera_en, s.detectada_ultima_en,
+                           s.resuelta_en, s.datos, r.nombre AS regla_nombre
+                    FROM seguimiento_senales s
+                    LEFT JOIN seguimiento_reglas r ON r.codigo = s.regla_codigo
+                    WHERE s.id_caso = $1
+                    ORDER BY s.activa DESC, s.detectada_ultima_en DESC, s.id_senal DESC`, [caseId])
       ]);
-      res.json({ ...item, students: students.rows, tasks: tasks.rows, notes: notes.rows, contacts: contacts.rows, agreements: agreements.rows, documents: documents.rows, timeline: timeline.rows });
+      res.json({ ...item, students: students.rows, tasks: tasks.rows, notes: notes.rows, contacts: contacts.rows, agreements: agreements.rows, documents: documents.rows, timeline: timeline.rows, signals: signals.rows });
     } catch (error) { safeError(res, error, 'No fue posible cargar el seguimiento.'); }
   });
 
@@ -393,8 +431,8 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
       if (owner && owner !== current.responsable_usuario_id) {
         await client.query(`
           INSERT INTO notificaciones_internas (
-            usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe
-          ) VALUES ($1, 'SEGUIMIENTO', 'CASO_ASIGNADO', 'Seguimiento asignado', $2, $3, $4)
+            usuario_id, modulo, tipo, titulo, detalle, enlace, clave_dedupe, prioridad
+          ) VALUES ($1, 'SEGUIMIENTO', 'CASO_ASIGNADO', 'Seguimiento asignado', $2, $3, $4, 'IMPORTANTE')
           ON CONFLICT (usuario_id, clave_dedupe) WHERE clave_dedupe IS NOT NULL DO NOTHING
         `, [owner, updated.rows[0].titulo, `/admin/seguimiento/${current.id_caso}`,
           `seguimiento:${current.id_caso}:asignacion-manual:${owner}:v${updated.rows[0].version}`]);
@@ -408,44 +446,56 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
     const title = clean(req.body.titulo, 180); const priority = String(req.body.prioridad || 'MEDIA').toUpperCase();
     if (title.length < 3 || !PRIORITIES.has(priority) || !isoDate(req.body.fecha_limite)) return res.status(400).json({ message: 'Completa una tarea válida.' });
     try {
-      const result = await pool.query(`INSERT INTO seguimiento_tareas (id_caso,titulo,detalle,prioridad,responsable_usuario_id,fecha_limite,creada_por) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [id(req.params.caseId), title, narrative(req.body.detalle, 3000) || null, priority, id(req.body.responsable_usuario_id), req.body.fecha_limite || null, req.user.id]);
-      await addEvent(pool, { caseId: id(req.params.caseId), type: 'TAREA_CREADA', title: `Tarea creada: ${title}`, metadata: { id_tarea: result.rows[0].id_tarea }, userId: req.user.id }); res.status(201).json(result.rows[0]);
+      const result = await inTransaction(pool, async (client) => {
+        const caseId = id(req.params.caseId);
+        await loadEditableCase(client, caseId);
+        const created = await client.query(`INSERT INTO seguimiento_tareas (id_caso,titulo,detalle,prioridad,responsable_usuario_id,fecha_limite,creada_por) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [caseId, title, narrative(req.body.detalle, 3000) || null, priority, id(req.body.responsable_usuario_id), req.body.fecha_limite || null, req.user.id]);
+        await addEvent(client, { caseId, type: 'TAREA_CREADA', title: `Tarea creada: ${title}`, metadata: { id_tarea: created.rows[0].id_tarea }, userId: req.user.id });
+        return created.rows[0];
+      });
+      res.status(201).json(result);
     } catch (error) { safeError(res, error, 'No fue posible crear la tarea.'); }
   });
 
   router.patch('/casos/:caseId/tareas/:taskId', verifyPermission('seguimiento.manage'), async (req, res) => {
     const state = String(req.body.estado || '').toUpperCase(); if (!TASK_STATES.has(state)) return res.status(400).json({ message: 'Estado de tarea no válido.' });
     try {
-      const result = await pool.query(`UPDATE seguimiento_tareas SET estado=$3::varchar,completada_por=CASE WHEN $3::varchar='COMPLETADA' THEN $4::integer ELSE NULL END,completada_en=CASE WHEN $3::varchar='COMPLETADA' THEN CURRENT_TIMESTAMP ELSE NULL END,actualizada_en=CURRENT_TIMESTAMP WHERE id_tarea=$1 AND id_caso=$2 RETURNING *`, [id(req.params.taskId), id(req.params.caseId), state, req.user.id]);
-      if (!result.rowCount) return res.status(404).json({ message: 'La tarea no existe.' });
-      await addEvent(pool, { caseId: id(req.params.caseId), type: 'TAREA_ACTUALIZADA', title: `Tarea ${state.toLowerCase().replace('_', ' ')}`, metadata: { id_tarea: id(req.params.taskId), estado: state }, userId: req.user.id }); res.json(result.rows[0]);
+      const result = await inTransaction(pool, async (client) => {
+        const caseId = id(req.params.caseId);
+        await loadEditableCase(client, caseId);
+        const updated = await client.query(`UPDATE seguimiento_tareas SET estado=$3::varchar,completada_por=CASE WHEN $3::varchar='COMPLETADA' THEN $4::integer ELSE NULL END,completada_en=CASE WHEN $3::varchar='COMPLETADA' THEN CURRENT_TIMESTAMP ELSE NULL END,actualizada_en=CURRENT_TIMESTAMP WHERE id_tarea=$1 AND id_caso=$2 RETURNING *`, [id(req.params.taskId), caseId, state, req.user.id]);
+        if (!updated.rowCount) { const error = new Error('La tarea no existe.'); error.statusCode = 404; throw error; }
+        await addEvent(client, { caseId, type: 'TAREA_ACTUALIZADA', title: `Tarea ${state.toLowerCase().replace('_', ' ')}`, metadata: { id_tarea: id(req.params.taskId), estado: state }, userId: req.user.id });
+        return updated.rows[0];
+      });
+      res.json(result);
     } catch (error) { safeError(res, error, 'No fue posible actualizar la tarea.'); }
   });
 
   router.post('/casos/:caseId/notas', verifyPermission('seguimiento.manage'), async (req, res) => {
     const content = narrative(req.body.contenido, 12000); if (content.length < 2) return res.status(400).json({ message: 'Escribe una nota.' });
-    try { const result = await pool.query(`INSERT INTO seguimiento_notas (id_caso,contenido,interna,creada_por) VALUES ($1,$2,true,$3) RETURNING *`, [id(req.params.caseId), content, req.user.id]); await addEvent(pool, { caseId: id(req.params.caseId), type: 'NOTA', title: 'Nota interna registrada', userId: req.user.id }); res.status(201).json(result.rows[0]); } catch (error) { safeError(res, error, 'No fue posible registrar la nota.'); }
+    try { const result = await inTransaction(pool, async (client) => { const caseId = id(req.params.caseId); await loadEditableCase(client, caseId); const created = await client.query(`INSERT INTO seguimiento_notas (id_caso,contenido,interna,creada_por) VALUES ($1,$2,true,$3) RETURNING *`, [caseId, content, req.user.id]); await addEvent(client, { caseId, type: 'NOTA', title: 'Nota interna registrada', userId: req.user.id }); return created.rows[0]; }); res.status(201).json(result); } catch (error) { safeError(res, error, 'No fue posible registrar la nota.'); }
   });
 
   router.post('/casos/:caseId/contactos', verifyPermission('seguimiento.contacts'), async (req, res) => {
     const type = String(req.body.tipo || '').toUpperCase(); const resultType = String(req.body.resultado || '').toUpperCase(); const recipient = clean(req.body.destinatario, 180);
     if (!CONTACT_TYPES.has(type) || !CONTACT_RESULTS.has(resultType) || recipient.length < 2) return res.status(400).json({ message: 'Revisa tipo, destinatario y resultado del contacto.' });
-    try { const result = await pool.query(`INSERT INTO seguimiento_contactos (id_caso,tipo,destinatario,resultado,detalle,registrado_por,proximo_contacto_en) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [id(req.params.caseId), type, recipient, resultType, narrative(req.body.detalle, 4000) || null, req.user.id, req.body.proximo_contacto_en || null]); await addEvent(pool, { caseId: id(req.params.caseId), type: 'CONTACTO', title: `${type}: ${recipient}`, detail: resultType, userId: req.user.id }); res.status(201).json(result.rows[0]); } catch (error) { safeError(res, error, 'No fue posible registrar el contacto.'); }
+    try { const result = await inTransaction(pool, async (client) => { const caseId = id(req.params.caseId); await loadEditableCase(client, caseId); const created = await client.query(`INSERT INTO seguimiento_contactos (id_caso,tipo,destinatario,resultado,detalle,registrado_por,proximo_contacto_en) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [caseId, type, recipient, resultType, narrative(req.body.detalle, 4000) || null, req.user.id, req.body.proximo_contacto_en || null]); await addEvent(client, { caseId, type: 'CONTACTO', title: `${type}: ${recipient}`, detail: resultType, userId: req.user.id }); return created.rows[0]; }); res.status(201).json(result); } catch (error) { safeError(res, error, 'No fue posible registrar el contacto.'); }
   });
 
   router.post('/casos/:caseId/acuerdos', verifyPermission('seguimiento.manage'), async (req, res) => {
     const description = narrative(req.body.descripcion, 5000); if (description.length < 3 || !isoDate(req.body.fecha_compromiso)) return res.status(400).json({ message: 'Completa el acuerdo y su fecha.' });
-    try { const result = await pool.query(`INSERT INTO seguimiento_acuerdos (id_caso,descripcion,responsable,fecha_compromiso,registrado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`, [id(req.params.caseId), description, clean(req.body.responsable, 180) || null, req.body.fecha_compromiso || null, req.user.id]); await addEvent(pool, { caseId: id(req.params.caseId), type: 'ACUERDO', title: 'Acuerdo registrado', detail: description, userId: req.user.id }); res.status(201).json(result.rows[0]); } catch (error) { safeError(res, error, 'No fue posible registrar el acuerdo.'); }
+    try { const result = await inTransaction(pool, async (client) => { const caseId = id(req.params.caseId); await loadEditableCase(client, caseId); const created = await client.query(`INSERT INTO seguimiento_acuerdos (id_caso,descripcion,responsable,fecha_compromiso,registrado_por) VALUES ($1,$2,$3,$4,$5) RETURNING *`, [caseId, description, clean(req.body.responsable, 180) || null, req.body.fecha_compromiso || null, req.user.id]); await addEvent(client, { caseId, type: 'ACUERDO', title: 'Acuerdo registrado', detail: description, userId: req.user.id }); return created.rows[0]; }); res.status(201).json(result); } catch (error) { safeError(res, error, 'No fue posible registrar el acuerdo.'); }
   });
 
   router.patch('/casos/:caseId/acuerdos/:agreementId', verifyPermission('seguimiento.manage'), async (req, res) => {
     const state = String(req.body.estado || '').toUpperCase(); if (!AGREEMENT_STATES.has(state)) return res.status(400).json({ message: 'Estado de acuerdo no válido.' });
-    try { const result = await pool.query(`UPDATE seguimiento_acuerdos SET estado=$3,actualizado_en=CURRENT_TIMESTAMP WHERE id_acuerdo=$1 AND id_caso=$2 RETURNING *`, [id(req.params.agreementId), id(req.params.caseId), state]); if (!result.rowCount) return res.status(404).json({ message: 'El acuerdo no existe.' }); await addEvent(pool, { caseId: id(req.params.caseId), type: 'ACUERDO_ACTUALIZADO', title: `Acuerdo ${state.toLowerCase()}`, metadata: { id_acuerdo: id(req.params.agreementId) }, userId: req.user.id }); res.json(result.rows[0]); } catch (error) { safeError(res, error, 'No fue posible actualizar el acuerdo.'); }
+    try { const result = await inTransaction(pool, async (client) => { const caseId = id(req.params.caseId); await loadEditableCase(client, caseId); const updated = await client.query(`UPDATE seguimiento_acuerdos SET estado=$3,actualizado_en=CURRENT_TIMESTAMP WHERE id_acuerdo=$1 AND id_caso=$2 RETURNING *`, [id(req.params.agreementId), caseId, state]); if (!updated.rowCount) { const error = new Error('El acuerdo no existe.'); error.statusCode = 404; throw error; } await addEvent(client, { caseId, type: 'ACUERDO_ACTUALIZADO', title: `Acuerdo ${state.toLowerCase()}`, metadata: { id_acuerdo: id(req.params.agreementId) }, userId: req.user.id }); return updated.rows[0]; }); res.json(result); } catch (error) { safeError(res, error, 'No fue posible actualizar el acuerdo.'); }
   });
 
   router.post('/casos/:caseId/documentos', verifyPermission('seguimiento.documents'), async (req, res) => {
     const client = await pool.connect(); let storedName = null;
-    try { await client.query('BEGIN'); await loadCase(client, id(req.params.caseId), true); const document = await createDocument(client, { fileData: req.body.file_data, fileName: req.body.file_name, userId: req.user.id }); storedName = document.nombre_almacenado; const linked = await client.query(`INSERT INTO seguimiento_documentos (id_caso,id_documento,descripcion,creado_por) VALUES ($1,$2,$3,$4) RETURNING *`, [id(req.params.caseId), document.id_documento, clean(req.body.descripcion, 300) || null, req.user.id]); await addEvent(client, { caseId: id(req.params.caseId), type: 'DOCUMENTO', title: `Documento adjuntado: ${document.nombre_original}`, metadata: { id_documento: document.id_documento }, userId: req.user.id }); await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'ADJUNTAR_DOCUMENTO_SEGUIMIENTO', entidad: 'seguimiento_caso', entidad_id: id(req.params.caseId), detalle: { documento_id: document.id_documento }, ip: getClientIp(req) }); await client.query('COMMIT'); res.status(201).json({ ...linked.rows[0], nombre_original: document.nombre_original }); } catch (error) { await client.query('ROLLBACK'); if (storedName) await removeStoredFile(storedName).catch(() => {}); safeError(res, error, 'No fue posible adjuntar el documento.'); } finally { client.release(); }
+    try { await client.query('BEGIN'); await loadEditableCase(client, id(req.params.caseId)); const document = await createDocument(client, { fileData: req.body.file_data, fileName: req.body.file_name, userId: req.user.id }); storedName = document.nombre_almacenado; const linked = await client.query(`INSERT INTO seguimiento_documentos (id_caso,id_documento,descripcion,creado_por) VALUES ($1,$2,$3,$4) RETURNING *`, [id(req.params.caseId), document.id_documento, clean(req.body.descripcion, 300) || null, req.user.id]); await addEvent(client, { caseId: id(req.params.caseId), type: 'DOCUMENTO', title: `Documento adjuntado: ${document.nombre_original}`, metadata: { id_documento: document.id_documento }, userId: req.user.id }); await insertarAudit(client, { usuario_id: req.user.id, usuario_correo:req.user.correo, accion: 'ADJUNTAR_DOCUMENTO_SEGUIMIENTO', entidad: 'seguimiento_caso', entidad_id: id(req.params.caseId), detalle: { documento_id: document.id_documento }, ip: getClientIp(req) }); await client.query('COMMIT'); storedName = null; res.status(201).json({ ...linked.rows[0], nombre_original: document.nombre_original }); } catch (error) { await client.query('ROLLBACK').catch(() => {}); if (storedName) await removeStoredFile(storedName).catch(() => {}); safeError(res, error, 'No fue posible adjuntar el documento.'); } finally { client.release(); }
   });
 
   router.get('/casos/:caseId/documentos/:documentId', verifyPermission('seguimiento.documents'), async (req, res) => {
@@ -454,7 +504,7 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
 
   router.post('/casos/:caseId/escalar-convivencia', verifyAnyPermission(['seguimiento.manage', 'convivencia.create']), async (req, res) => {
     const client = await pool.connect();
-    try { await client.query('BEGIN'); const current = await loadCase(client, id(req.params.caseId), true); if (current.convivencia_caso_id) { const e = new Error('El seguimiento ya está vinculado con Convivencia Escolar.'); e.statusCode = 409; throw e; } const created = await client.query(`INSERT INTO convivencia_casos (titulo,categoria,prioridad,estado,descripcion_inicial,fecha_situacion,responsable_usuario_id,creado_por,actualizado_por) VALUES ($1,'CONVIVENCIA',$2,'ABIERTO',$3,CURRENT_DATE,$4,$5,$5) RETURNING id_caso,codigo`, [current.titulo, current.prioridad, `Derivado desde Seguimiento Institucional. ${current.motivo_apertura}`, current.responsable_usuario_id, req.user.id]); const coexistenceId = created.rows[0].id_caso; if (current.estudiante_principal_id) await client.query(`INSERT INTO convivencia_participantes (id_caso,tipo_persona,estudiante_id,rol_en_caso,detalle_relacion,creado_por) VALUES ($1,'ESTUDIANTE',$2,'INVOLUCRADO','Derivación desde seguimiento institucional',$3)`, [coexistenceId, current.estudiante_principal_id, req.user.id]); await client.query(`UPDATE seguimiento_casos SET convivencia_caso_id=$2,estado='ESCALADO',actualizado_por=$3,actualizado_en=CURRENT_TIMESTAMP,version=version+1 WHERE id_caso=$1`, [current.id_caso, coexistenceId, req.user.id]); await addEvent(client, { caseId: current.id_caso, type: 'DERIVACION_CONVIVENCIA', title: 'Caso derivado a Convivencia Escolar', metadata: { convivencia_caso_id: coexistenceId }, userId: req.user.id }); await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'DERIVAR_SEGUIMIENTO_CONVIVENCIA', entidad: 'seguimiento_caso', entidad_id: current.id_caso, detalle: { convivencia_caso_id: coexistenceId }, ip: getClientIp(req) }); await client.query('COMMIT'); res.status(201).json({ convivencia_caso_id: coexistenceId, codigo: created.rows[0].codigo }); } catch (error) { await client.query('ROLLBACK'); safeError(res, error, 'No fue posible derivar el caso.'); } finally { client.release(); }
+    try { await client.query('BEGIN'); const current = await loadEditableCase(client, id(req.params.caseId)); if (current.convivencia_caso_id) { const e = new Error('El seguimiento ya está vinculado con Convivencia Escolar.'); e.statusCode = 409; throw e; } const created = await client.query(`INSERT INTO convivencia_casos (titulo,categoria,prioridad,estado,descripcion_inicial,fecha_situacion,responsable_usuario_id,creado_por,actualizado_por) VALUES ($1,'CONVIVENCIA',$2,'ABIERTO',$3,CURRENT_DATE,$4,$5,$5) RETURNING id_caso,codigo`, [current.titulo, current.prioridad, `Derivado desde Seguimiento Institucional. ${current.motivo_apertura}`, current.responsable_usuario_id, req.user.id]); const coexistenceId = created.rows[0].id_caso; if (current.estudiante_principal_id) await client.query(`INSERT INTO convivencia_participantes (id_caso,tipo_persona,estudiante_id,rol_en_caso,detalle_relacion,creado_por) VALUES ($1,'ESTUDIANTE',$2,'INVOLUCRADO','Derivación desde seguimiento institucional',$3)`, [coexistenceId, current.estudiante_principal_id, req.user.id]); await client.query(`UPDATE seguimiento_casos SET convivencia_caso_id=$2,estado='ESCALADO',actualizado_por=$3,actualizado_en=CURRENT_TIMESTAMP,version=version+1 WHERE id_caso=$1`, [current.id_caso, coexistenceId, req.user.id]); await addEvent(client, { caseId: current.id_caso, type: 'DERIVACION_CONVIVENCIA', title: 'Caso derivado a Convivencia Escolar', metadata: { convivencia_caso_id: coexistenceId }, userId: req.user.id }); await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'DERIVAR_SEGUIMIENTO_CONVIVENCIA', entidad: 'seguimiento_caso', entidad_id: current.id_caso, detalle: { convivencia_caso_id: coexistenceId }, ip: getClientIp(req) }); await client.query('COMMIT'); res.status(201).json({ convivencia_caso_id: coexistenceId, codigo: created.rows[0].codigo }); } catch (error) { await client.query('ROLLBACK'); safeError(res, error, 'No fue posible derivar el caso.'); } finally { client.release(); }
   });
 
   router.post('/casos/:caseId/cerrar', verifyPermission('seguimiento.close'), async (req, res) => {
@@ -464,7 +514,7 @@ const createFollowUpRouter = ({ pool, verifyToken, verifyPermission, verifyAnyPe
 
   router.post('/casos/:caseId/reabrir', verifyPermission('seguimiento.close'), async (req, res) => {
     const reason = narrative(req.body.motivo, 3000); if (reason.length < 8) return res.status(400).json({ message: 'Indica el motivo de reapertura.' });
-    try { const result = await pool.query(`UPDATE seguimiento_casos SET estado='EN_SEGUIMIENTO',resultado_final=NULL,cerrado_por=NULL,cerrado_en=NULL,actualizado_por=$2,actualizado_en=CURRENT_TIMESTAMP,version=version+1 WHERE id_caso=$1 AND estado IN ('CERRADO','ANULADO') RETURNING *`, [id(req.params.caseId), req.user.id]); if (!result.rowCount) return res.status(409).json({ message: 'El seguimiento no se encuentra cerrado.' }); await addEvent(pool, { caseId: id(req.params.caseId), type: 'REAPERTURA', title: 'Seguimiento reabierto', detail: reason, userId: req.user.id }); res.json(result.rows[0]); } catch (error) { safeError(res, error, 'No fue posible reabrir el seguimiento.'); }
+    try { const result = await inTransaction(pool, async (client) => { const caseId = id(req.params.caseId); const updated = await client.query(`UPDATE seguimiento_casos SET estado='EN_SEGUIMIENTO',resultado_final=NULL,cerrado_por=NULL,cerrado_en=NULL,actualizado_por=$2,actualizado_en=CURRENT_TIMESTAMP,version=version+1 WHERE id_caso=$1 AND estado IN ('CERRADO','ANULADO') RETURNING *`, [caseId, req.user.id]); if (!updated.rowCount) { const error = new Error('El seguimiento no se encuentra cerrado.'); error.statusCode = 409; throw error; } await addEvent(client, { caseId, type: 'REAPERTURA', title: 'Seguimiento reabierto', detail: reason, userId: req.user.id }); return updated.rows[0]; }); res.json(result); } catch (error) { safeError(res, error, 'No fue posible reabrir el seguimiento.'); }
   });
 
   return router;

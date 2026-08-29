@@ -4,19 +4,22 @@ const { createDocument, removeStoredFile, resolveDocumentPath } = require('../se
 const { previewChatRetention, runChatRetention } = require('../services/chatRetentionService');
 
 const TYPES = new Set(['DIRECTA', 'GRUPO', 'CANAL', 'CONTEXTO']);
+const CONTEXT_TYPES = new Set(['SEGUIMIENTO', 'CONVIVENCIA', 'DOCUMENTO_ESTUDIANTE', 'DOCUMENTO', 'ESTUDIANTE', 'VISITA', 'RETIRO']);
 const MESSAGE_TYPES = new Set(['NORMAL', 'URGENTE']);
 const NOTIFICATION_LEVELS = new Set(['TODAS', 'MENCIONES', 'SILENCIADAS']);
 const clean = (value, max = 300) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 const narrative = (value, max = 6000) => String(value || '').trim().slice(0, max);
-const id = (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+const id = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const uniqueIds = (values) => [...new Set((Array.isArray(values) ? values : []).map(id).filter(Boolean))];
 const hasPermission = (req, permission) => Array.isArray(req.user?.permissions) && req.user.permissions.includes(permission);
 const optionalTime = (value) => value === undefined || value === null || value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value));
 
 const safeError = (res, error, fallback) => {
-  const status = error.statusCode || (error.code === '23505' ? 409 : 500);
+  const candidate = Number(error?.statusCode);
+  const clientStatus = Number.isInteger(candidate) && candidate >= 400 && candidate < 500 ? candidate : null;
+  const status = clientStatus || (error.code === '23505' ? 409 : 500);
   if (status >= 500) console.error('[chat interno]', error.message);
-  res.status(status).json({ message: status >= 500 ? fallback : error.message });
+  res.status(status).json({ message: clientStatus ? error.message : fallback });
 };
 
 const requireMembership = async (queryable, conversationId, userId, { lock = false } = {}) => {
@@ -42,7 +45,7 @@ const insertMembers = async (client, conversationId, members, creatorId) => {
   for (const userId of members) {
     const exists = await client.query('SELECT 1 FROM usuarios WHERE id = $1 AND activo = true AND eliminado_en IS NULL', [userId]);
     if (!exists.rowCount) {
-      const error = new Error(`La cuenta ${userId} no está disponible.`);
+      const error = new Error('Una de las personas seleccionadas ya no tiene una cuenta activa. Actualiza el directorio e inténtalo nuevamente.');
       error.statusCode = 400;
       throw error;
     }
@@ -226,8 +229,20 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
     if (type !== 'CANAL' && !hasPermission(req, 'chat.group.create')) return res.status(403).json({ message: 'No tienes permiso para crear grupos.' });
     const name = clean(req.body.nombre, 180); const members = uniqueIds([req.user.id, ...(req.body.miembros || [])]);
     if (name.length < 3 || members.length < 2) return res.status(400).json({ message: 'Indica un nombre y al menos otra persona.' });
+    const retentionDays = req.body.retencion_dias === undefined || req.body.retencion_dias === null || req.body.retencion_dias === ''
+      ? null
+      : Number(req.body.retencion_dias);
+    if (retentionDays !== null && (!Number.isInteger(retentionDays) || retentionDays < 30 || retentionDays > 3650)) {
+      return res.status(400).json({ message: 'La retención de la conversación debe estar entre 30 días y 10 años.' });
+    }
     const contextType = clean(req.body.contexto_tipo, 40).toUpperCase() || null;
     const contextId = clean(req.body.contexto_id, 80) || null;
+    if (type === 'CONTEXTO' && (!contextType || !contextId)) {
+      return res.status(400).json({ message: 'Indica el registro institucional que se coordinará.' });
+    }
+    if (contextType && !CONTEXT_TYPES.has(contextType)) {
+      return res.status(400).json({ message: 'El tipo de registro vinculado no es válido.' });
+    }
     const key = type === 'CONTEXTO' && contextType && contextId ? `contexto:${contextType}:${contextId}` : null;
     const client = await pool.connect();
     try {
@@ -249,7 +264,7 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
           return res.status(200).json(conversation);
         }
       }
-      const created = await client.query(`INSERT INTO chat_conversaciones (tipo,nombre,descripcion,clave_dedupe,contexto_tipo,contexto_id,retencion_dias,creada_por) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [type, name, clean(req.body.descripcion, 500) || null, key, contextType, contextId, Number(req.body.retencion_dias) || null, req.user.id]);
+      const created = await client.query(`INSERT INTO chat_conversaciones (tipo,nombre,descripcion,clave_dedupe,contexto_tipo,contexto_id,retencion_dias,creada_por) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [type, name, clean(req.body.descripcion, 500) || null, key, contextType, contextId, retentionDays, req.user.id]);
       await insertMembers(client, created.rows[0].id_conversacion, members, req.user.id);
       if (contextType && contextId) await client.query(`INSERT INTO chat_vinculos (id_conversacion,entidad_tipo,entidad_id,creado_por) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [created.rows[0].id_conversacion, contextType, contextId, req.user.id]);
       await insertarAudit(client, { usuario_id: req.user.id, usuario_correo: req.user.correo, accion: 'CREAR_CONVERSACION_CHAT', entidad: 'chat_conversacion', entidad_id: created.rows[0].id_conversacion, detalle: { tipo: type, miembros: members.length, contexto_tipo: contextType }, ip: getClientIp(req) });
@@ -382,7 +397,116 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
 
   router.post('/conversaciones/:conversationId/mensajes/:messageId/adjuntos', verifyPermission('chat.attach'), async (req, res) => {
     const conversationId = id(req.params.conversationId); const messageId = id(req.params.messageId); const client = await pool.connect(); let storedName = null;
-    try { await client.query('BEGIN'); await requireMembership(client, conversationId, req.user.id, { lock: true }); const message = await client.query('SELECT 1 FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2 AND enviado_por=$3 AND eliminado_en IS NULL', [messageId, conversationId, req.user.id]); if (!message.rowCount) { const e = new Error('Solo puedes adjuntar archivos a un mensaje propio vigente.'); e.statusCode = 403; throw e; } const document = await createDocument(client, { fileData: req.body.file_data, fileName: req.body.file_name, userId: req.user.id }); storedName = document.nombre_almacenado; const linked = await client.query(`INSERT INTO chat_adjuntos (id_mensaje,id_documento) VALUES ($1,$2) RETURNING *`, [messageId, document.id_documento]); await client.query('COMMIT'); res.status(201).json({ ...linked.rows[0], nombre: document.nombre_original, mime_type: document.mime_type }); } catch (error) { await client.query('ROLLBACK'); if (storedName) await removeStoredFile(storedName).catch(()=>{}); safeError(res, error, 'No fue posible adjuntar el archivo.'); } finally { client.release(); }
+    try { await client.query('BEGIN'); await requireMembership(client, conversationId, req.user.id, { lock: true }); const message = await client.query('SELECT 1 FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2 AND enviado_por=$3 AND eliminado_en IS NULL', [messageId, conversationId, req.user.id]); if (!message.rowCount) { const e = new Error('Solo puedes adjuntar archivos a un mensaje propio vigente.'); e.statusCode = 403; throw e; } const document = await createDocument(client, { fileData: req.body.file_data, fileName: req.body.file_name, userId: req.user.id }); storedName = document.nombre_almacenado; const linked = await client.query(`INSERT INTO chat_adjuntos (id_mensaje,id_documento) VALUES ($1,$2) RETURNING *`, [messageId, document.id_documento]); await client.query('COMMIT'); storedName = null; res.status(201).json({ ...linked.rows[0], nombre: document.nombre_original, mime_type: document.mime_type }); } catch (error) { await client.query('ROLLBACK').catch(()=>{}); if (storedName) await removeStoredFile(storedName).catch(()=>{}); safeError(res, error, 'No fue posible adjuntar el archivo.'); } finally { client.release(); }
+  });
+
+  router.post('/conversaciones/:conversationId/adjuntos', verifyPermission('chat.attach'), async (req, res) => {
+    const conversationId = id(req.params.conversationId);
+    const fileName = clean(req.body.file_name, 240);
+    if (!fileName || !req.body.file_data) {
+      return res.status(400).json({ message: 'Selecciona un archivo válido para adjuntar.' });
+    }
+
+    let client = null;
+    let storedName = null;
+    try {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await requireMembership(client, conversationId, req.user.id, { lock: true });
+      const document = await createDocument(client, {
+        fileData: req.body.file_data,
+        fileName,
+        userId: req.user.id
+      });
+      storedName = document.nombre_almacenado;
+
+      const created = await client.query(`
+        INSERT INTO chat_mensajes (id_conversacion, enviado_por, tipo, contenido)
+        VALUES ($1, $2, 'NORMAL', $3)
+        RETURNING *
+      `, [conversationId, req.user.id, `Archivo adjunto: ${document.nombre_original}`]);
+      const messageId = created.rows[0].id_mensaje;
+      const linked = await client.query(`
+        INSERT INTO chat_adjuntos (id_mensaje, id_documento)
+        VALUES ($1, $2)
+        RETURNING id_adjunto
+      `, [messageId, document.id_documento]);
+
+      await client.query(`
+        INSERT INTO chat_lecturas (id_mensaje, usuario_id)
+        VALUES ($1, $2) ON CONFLICT DO NOTHING
+      `, [messageId, req.user.id]);
+      await client.query(`
+        UPDATE chat_miembros
+        SET ultima_lectura_en = CURRENT_TIMESTAMP, ultimo_mensaje_leido_id = $2
+        WHERE id_conversacion = $1 AND usuario_id = $3
+      `, [conversationId, messageId, req.user.id]);
+      await client.query(
+        'UPDATE chat_conversaciones SET actualizada_en = CURRENT_TIMESTAMP WHERE id_conversacion = $1',
+        [conversationId]
+      );
+
+      const recipients = await client.query(`
+        SELECT m.usuario_id,
+               COALESCE(NULLIF(c.nombre, ''), NULLIF(sender.nombre, ''), sender.correo, 'Conversación institucional') AS conversation_title,
+               (
+                 m.usuario_id <> $2
+                 AND m.notificaciones = 'TODAS'
+                 AND (m.silenciado_hasta IS NULL OR m.silenciado_hasta <= CURRENT_TIMESTAMP)
+                 AND (
+                   m.horario_silencio_desde IS NULL OR m.horario_silencio_hasta IS NULL
+                   OR CASE WHEN m.horario_silencio_desde <= m.horario_silencio_hasta
+                     THEN (CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time NOT BETWEEN m.horario_silencio_desde AND m.horario_silencio_hasta
+                     ELSE NOT ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time >= m.horario_silencio_desde
+                       OR (CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')::time <= m.horario_silencio_hasta)
+                   END
+                 )
+               ) AS notify
+        FROM chat_miembros m
+        JOIN chat_conversaciones c ON c.id_conversacion = m.id_conversacion
+        JOIN usuarios sender ON sender.id = $2
+        WHERE m.id_conversacion = $1 AND m.activo = true
+      `, [conversationId, req.user.id]);
+
+      await insertarAudit(client, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'ADJUNTAR_ARCHIVO_CHAT',
+        entidad: 'chat_mensaje',
+        entidad_id: messageId,
+        detalle: { conversacion_id: conversationId, documento_id: document.id_documento },
+        ip: getClientIp(req)
+      });
+      await client.query('COMMIT');
+      storedName = null;
+
+      for (const recipient of recipients.rows) {
+        realtimeHub?.publishToUsers([recipient.usuario_id], 'chat-message', {
+          conversation_id: conversationId,
+          conversation_title: recipient.conversation_title,
+          message_id: messageId,
+          sender_id: req.user.id,
+          type: 'NORMAL',
+          notify: recipient.notify
+        });
+      }
+
+      res.status(201).json({
+        ...created.rows[0],
+        adjunto: {
+          id_adjunto: linked.rows[0].id_adjunto,
+          nombre: document.nombre_original,
+          mime_type: document.mime_type,
+          tamano: document.tamano_bytes
+        }
+      });
+    } catch (error) {
+      await client?.query('ROLLBACK').catch(() => {});
+      if (storedName) await removeStoredFile(storedName).catch(() => {});
+      safeError(res, error, 'No fue posible adjuntar el archivo.');
+    } finally {
+      client?.release();
+    }
   });
 
   router.get('/conversaciones/:conversationId/adjuntos/:attachmentId', async (req, res) => {
@@ -390,7 +514,28 @@ const createInternalChatRouter = ({ pool, verifyToken, verifyPermission, inserta
   });
 
   router.post('/conversaciones/:conversationId/leer', async (req, res) => {
-    const conversationId=id(req.params.conversationId); const messageId=id(req.body.ultimo_mensaje_id); try { await requireMembership(pool,conversationId,req.user.id); const last=messageId?await pool.query('SELECT id_mensaje FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2',[messageId,conversationId]):await pool.query('SELECT id_mensaje FROM chat_mensajes WHERE id_conversacion=$1 ORDER BY id_mensaje DESC LIMIT 1',[conversationId]); const finalId=last.rows[0]?.id_mensaje||null; if(finalId){await pool.query(`INSERT INTO chat_lecturas (id_mensaje,usuario_id) SELECT id_mensaje,$2 FROM chat_mensajes WHERE id_conversacion=$1 AND id_mensaje<=$3 ON CONFLICT DO NOTHING`,[conversationId,req.user.id,finalId]);} await pool.query(`UPDATE chat_miembros SET ultima_lectura_en=CURRENT_TIMESTAMP,ultimo_mensaje_leido_id=$3 WHERE id_conversacion=$1 AND usuario_id=$2`,[conversationId,req.user.id,finalId]); res.json({ok:true,ultimo_mensaje_leido_id:finalId}); }catch(error){safeError(res,error,'No fue posible actualizar la lectura.');}
+    const conversationId = id(req.params.conversationId);
+    const messageId = id(req.body.ultimo_mensaje_id);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await requireMembership(client, conversationId, req.user.id, { lock: true });
+      const last = messageId
+        ? await client.query('SELECT id_mensaje FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2', [messageId, conversationId])
+        : await client.query('SELECT id_mensaje FROM chat_mensajes WHERE id_conversacion=$1 ORDER BY id_mensaje DESC LIMIT 1', [conversationId]);
+      const finalId = last.rows[0]?.id_mensaje || null;
+      if (finalId) {
+        await client.query(`INSERT INTO chat_lecturas (id_mensaje,usuario_id) SELECT id_mensaje,$2 FROM chat_mensajes WHERE id_conversacion=$1 AND id_mensaje<=$3 ON CONFLICT DO NOTHING`, [conversationId, req.user.id, finalId]);
+      }
+      await client.query(`UPDATE chat_miembros SET ultima_lectura_en=CURRENT_TIMESTAMP,ultimo_mensaje_leido_id=$3 WHERE id_conversacion=$1 AND usuario_id=$2`, [conversationId, req.user.id, finalId]);
+      await client.query('COMMIT');
+      res.json({ ok: true, ultimo_mensaje_leido_id: finalId });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      safeError(res, error, 'No fue posible actualizar la lectura.');
+    } finally {
+      client.release();
+    }
   });
 
   router.post('/conversaciones/:conversationId/mensajes/:messageId/fijar', async (req,res)=>{try{const conversationId=id(req.params.conversationId);const conversation=await requireMembership(pool,conversationId,req.user.id);if(!['PROPIETARIO','MODERADOR'].includes(conversation.miembro_rol)){return res.status(403).json({message:'Solo propietarios y moderadores pueden fijar mensajes.'});}const messageId=id(req.params.messageId);const exists=await pool.query('SELECT 1 FROM chat_mensajes WHERE id_mensaje=$1 AND id_conversacion=$2 AND eliminado_en IS NULL',[messageId,conversationId]);if(!exists.rowCount)return res.status(404).json({message:'El mensaje no existe.'});await pool.query(`INSERT INTO chat_mensajes_fijados (id_conversacion,id_mensaje,fijado_por) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,[conversationId,messageId,req.user.id]);res.json({ok:true});}catch(error){safeError(res,error,'No fue posible fijar el mensaje.');}});

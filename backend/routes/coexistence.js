@@ -5,6 +5,7 @@ const {
   removeStoredFile,
   resolveDocumentPath
 } = require('../services/documentService');
+const { reconcileCoexistenceAlertState } = require('../services/operationalAlertService');
 
 const CASE_STATES = new Set(['ABIERTO', 'EN_SEGUIMIENTO', 'EN_REVISION', 'CERRADO', 'ANULADO']);
 const CASE_CATEGORIES = new Set(['CONVIVENCIA', 'CONFLICTO', 'ACOSO', 'VIOLENCIA', 'DISCRIMINACION', 'VULNERACION', 'OTRO']);
@@ -62,7 +63,7 @@ const insertParticipant = async (client, caseId, input, userId) => {
       [referenceId]
     );
     if (!exists.rowCount) {
-      const error = new Error('La persona seleccionada no esta disponible.');
+      const error = new Error('La persona seleccionada ya no está disponible. Actualiza la búsqueda y vuelve a intentarlo.');
       error.statusCode = 404;
       throw error;
     }
@@ -99,9 +100,11 @@ const requireOpenCase = async (client, caseId) => {
 };
 
 const safeErrorResponse = (res, error, fallback) => {
-  const status = error.statusCode || (error.code === '23505' ? 409 : 500);
+  const candidate = Number(error?.statusCode);
+  const clientStatus = Number.isInteger(candidate) && candidate >= 400 && candidate < 500 ? candidate : null;
+  const status = clientStatus || (error.code === '23505' ? 409 : 500);
   if (status >= 500) console.error('[convivencia]', error.message);
-  return res.status(status).json({ message: status >= 500 ? fallback : error.message });
+  return res.status(status).json({ message: clientStatus ? error.message : fallback });
 };
 
 const createCoexistenceRouter = ({
@@ -179,10 +182,18 @@ const createCoexistenceRouter = ({
     const state = CASE_STATES.has(String(req.query.estado || '').toUpperCase()) ? String(req.query.estado).toUpperCase() : null;
     const priority = CASE_PRIORITIES.has(String(req.query.prioridad || '').toUpperCase()) ? String(req.query.prioridad).toUpperCase() : null;
     const onlyPending = String(req.query.revision_pendiente || '') === 'true';
+    const activeOnly = String(req.query.activos || '') === 'true';
+    const guardianContact = String(req.query.contacto_apoderado || '') === 'true';
+    const from = req.query.desde ? String(req.query.desde).slice(0, 10) : null;
+    const to = req.query.hasta ? String(req.query.hasta).slice(0, 10) : null;
+    const area = cleanText(req.query.area, 160) || null;
+    if ((from && !isDate(from)) || (to && !isDate(to)) || (from && to && from > to)) {
+      return res.status(400).json({ message: 'El período indicado no es válido.' });
+    }
     const page = Math.max(1, positiveInteger(req.query.pagina) || 1);
     const limit = Math.min(50, Math.max(10, positiveInteger(req.query.limite) || 20));
     try {
-      const values = [search, state, priority, onlyPending, limit, (page - 1) * limit];
+      const values = [search, state, priority, onlyPending, from, to, activeOnly, guardianContact, area, limit, (page - 1) * limit];
       const result = await pool.query(`
         WITH filtrados AS (
           SELECT c.*,
@@ -191,6 +202,7 @@ const createCoexistenceRouter = ({
                  (SELECT COUNT(*)::int FROM convivencia_eventos e WHERE e.id_caso = c.id_caso) AS actuaciones
           FROM convivencia_casos c
           LEFT JOIN usuarios u ON u.id = c.responsable_usuario_id
+          LEFT JOIN perfiles_acceso perfil_responsable ON perfil_responsable.codigo = u.rol
           WHERE ($1 = '' OR c.codigo ILIKE '%' || $1 || '%' OR c.titulo ILIKE '%' || $1 || '%'
             OR EXISTS (
               SELECT 1 FROM convivencia_participantes p
@@ -209,6 +221,19 @@ const createCoexistenceRouter = ({
             AND ($4::boolean = false OR (
               c.estado NOT IN ('CERRADO', 'ANULADO') AND c.proxima_revision IS NOT NULL AND c.proxima_revision <= CURRENT_DATE
             ))
+            AND ($7::boolean = false OR c.estado IN ('ABIERTO', 'EN_SEGUIMIENTO', 'EN_REVISION'))
+            AND ($8::boolean = true OR $5::date IS NULL OR c.creado_en::date >= $5::date)
+            AND ($8::boolean = true OR $6::date IS NULL OR c.creado_en::date <= $6::date)
+            AND ($8::boolean = false OR EXISTS (
+              SELECT 1
+              FROM convivencia_eventos ce
+              JOIN convivencia_participantes cp ON cp.id_caso = c.id_caso
+                AND cp.rol_en_caso = 'APODERADO' AND cp.activo = true
+              WHERE ce.id_caso = c.id_caso AND ce.tipo = 'ENTREVISTA'
+                AND ($5::date IS NULL OR ce.fecha_evento::date >= $5::date)
+                AND ($6::date IS NULL OR ce.fecha_evento::date <= $6::date)
+            ))
+            AND ($9::varchar IS NULL OR COALESCE(NULLIF(trim(u.cargo), ''), perfil_responsable.nombre, 'Sin área asignada') = $9)
         )
         SELECT f.*, COUNT(*) OVER()::int AS total
         FROM filtrados f
@@ -216,7 +241,7 @@ const createCoexistenceRouter = ({
           CASE f.prioridad WHEN 'URGENTE' THEN 1 WHEN 'ALTA' THEN 2 WHEN 'MEDIA' THEN 3 ELSE 4 END,
           CASE WHEN f.proxima_revision IS NOT NULL AND f.proxima_revision <= CURRENT_DATE AND f.estado NOT IN ('CERRADO', 'ANULADO') THEN 0 ELSE 1 END,
           f.actualizado_en DESC
-        LIMIT $5 OFFSET $6
+        LIMIT $10 OFFSET $11
       `, values);
       res.json({
         items: result.rows.map(({ total, ...row }) => row),
@@ -231,7 +256,7 @@ const createCoexistenceRouter = ({
 
   router.get('/casos/:caseId', verifyPermission('convivencia.view'), async (req, res) => {
     const caseId = positiveInteger(req.params.caseId);
-    if (!caseId) return res.status(400).json({ message: 'Caso invalido.' });
+    if (!caseId) return res.status(400).json({ message: 'El caso seleccionado no es válido. Vuelve al listado y ábrelo nuevamente.' });
     try {
       const [caseResult, participants, events, documents] = await Promise.all([
         pool.query(`
@@ -308,7 +333,7 @@ const createCoexistenceRouter = ({
     const participants = Array.isArray(req.body?.participantes) ? req.body.participantes.slice(0, 30) : [];
     if (title.length < 5 || description.length < 10 || !CASE_CATEGORIES.has(category) || !CASE_PRIORITIES.has(priority)
       || !isDate(incidentDate) || !incidentDate || !isDate(reviewDate) || participants.length < 1) {
-      return res.status(400).json({ message: 'Completa la situacion, la fecha y al menos una persona involucrada.' });
+      return res.status(400).json({ message: 'Completa la descripción de la situación, la fecha y al menos una persona involucrada.' });
     }
 
     const client = await pool.connect();
@@ -384,6 +409,7 @@ const createCoexistenceRouter = ({
         positiveInteger(req.body?.responsable_usuario_id) || req.user.id,
         req.user.id, caseId, version]);
       if (!result.rowCount) return res.status(409).json({ message: 'El caso fue actualizado por otra persona o ya se encuentra cerrado. Recarga la página.' });
+      await reconcileCoexistenceAlertState(pool, caseId);
       await insertarAudit(pool, {
         usuario_id: req.user.id,
         usuario_correo: req.user.correo,
@@ -401,7 +427,7 @@ const createCoexistenceRouter = ({
 
   router.post('/casos/:caseId/participantes', verifyPermission('convivencia.manage'), async (req, res) => {
     const caseId = positiveInteger(req.params.caseId);
-    if (!caseId) return res.status(400).json({ message: 'Caso invalido.' });
+    if (!caseId) return res.status(400).json({ message: 'El caso seleccionado no es válido. Vuelve al listado y ábrelo nuevamente.' });
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -441,7 +467,7 @@ const createCoexistenceRouter = ({
     const participantIds = [...new Set((Array.isArray(req.body?.participantes) ? req.body.participantes : [])
       .map(positiveInteger).filter(Boolean))].slice(0, 50);
     if (!caseId || !EVENT_TYPES.has(type) || title.length < 3 || detail.length < 5 || !isDateTime(eventDate) || !isDate(reviewDate)) {
-      return res.status(400).json({ message: 'Completa el tipo, titulo, detalle y fecha de la actuacion.' });
+      return res.status(400).json({ message: 'Completa el tipo, título, detalle y fecha de la actuación.' });
     }
     const client = await pool.connect();
     try {
@@ -477,6 +503,7 @@ const createCoexistenceRouter = ({
             actualizado_por = $3, actualizado_en = CURRENT_TIMESTAMP, version = version + 1
         WHERE id_caso = $4
       `, [nextState, reviewDate, req.user.id, caseId]);
+      await reconcileCoexistenceAlertState(client, caseId);
       await insertarAudit(client, {
         usuario_id: req.user.id,
         usuario_correo: req.user.correo,
@@ -490,7 +517,7 @@ const createCoexistenceRouter = ({
       res.status(201).json({ id_evento: event.rows[0].id_evento });
     } catch (error) {
       await client.query('ROLLBACK');
-      safeErrorResponse(res, error, 'No fue posible registrar la actuacion.');
+      safeErrorResponse(res, error, 'No fue posible registrar la actuación.');
     } finally {
       client.release();
     }
@@ -514,6 +541,7 @@ const createCoexistenceRouter = ({
         INSERT INTO convivencia_eventos (id_caso, tipo, titulo, detalle, creado_por)
         VALUES ($1, 'CIERRE', 'Cierre del caso', $2, $3)
       `, [caseId, reason, req.user.id]);
+      await reconcileCoexistenceAlertState(client, caseId);
       await insertarAudit(client, {
         usuario_id: req.user.id,
         usuario_correo: req.user.correo,
@@ -559,6 +587,7 @@ const createCoexistenceRouter = ({
         INSERT INTO convivencia_eventos (id_caso, tipo, titulo, detalle, creado_por)
         VALUES ($1, 'REAPERTURA', 'Reapertura del caso', $2, $3)
       `, [caseId, reason, req.user.id]);
+      await reconcileCoexistenceAlertState(client, caseId);
       await insertarAudit(client, {
         usuario_id: req.user.id,
         usuario_correo: req.user.correo,
@@ -580,7 +609,7 @@ const createCoexistenceRouter = ({
 
   router.post('/casos/:caseId/documentos', verifyPermission('convivencia.documents'), async (req, res) => {
     const caseId = positiveInteger(req.params.caseId);
-    if (!caseId) return res.status(400).json({ message: 'Caso invalido.' });
+    if (!caseId) return res.status(400).json({ message: 'El caso seleccionado no es válido. Vuelve al listado y ábrelo nuevamente.' });
     const client = await pool.connect();
     let storedName = null;
     try {
@@ -590,7 +619,7 @@ const createCoexistenceRouter = ({
       if (eventId) {
         const event = await client.query('SELECT 1 FROM convivencia_eventos WHERE id_evento = $1 AND id_caso = $2', [eventId, caseId]);
         if (!event.rowCount) {
-          const error = new Error('La actuacion seleccionada no pertenece al caso.');
+          const error = new Error('La actuación seleccionada no pertenece a este caso. Recarga la ficha y vuelve a intentarlo.');
           error.statusCode = 400;
           throw error;
         }
@@ -620,6 +649,7 @@ const createCoexistenceRouter = ({
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
+      storedName = null;
       res.status(201).json({ id_convivencia_documento: result.rows[0].id_convivencia_documento });
     } catch (error) {
       await client.query('ROLLBACK');
@@ -632,7 +662,7 @@ const createCoexistenceRouter = ({
 
   router.get('/documentos/:documentId/descargar', verifyPermission('convivencia.documents'), async (req, res) => {
     const documentId = positiveInteger(req.params.documentId);
-    if (!documentId) return res.status(400).json({ message: 'Documento invalido.' });
+    if (!documentId) return res.status(400).json({ message: 'El documento seleccionado no es válido. Vuelve a abrir el caso e inténtalo nuevamente.' });
     try {
       const result = await pool.query(`
         SELECT cd.id_caso, d.nombre_original, d.nombre_almacenado, d.mime_type
@@ -643,7 +673,7 @@ const createCoexistenceRouter = ({
       if (!result.rowCount) return res.status(404).json({ message: 'El documento no existe.' });
       const document = result.rows[0];
       const filePath = resolveDocumentPath(document.nombre_almacenado);
-      if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ message: 'El archivo no esta disponible.' });
+      if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ message: 'El archivo ya no está disponible.' });
       await insertarAudit(pool, {
         usuario_id: req.user.id,
         usuario_correo: req.user.correo,
