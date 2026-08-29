@@ -39,7 +39,7 @@ test('normaliza solamente los campos personales autorizados', () => {
 });
 
 test('rechaza estados desconocidos y vigencias vencidas', () => {
-  assert.throws(() => normalizeOwnProfilePayload({ estado_disponibilidad: 'VACACIONES' }), /no es valido/i);
+  assert.throws(() => normalizeOwnProfilePayload({ estado_disponibilidad: 'VACACIONES' }), /no es válido/i);
   assert.throws(() => normalizeOwnProfilePayload({
     estado_disponibilidad: 'OCUPADO',
     estado_hasta: new Date(Date.now() - 60_000).toISOString()
@@ -197,4 +197,6 @@ test('las rutas de perfil exigen permisos y registran cambios sensibles', () => 
   assert.match(source, /source_data_url/);
   assert.match(source, /nombre_fuente/);
   assert.match(source, /\['main', 'thumb', 'source'\]/);
+  assert.doesNotMatch(source, /await client\.query\('COMMIT'\);\s*const profile = await getPersonalProfile/u);
+  assert.match(source, /const profile = await getPersonalProfile\(client,[\s\S]{0,180}await client\.query\('COMMIT'\)/u);
 });

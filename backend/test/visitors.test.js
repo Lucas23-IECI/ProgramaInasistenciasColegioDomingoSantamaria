@@ -126,6 +126,35 @@ test('Portería registra uno o más hermanos en una sola operación trazable', (
   assert.match(route, /REGISTRAR_RETIRO_PORTERIA/);
 });
 
+test('visitas y retiros aceptan el período y motivo provenientes de Analítica', () => {
+  const visits = readRoute('visits.js');
+  const withdrawals = readRoute('visits', 'withdrawals.js');
+  assert.match(visits, /motivo_codigo: motiveCode/u);
+  assert.match(visits, /v\.motivo_codigo = \$\$\{index\+\+\}/u);
+  assert.match(withdrawals, /req\.query\.desde/u);
+  assert.match(withdrawals, /req\.query\.hasta/u);
+  assert.match(withdrawals, /r\.motivo_codigo = \$\$\{index\+\+\}/u);
+});
+
+test('visitas y retiros permiten recuperar un antecedente exacto por id', () => {
+  const visits = readRoute('visits.js');
+  const withdrawals = readRoute('visits', 'withdrawals.js');
+  assert.match(visits, /const requestedId = id \? parsePositiveId\(id\) : null/u);
+  assert.match(visits, /v\.id = \$\$\{index\+\+\}/u);
+  assert.match(withdrawals, /req\.query\.id \? parsePositiveId\(req\.query\.id\) : null/u);
+  assert.match(withdrawals, /r\.id = \$\$\{index\+\+\}/u);
+});
+
+test('visitas y retiros construyen la respuesta antes de confirmar la transacción', () => {
+  const visits = readRoute('visits.js');
+  const withdrawals = readRoute('visits', 'withdrawals.js');
+  assert.doesNotMatch(visits, /await client\.query\('COMMIT'\);\s*const (created|updated) = await pool\.query\(`\$\{visitSelect\}/u);
+  assert.match(visits, /const created = await client\.query\(`\$\{visitSelect\}[\s\S]{0,160}await client\.query\('COMMIT'\)/u);
+  assert.match(visits, /const updated = await client\.query\(`\$\{visitSelect\}[\s\S]{0,160}await client\.query\('COMMIT'\)/u);
+  assert.doesNotMatch(withdrawals, /await client\.query\('COMMIT'\);\s*const (created|updated) = await pool\.query/u);
+  assert.equal((withdrawals.match(/const (?:created|updated) = await client\.query\(/gu) || []).length, 4);
+});
+
 test('la ficha de apoderado devuelve todos sus estudiantes vinculados', () => {
   const router = fs.readFileSync(path.join(__dirname, '..', 'routes', 'visits.js'), 'utf8');
   const route = router.slice(
