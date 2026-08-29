@@ -1,4 +1,4 @@
-const APP_VERSION = '2026.08.10-seguimiento-chat-v3';
+const APP_VERSION = '2026.08.28-cierre-operativo-v1';
 const CACHE_VERSION = `ldsm-shell-${APP_VERSION}`;
 const APP_SHELL = ['/', '/login', '/manifest.webmanifest', '/institucional/escudo-ldsm-concepcion.jpg'];
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL))));

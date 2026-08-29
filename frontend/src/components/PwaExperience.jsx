@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { ArrowUpCircle, CheckCircle2, Download, MonitorSmartphone, RefreshCw, Share, ShieldCheck, X } from 'lucide-react';
-import DevelopmentBadge from './DevelopmentBadge';
+
+const OfflineSyncPanel = lazy(() => import('./OfflineSyncPanel'));
 
 const InstallationGuide = ({ state }) => {
   if (!state.secure) {
@@ -8,8 +9,9 @@ const InstallationGuide = ({ state }) => {
       <div className="pwa-experience__notice pwa-experience__notice--warning">
         <ShieldCheck size={20} />
         <div>
-          <strong>Este dispositivo necesita HTTPS</strong>
-          <p>La instalación completa y la cámara requieren una dirección segura. Puedes seguir usando el sistema en línea desde este navegador.</p>
+          <strong>La instalación está bloqueada en esta dirección</strong>
+          <p>Estás usando una dirección HTTP. El navegador permite abrir el sistema, pero bloquea la instalación, la cámara y los avisos fuera de pantalla. Solicita al administrador la dirección HTTPS del colegio.</p>
+          <small>No se descargó ningún archivo ni se creó una instalación incompleta.</small>
         </div>
       </div>
     );
@@ -73,7 +75,6 @@ const PwaExperience = ({ open, onClose, onInstall, onUpdate, state }) => {
               <img src="/institucional/escudo-ldsm-concepcion.jpg" alt="Escudo del Liceo Domingo Santa María" />
               <div>
                 <span>Aplicación institucional</span>
-                <DevelopmentBadge compact />
                 <h2 id="pwa-experience-title">{state.installed ? 'Aplicación instalada' : 'Instalar en este dispositivo'}</h2>
               </div>
               <button ref={closeRef} type="button" className="pwa-experience__close" onClick={onClose} aria-label="Cerrar"><X size={21} /></button>
@@ -88,6 +89,15 @@ const PwaExperience = ({ open, onClose, onInstall, onUpdate, state }) => {
                   <div><strong>Ya está instalada</strong><p>Puedes abrirla desde el escritorio o la pantalla de inicio como cualquier otra aplicación.</p></div>
                 </div>
               ) : <InstallationGuide state={state} />}
+
+              {state.registrationError && (
+                <div className="pwa-experience__notice pwa-experience__notice--warning" role="alert">
+                  <ShieldCheck size={20} />
+                  <div><strong>Uso sin conexión no disponible</strong><p>{state.registrationError}</p></div>
+                </div>
+              )}
+
+              <Suspense fallback={<div className="offline-sync-panel__empty">Revisando la bandeja de este dispositivo…</div>}><OfflineSyncPanel /></Suspense>
 
               <dl className="pwa-experience__facts">
                 <div><dt>Identidad</dt><dd>Escudo oficial del colegio</dd></div>

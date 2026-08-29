@@ -54,7 +54,9 @@ export const registerServiceWorker = () => {
     })
     .catch((error) => {
       console.warn('[PWA] No fue posible registrar el service worker:', error.message);
-      emitState({ registrationError: error.message });
+      emitState({
+        registrationError: 'No fue posible activar el uso sin conexión en este dispositivo. El sistema puede seguir utilizándose en línea.'
+      });
       return null;
     });
 
