@@ -76,7 +76,7 @@ const createPunctualityPoliciesRouter = ({ pool, verifyToken, verifyPermission, 
 
   router.patch('/turnos/:id', verifyPermission('punctuality.shifts.manage'), async (req, res) => {
     const id = positiveId(req.params.id);
-    if (!id) return res.status(400).json({ message: 'El turno no es válido.' });
+    if (!id) return res.status(400).json({ message: 'El turno seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     try {
       const result = await pool.query(`UPDATE puntualidad_turnos SET
         nombre=COALESCE(NULLIF($2,''),nombre), tipo=COALESCE($3,tipo),

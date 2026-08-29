@@ -408,10 +408,11 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         },
         ip: getClientIp(req)
       });
+      const controlsAfter = await getControls(client);
       await client.query('COMMIT');
       res.json({
         message: 'Configuración y controles horarios actualizados.',
-        config: { ...updated.rows[0], controles: await getControls(client) }
+        config: { ...updated.rows[0], controles: controlsAfter }
       });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
@@ -735,6 +736,9 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       severidad: rawSeverity = '',
       justificado: rawJustified = '',
       control_id: rawControlId = '',
+      alumno_id: rawStudentId = '',
+      minutos_desde: rawMinutesFrom = '',
+      minutos_hasta: rawMinutesTo = '',
       pagina: rawPage = '1',
       limite: rawLimit = '12'
     } = req.query;
@@ -758,8 +762,17 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     if (rawCourseId !== '' && !withoutCourse && !courseId) {
       return res.status(400).json({ message: 'El curso seleccionado no es válido.' });
     }
-    const controlId = rawControlId === '' ? null : asBoundedInteger(rawControlId, 1, 2147483647);
-    if (rawControlId !== '' && !controlId) return res.status(400).json({ message: 'El control horario no es válido.' });
+    const withoutControl = rawControlId === 'sin_control';
+    const controlId = rawControlId === '' || withoutControl ? null : asBoundedInteger(rawControlId, 1, 2147483647);
+    if (rawControlId !== '' && !withoutControl && !controlId) return res.status(400).json({ message: 'El control horario no es válido.' });
+    const studentId = rawStudentId === '' ? null : asBoundedInteger(rawStudentId, 1, 2147483647);
+    if (rawStudentId !== '' && !studentId) return res.status(400).json({ message: 'El estudiante seleccionado no es válido.' });
+    const minutesFrom = rawMinutesFrom === '' ? null : asBoundedInteger(rawMinutesFrom, 0, 1440);
+    const minutesTo = rawMinutesTo === '' ? null : asBoundedInteger(rawMinutesTo, 0, 1440);
+    if ((rawMinutesFrom !== '' && minutesFrom === null) || (rawMinutesTo !== '' && minutesTo === null)
+      || (minutesFrom !== null && minutesTo !== null && minutesFrom > minutesTo)) {
+      return res.status(400).json({ message: 'El rango de minutos de atraso no es válido.' });
+    }
     const requestedPage = asBoundedInteger(rawPage, 1, 1000000);
     const limit = asBoundedInteger(rawLimit, 1, 100);
     if (!requestedPage || !limit) return res.status(400).json({ message: 'La paginación solicitada no es válida.' });
@@ -787,9 +800,23 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       conditions.push(`r.estado = 'Atrasado' AND r.justificado = $${index++}`);
       params.push(String(rawJustified) === 'true');
     }
-    if (controlId) {
+    if (withoutControl) {
+      conditions.push('r.control_puntualidad_id IS NULL');
+    } else if (controlId) {
       conditions.push(`r.control_puntualidad_id = $${index++}`);
       params.push(controlId);
+    }
+    if (studentId) {
+      conditions.push(`r.id_alumno = $${index++}`);
+      params.push(studentId);
+    }
+    if (minutesFrom !== null) {
+      conditions.push(`r.estado = 'Atrasado' AND r.minutos_atraso >= $${index++}`);
+      params.push(minutesFrom);
+    }
+    if (minutesTo !== null) {
+      conditions.push(`r.estado = 'Atrasado' AND r.minutos_atraso <= $${index++}`);
+      params.push(minutesTo);
     }
     if (query) {
       conditions.push(`(
@@ -993,7 +1020,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   router.patch('/registros/:id/corregir', verifyPermission('punctuality.correct'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El ingreso seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
 
     const client = await pool.connect();
@@ -1006,7 +1033,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       `, [registrationId]);
       if (targetResult.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Registro activo no encontrado.' });
+        return res.status(404).json({ message: 'El ingreso ya no está activo o no existe. Recarga el listado.' });
       }
       const target = targetResult.rows[0];
       if (target.tipo_registro !== 'Entrada' || !['Presente', 'Atrasado'].includes(target.estado)) {
@@ -1082,7 +1109,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   router.patch('/registros/:id/anular', verifyPermission('punctuality.cancel'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El ingreso seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
 
     const client = await pool.connect();
@@ -1094,7 +1121,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       );
       if (targetResult.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Registro activo no encontrado.' });
+        return res.status(404).json({ message: 'El ingreso ya no está activo o no existe. Recarga el listado.' });
       }
       const target = targetResult.rows[0];
       if (target.tipo_registro !== 'Entrada' || !['Presente', 'Atrasado'].includes(target.estado)) {
@@ -1146,7 +1173,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     const fileName = req.body?.fileName;
     const fileData = req.body?.fileData;
 
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El atraso seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
     if (!['apoderado', 'medica', 'institucional'].includes(justificationType)) {
       return res.status(400).json({ message: 'El tipo de justificación no es válido.' });
@@ -1161,6 +1188,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
     const client = await pool.connect();
     let createdDocument = null;
     let obsoleteStoredName = null;
+    let committed = false;
     try {
       await client.query('BEGIN');
       const targetResult = await client.query(
@@ -1226,6 +1254,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
         ip: getClientIp(req)
       });
       await client.query('COMMIT');
+      committed = true;
 
       if (obsoleteStoredName) await removeStoredFile(obsoleteStoredName).catch(() => {});
       res.json({
@@ -1238,7 +1267,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       });
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      if (createdDocument?.nombre_almacenado) {
+      if (!committed && createdDocument?.nombre_almacenado) {
         await removeStoredFile(createdDocument.nombre_almacenado).catch(() => {});
       }
       console.error('[puntualidad/registros:justificar]', error.message);
@@ -1254,7 +1283,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
   router.patch('/registros/:id/revocar-justificacion', verifyPermission('punctuality.justify'), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
     const reasonValidation = validateReason(req.body?.motivo);
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El atraso seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     if (reasonValidation.error) return res.status(400).json({ message: reasonValidation.error });
 
     const client = await pool.connect();
@@ -1267,7 +1296,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       );
       if (targetResult.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Justificación activa no encontrada.' });
+        return res.status(404).json({ message: 'La justificación ya no está activa o no existe. Recarga el atraso.' });
       }
 
       const before = registrationSnapshot(targetResult.rows[0]);
@@ -1323,7 +1352,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
   router.get('/registros/:id/historial', verifyAnyPermission(['punctuality.view', 'punctuality.correct', 'punctuality.cancel', 'punctuality.justify']), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El registro seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
     try {
       const result = await pool.query(`
         SELECT c.id, c.accion, c.motivo, c.antes, c.despues, c.realizado_en,
@@ -1342,7 +1371,7 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
 
   router.get('/registros/:id/documento', verifyAnyPermission(['punctuality.view', 'punctuality.justify']), async (req, res) => {
     const registrationId = parseRegistrationId(req.params.id);
-    if (!registrationId) return res.status(400).json({ message: 'El registro no es válido.' });
+    if (!registrationId) return res.status(400).json({ message: 'El atraso seleccionado no es válido. Recarga el listado y vuelve a abrirlo.' });
 
     try {
       const result = await pool.query(`
@@ -1518,7 +1547,17 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
           ...row,
           tasa_atraso: row.ingresos > 0 ? Number(((row.atrasos / row.ingresos) * 100).toFixed(1)) : null
         })),
-        por_tramo: slots.rows,
+        por_tramo: slots.rows.map((row) => ({
+          ...row,
+          minutos_desde: row.tramo === '1 a 5 min' ? 1
+            : row.tramo === '6 a 10 min' ? 6
+              : row.tramo === '11 a 15 min' ? 11
+                : row.tramo === '16 a 30 min' ? 16 : 31,
+          minutos_hasta: row.tramo === '1 a 5 min' ? 5
+            : row.tramo === '6 a 10 min' ? 10
+              : row.tramo === '11 a 15 min' ? 15
+                : row.tramo === '16 a 30 min' ? 30 : ''
+        })),
         por_control: controls.rows.map((row) => ({
           ...row,
           tasa_atraso: row.ingresos > 0 ? Number(((row.atrasos / row.ingresos) * 100).toFixed(1)) : null
