@@ -38,7 +38,7 @@
     "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.17.2",
     "pg": "^8.20.0",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "tesseract.js": "^7.0.0",
     "write-excel-file": "^4.1.1"
   }
