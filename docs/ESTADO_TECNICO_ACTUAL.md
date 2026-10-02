@@ -6,6 +6,8 @@ Este documento separa el estado local de planes y evidencias históricos. No es 
 
 El 1 de octubre el usuario autorizó subir el conjunto pendiente a `testing` y después decidió mantener `main` sin cambios. La verificación nueva detectó también avisos de dependencias (dos altas en frontend y una moderada en backend), además del peso pendiente. No se desactivan controles ni se presenta esta entrega como instalable en producción. [Alcance y comprobaciones de la entrega](ENTREGA_TESTING_2026-10-01.md).
 
+La subida a `testing` quedó comprobada. GitHub Actions no inició ninguno de sus cinco trabajos por un bloqueo de cuenta relacionado con facturación; no hay aprobación remota de pruebas. No se tocó la facturación ni se desplegó en el colegio. `main` permanece en `af3a063`.
+
 ## Cambio actual — corrección del alta manual
 
 Corregidos los selectores de curso/motivo, los placeholders, la conservación del curso de origen, Escape dentro del desplegable, el reintento de catálogos sin borrar campos y la legibilidad del formulario. Ayuda y novedades actualizadas; versión `2026.10.01-alta-manual-chat-v1`. No cambia registros ni agrega migraciones.
