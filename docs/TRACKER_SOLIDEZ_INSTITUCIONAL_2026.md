@@ -1,5 +1,15 @@
 # Tracker de solidez institucional 2026
 
+## Visibilidad del chat — 24 de septiembre de 2026
+
+Completado el anuncio destacado con acceso al chat, permisos respetados, ayuda global actualizada y navegación por teclado. Validado con 149 pruebas frontend y 16 escenarios focalizados de navegador; evidencias y alcance en [Anuncio del chat](ANUNCIO_CHAT_2026-09-24.md). Cambio local, sin publicación al colegio ni commits/push.
+
+## Actualización de cierre local — 23 de septiembre de 2026
+
+Se cerró el bloque reportado de sesión, navegación, avisos y modales, tareas internas y Recursos; también los cinco pendientes posteriores: worker PWA real, importación/reversión por interfaz, control de cobertura compatible con Node 20 y CI, regresión unificada y documentación vigente. Estado: [resumen técnico actual](ESTADO_TECNICO_ACTUAL.md). Evidencia final: [cierre de pendientes del 23 de septiembre](CIERRE_PENDIENTES_2026-09-23.md).
+
+Backend: 270 pruebas; frontend: 149; última ronda de navegador: 169 aprobadas, 3 omisiones expresas, 0 fallos, sin reintentos; instalación local actualizada: 18 comprobaciones adicionales aprobadas. Se conservaron los conteos principales y los controles de integridad. Sin commits, push ni despliegue al colegio. CI remota no ejecutada. Las rondas iniciales y sus fallos se conservan como historial, no se suman al resultado final. El resto de este tracker documenta las fases históricas y no reemplaza el estado técnico vigente.
+
 > Iniciativa implementada y validada localmente en la rama `Testing`: [perfiles personales del equipo institucional](perfiles-personales/README.md). La migración es aditiva y la evidencia local confirmó que no modifica cuentas, contraseñas ni datos operativos existentes. La aceptación física en el colegio continúa pendiente y no se ha desplegado esta rama.
 
 ## Objetivo

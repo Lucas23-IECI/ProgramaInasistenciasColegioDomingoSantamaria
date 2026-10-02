@@ -1,5 +1,7 @@
 # Plan de integración institucional
 
+> **Documento histórico, no plan vigente.** Conserva las decisiones iniciales previas al cierre de septiembre de 2026. Sus referencias a presentes, ausencias y matrícula pendiente no describen el producto actual: el sistema no infiere asistencia por falta de escaneo y la matrícula histórica ya está implementada. Consulte el [estado técnico actual](ESTADO_TECNICO_ACTUAL.md) y el [informe de cierre de pendientes](CIERRE_PENDIENTES_2026-09-23.md) antes de usar este plan como lista de pendientes.
+
 ## Objetivo
 
 Preparar el sistema para una integración controlada en el Liceo Domingo Santa María, protegiendo datos personales, credenciales, certificados médicos y continuidad operacional. La entrega debe ser comprensible para personal no técnico, verificable y reversible.

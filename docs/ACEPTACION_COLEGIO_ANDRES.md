@@ -8,6 +8,8 @@ cambios hayan sido aprobados y fusionados en `main`.
 
 ## 1. Actualizar el código después del merge a main
 
+**Aviso 24-09-2026:** las secciones históricas 3 y 4 que nombran `preparar-servidor-recomendado.ps1` han sido sustituidas por [HTTPS_COLEGIO.md](HTTPS_COLEGIO.md). Ese instalador anterior está retirado. No cambiar contraseñas ni `.env` para añadir HTTPS. La nueva preparación tampoco instala un hook Git ni despliega con un pull por sí solo.
+
 Andrés no debe cambiar a `test`: esa rama es exclusivamente para desarrollo y
 pruebas. Tampoco debe volver a ejecutar el instalador ni cargar nuevamente el
 Excel por una actualización normal.

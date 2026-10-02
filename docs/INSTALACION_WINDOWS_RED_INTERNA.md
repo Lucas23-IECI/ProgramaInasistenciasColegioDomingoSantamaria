@@ -36,23 +36,21 @@ Las credenciales iniciales quedan en `credenciales-iniciales.txt`. Ese archivo n
 
 ## HTTPS obligatorio para instalar la aplicación
 
-La dirección recomendada para el uso cotidiano es `https://asistencia.ldsm.test`. HTTPS habilita la instalación como aplicación, la cámara y los avisos del navegador. El sistema puede seguir abriéndose por HTTP, pero el navegador bloqueará esas funciones; no se trata de un fallo de descarga.
+La preparación vigente está en [HTTPS privado sin dominio](HTTPS_COLEGIO.md). Se usa `https://IP-DEL-SERVIDOR`, con certificado confiado en los PC autorizados. HTTPS habilita las funciones que el navegador permite solamente en conexiones seguras; no evita la necesidad de permisos de cámara/notificaciones.
 
 La preparación inicial la ejecuta Lucas o soporte, una sola vez, en PowerShell
 como administrador y dentro de la carpeta del proyecto:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\preparar-servidor-recomendado.ps1
+.\scripts\instalar-https-colegio.ps1 -Diagnostico
 ```
 
-El script detecta la IP, instala `mkcert` si falta, genera el certificado,
-configura producción, inicia HTTPS y habilita las actualizaciones posteriores.
-Conviene reservar esa IP para que el enlace cotidiano no cambie.
+El diagnóstico no cambia nada. Seguir después la guía enlazada para instalar y distribuir el paquete de confianza. No se usa mkcert ni se modifica la contraseña de PostgreSQL. Conviene reservar la IP para que el enlace no cambie.
 
 Cada computador administrado debe:
 
-1. Confiar una sola vez en `certs\rootCA.pem`. Distribuya únicamente ese certificado público; nunca copie `rootCA-key.pem` ni `ldsm-lan-key.pem` a otros equipos.
+1. Ejecutar una vez el instalador del paquete `Conectar-equipo.zip`, comparando la huella con soporte por un canal independiente. Nunca copiar `.https-lan` ni claves privadas.
 2. Abrir la IP HTTPS indicada por el script y comprobar que el navegador no muestre una advertencia.
 3. Opcionalmente, resolver `asistencia.ldsm.test` mediante DNS interno para usar un nombre estable.
 4. Recién entonces usar **Instalar aplicación** y habilitar cámara o avisos si la persona los necesita.
@@ -61,7 +59,7 @@ No use excepciones del navegador, certificados vencidos ni opciones como “cont
 
 ### Alternativas de certificado
 
-- **Recomendada para la red actual:** nombre interno estable, IP reservada, `mkcert` o una autoridad interna y distribución administrada de la raíz a los equipos del colegio.
+- **Para la red actual:** IP reservada y autoridad interna, siguiendo el instalador y los límites de la guía HTTPS vigente.
 - **Mejor a largo plazo si el colegio ya administra dominio y DNS:** subdominio institucional y certificado de una autoridad pública, manteniendo el servidor protegido y sin exponer directamente la base de datos.
 - **Solo para pruebas en el mismo servidor:** `https://localhost`. No soluciona el acceso seguro desde otros computadores y no debe presentarse como despliegue institucional.
 

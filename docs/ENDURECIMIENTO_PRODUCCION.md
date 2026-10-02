@@ -2,13 +2,15 @@
 
 Este documento separa lo que el sistema puede validar automáticamente de lo que debe comprobarse físicamente en el establecimiento.
 
+**Actualización 24-09-2026:** para HTTPS de una instalación existente rige [HTTPS_COLEGIO.md](HTTPS_COLEGIO.md). No copiar una plantilla `.env` encima de una instalación usada ni rotar contraseñas como parte de TLS. Este listado de endurecimiento completo es distinto de instalar HTTPS.
+
 ## Preparación
 
 1. Copiar `.env.production.example` a `.env` sin conservar ningún valor de ejemplo.
 2. Generar contraseñas y secretos aleatorios, únicos y no reutilizados.
 3. Definir un nombre interno estable, por ejemplo `asistencia.ldsm.test`, y una IP reservada en el router o servidor DHCP.
-4. Ejecutar `.\scripts\preparar-https-red-interna.ps1` con el nombre y la IP definitivos.
-5. Instalar la autoridad local de `mkcert` en cada equipo autorizado.
+4. Ejecutar `.\scripts\instalar-https-colegio.ps1 -Diagnostico` y continuar con la guía vigente.
+5. Distribuir el paquete público de confianza generado por esa instalación, verificando su huella independientemente.
 
 ## Controles automatizados
 

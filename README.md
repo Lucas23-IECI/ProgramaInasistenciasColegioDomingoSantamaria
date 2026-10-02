@@ -38,14 +38,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Después de instalar, `scripts\estado.ps1` comprueba los servicios y `scripts\respaldo-ahora.ps1` crea un respaldo inmediato.
 
-La preparación definitiva con HTTPS se ejecuta una sola vez por soporte:
+Para agregar HTTPS a una instalación existente, seguir [HTTPS privado sin dominio](docs/HTTPS_COLEGIO.md). Primero se ejecuta un diagnóstico sin cambios:
 
 ```powershell
-.\scripts\preparar-servidor-recomendado.ps1
+.\scripts\instalar-https-colegio.ps1 -Diagnostico
 ```
 
-Después, un `git pull --ff-only origin main` exitoso en `main` realiza
-automáticamente respaldo, reconstrucción, migraciones y comprobación de salud.
+La instalación requiere una configuración inicial en el servidor y confianza una vez en cada PC autorizado. No usa mkcert, no cambia contraseñas ni instala hooks Git. Un `git pull` por sí solo **no despliega** cambios salvo que se haya configurado separadamente un hook; el override HTTPS generado conserva TLS al ejecutar después `docker compose up -d --build`.
 
 ## Desarrollo local
 
