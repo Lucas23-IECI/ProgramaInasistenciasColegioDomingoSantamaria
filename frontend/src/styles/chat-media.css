@@ -1,0 +1,44 @@
+.chat-media-avatar { overflow: hidden; flex-shrink: 0; }
+.chat-media-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.chat-photo-attachment { width: min(320px, 100%); max-width: 100%; }
+.chat-photo-attachment__preview {
+  position: relative; display: grid; place-items: center; width: 100%; min-width: 0; min-height: 0; aspect-ratio: 4 / 3;
+  padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md);
+  color: var(--ink); background: var(--surface-soft); cursor: zoom-in;
+}
+.chat-photo-attachment__preview > img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+.chat-photo-attachment__loading { position: absolute; inset: 0; display: grid; place-items: center; padding: .75rem; color: var(--muted); background: var(--surface-soft); font-size: .8rem; pointer-events: none; }
+.chat-photo-attachment__download.chat-attachment { width: 100%; margin-top: .35rem; }
+.chat-photo-attachment__error { display: flex; align-items: center; gap: .5rem; margin: .25rem 0 .5rem; color: var(--muted); font-size: .8rem; }
+.chat-photo-attachment__error svg { flex-shrink: 0; }
+.chat-media-viewer-backdrop {
+  position: fixed; inset: 0; z-index: var(--layer-modal, 20000); display: grid; place-items: center;
+  padding: clamp(8px, 2vw, 24px); background: color-mix(in srgb, var(--ink) 88%, transparent);
+  font-family: "Segoe UI Variable", "Segoe UI", Inter, Arial, sans-serif;
+}
+.chat-media-viewer {
+  display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0;
+  color: var(--ink); background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+}
+.chat-media-viewer > header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-shrink: 0; padding: .6rem .75rem; border-bottom: 1px solid var(--border); }
+.chat-media-viewer > header h2 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; line-height: 1.4; }
+.chat-media-viewer__actions { display: flex; gap: .25rem; flex-shrink: 0; }
+.chat-media-viewer__actions button { display: grid; place-items: center; width: 44px; min-width: 44px; height: 44px; padding: 0; border: 1px solid transparent; border-radius: var(--radius-md); color: var(--ink); background: transparent; cursor: pointer; }
+.chat-media-viewer__actions button:hover:not(:disabled) { background: var(--surface-soft); border-color: var(--border); }
+.chat-media-viewer__actions button:disabled { color: var(--muted); opacity: .6; cursor: default; }
+.chat-media-viewer :is(button, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+.chat-media-viewer__stage { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; padding: 1rem; background: var(--surface-soft); }
+.chat-media-viewer__stage > img { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+.chat-media-viewer__stage.is-zoomed { display: block; }
+.chat-media-viewer__stage.is-zoomed > img { width: 200%; height: auto; max-width: none; max-height: none; }
+.chat-media-viewer__status { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; background: var(--surface-soft); color: var(--muted); }
+.chat-media-viewer__error { display: grid; justify-items: center; gap: .75rem; max-width: 350px; color: var(--muted); text-align: center; }
+.chat-media-viewer__error p { margin: 0; color: var(--ink); font-weight: 600; }
+.chat-media-viewer__error span { font-size: .9rem; }
+@media (max-width: 600px) {
+  .chat-media-viewer-backdrop { padding: 0; }
+  .chat-media-viewer { border-radius: 0; border: 0; }
+  .chat-media-viewer > header { flex-wrap: wrap; padding-top: max(.5rem, env(safe-area-inset-top)); }
+  .chat-media-viewer > header h2 { flex: 1 1 120px; font-size: .875rem; }
+  .chat-media-viewer__stage { padding: .5rem; padding-bottom: max(.5rem, env(safe-area-inset-bottom)); }
+}

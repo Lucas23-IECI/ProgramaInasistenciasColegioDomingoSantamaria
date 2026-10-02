@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
-const { collectSignals } = require('../services/institutionalFollowUpService');
+const { collectSignals, upsertSignalAndCase } = require('../services/institutionalFollowUpService');
 
 test('el chat valida identificadores y retención antes de consultar la base', () => {
   const chat = read('routes/internalChat.js');
@@ -118,8 +118,12 @@ test('seguimiento detecta documentos, contacto familiar, duplicados y convivenci
   ]);
   const detected = await collectSignals(queryable, rules);
   assert.equal(detected.find((item) => item.rule === 'CONTACTO_FAMILIAR_INCOMPLETO').data.origen.enlace, '/admin/familias?estudiante_id=7');
-  assert.equal(detected.find((item) => item.rule === 'DOCUMENTO_VENCIDO').data.origen.enlace, '/admin/documentos/ficha/51');
-  assert.equal(detected.find((item) => item.rule === 'DOCUMENTO_POR_VENCER').data.dias_restantes, 4);
+  const expiredDocument = detected.find((item) => item.rule === 'DOCUMENTO_VENCIDO');
+  const expiringDocument = detected.find((item) => item.rule === 'DOCUMENTO_POR_VENCER');
+  assert.equal(expiredDocument.data.origen.enlace, '/admin/documentos/ficha/51');
+  assert.equal(expiredDocument.dedupeKey, 'DOCUMENTO:documento:51');
+  assert.equal(expiringDocument.dedupeKey, 'DOCUMENTO:documento:52');
+  assert.equal(expiringDocument.data.dias_restantes, 4);
   assert.deepEqual(detected.find((item) => item.rule === 'POSIBLE_DUPLICADO_ESTUDIANTE').relatedStudentIds, [7, 9]);
   assert.equal(detected.find((item) => item.rule === 'CONVIVENCIA_CRITICA').data.origen.permiso, 'convivencia.view');
 });
@@ -172,6 +176,46 @@ test('la automatización evita duplicados, asigna, escala y respeta su interrupt
   assert.match(service, /seguimiento:tarea:/u);
 });
 
+test('una señal que reaparece inicia un nuevo plazo y puede escalar otra vez', async () => {
+  const calls = [];
+  const client = {
+    query: async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (/INSERT INTO seguimiento_senales/u.test(sql)) {
+        return { rowCount: 1, rows: [{ id_senal: 17, id_caso: 44, ciclo_deteccion: 2 }] };
+      }
+      if (/SELECT estado FROM seguimiento_casos/u.test(sql)) {
+        return { rowCount: 1, rows: [{ estado: 'RESUELTO' }] };
+      }
+      return { rowCount: 1, rows: [] };
+    }
+  };
+  const rules = new Map([['DOCUMENTO_VENCIDO', {
+    codigo: 'DOCUMENTO_VENCIDO', activa: true, plazo_dias: 3, prioridad: 'ALTA'
+  }]]);
+
+  const result = await upsertSignalAndCase(client, {
+    rule: 'DOCUMENTO_VENCIDO',
+    key: 'documento:51',
+    entityType: 'DOCUMENTO_ESTUDIANTE',
+    entityId: 51,
+    studentId: 7,
+    occurrences: 1,
+    title: 'Documento vencido',
+    reason: 'El documento continúa vencido.',
+    data: { origen: { enlace: '/admin/documentos/ficha/51' } }
+  }, rules, 9);
+
+  const reactivation = calls.find((call) => /UPDATE seguimiento_casos[\s\S]+escalado_automatico_en = NULL/u.test(call.sql));
+  assert.ok(reactivation, 'la reactivación debe reiniciar el escalamiento automático');
+  assert.match(reactivation.sql, /responsable_usuario_id IS NULL THEN 'ABIERTO' ELSE 'ASIGNADO'/u);
+  assert.deepEqual(reactivation.params, [44, 3, 9, 'ALTA']);
+  assert.equal(result.caseId, 44);
+  assert.equal(result.created, false);
+  assert.equal(result.detectionCycle, 2);
+  assert.ok(calls.some((call) => /REACTIVACION_AUTOMATICA/u.test(call.sql)));
+});
+
 test('las notificaciones conservan estado de entrega, lectura, fallo y reintento', () => {
   const migration = read('migrations/045_notificaciones_estado_entrega.sql');
   const route = read('routes/notifications.js');
@@ -202,11 +246,12 @@ test('el chat exige membresía y conserva trazabilidad institucional', () => {
   assert.match(route, /MODERAR_MENSAJE_CHAT/u);
   assert.match(route, /DESCARGAR_ADJUNTO_CHAT/u);
   assert.match(route, /contexto_tipo/u);
+  assert.match(route, /c\.contexto_tipo,c\.contexto_id/u);
   assert.match(route, /CONTEXT_TYPES/u);
   assert.match(route, /Indica el registro institucional que se coordinará/u);
   assert.match(route, /El tipo de registro vinculado no es válido/u);
   assert.match(route, /SELECT \* FROM chat_conversaciones WHERE clave_dedupe = \$1 AND activa = true FOR UPDATE/u);
-  assert.match(route, /return res\.status\(200\)\.json\(conversation\)/u);
+  assert.match(route, /return res\.status\(200\)\.json\(publicConversation\(conversation\)\)/u);
   assert.match(route, /router\.get\('\/buscar'/u);
   assert.match(route, /router\.get\('\/eventos'/u);
   assert.match(route, /horario_silencio_desde/u);
