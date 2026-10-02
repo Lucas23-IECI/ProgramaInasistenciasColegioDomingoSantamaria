@@ -12,7 +12,7 @@ const commonToolsStep = {
   element: '[data-tour="global-tools"]',
   popover: {
     title: 'Herramientas globales',
-    description: 'Desde aquí puedes repetir esta ayuda, cambiar el tema, abrir el chat y las notificaciones, instalar la aplicación o administrar tu sesión según tus permisos.',
+    description: 'Desde aquí puedes buscar registros habilitados por tus permisos (también con Ctrl + K), repetir esta ayuda y cambiar el tema. El icono de conversación y el botón Mensajes abajo a la derecha abren un chat flotante sin salir de tu trabajo, si tu cuenta tiene permiso. Puedes minimizarlo o abrir el chat completo. También tienes notificaciones, instalación y el menú de tu cuenta, donde puedes volver a abrir Novedades de la versión.',
     side: 'bottom',
     align: 'end',
   },
@@ -76,7 +76,7 @@ const tours = {
       element: '[data-tour="staff-directory-search"]',
       popover: {
         title: 'Encontrar a una persona',
-        description: 'Busca por nombre, cargo o area institucional. Solo se muestran cuentas activas y perfiles visibles.',
+        description: 'Busca por nombre, cargo o área institucional. Solo se muestran cuentas activas y perfiles visibles. Si la consulta falla, se muestra el problema y puedes reintentar; no se informa como cero coincidencias.',
         side: 'bottom',
       },
     }, {
@@ -134,7 +134,7 @@ const tours = {
         element: '[data-tour="late-list"]',
         popover: {
           title: 'Atrasos registrados',
-          description: 'Busca registros y abre Gestionar para corregir, justificar, anular o revisar su historial.',
+          description: 'Busca registros y abre Gestionar para corregir, justificar, anular o revisar su historial. Si la carga falla, verás la causa y un reintento; nunca se mostrará como una lista vacía.',
           side: 'top',
         },
       },
@@ -142,7 +142,7 @@ const tours = {
         element: '[data-tour="pending-justifications"]',
         popover: {
           title: 'Justificaciones pendientes',
-          description: 'Busca un atraso anterior por estudiante, curso o período. La justificación se aplica al registro seleccionado y conserva la fecha original del atraso.',
+          description: 'Busca un atraso anterior por estudiante, curso o período. La justificación se aplica al registro seleccionado y conserva la fecha original del atraso. Un fallo de consulta se muestra por separado y no se interpreta como cero pendientes.',
           side: 'top',
         },
       },
@@ -165,7 +165,7 @@ const tours = {
         element: '[data-tour="students-navigation"]',
         popover: {
           title: 'Padrón e importaciones',
-          description: 'Cambia entre nómina, carga ERP, apoderados y control del padrón. Las importaciones nunca crean cuentas de acceso.',
+          description: 'Cambia entre nómina, carga ERP, apoderados y control del padrón. Puedes descargar plantillas vacías, previsualizar cada carga y detectar si el mismo archivo ya fue importado. Las importaciones nunca crean cuentas de acceso.',
           side: 'bottom',
         },
       },
@@ -173,7 +173,7 @@ const tours = {
         element: '[data-tour="student-manual-create"]',
         popover: {
           title: 'Gestión manual',
-          description: 'Agrega una matrícula individual sin importar otra planilla. Desde cada ficha también puedes editar, retirar o reactivar al estudiante con trazabilidad.',
+          description: 'Agrega una matrícula individual sin importar otra planilla. Si entras desde un curso, el formulario lo conserva y puedes cambiarlo. Selecciona un motivo de alta; Otro motivo exige un detalle. Si los cursos no cargan, reintenta antes de guardar. Escape cierra primero el selector abierto, sin perder el formulario. Desde cada ficha también puedes editar, retirar o reactivar al estudiante con trazabilidad.',
           side: 'bottom',
         },
       },
@@ -205,7 +205,7 @@ const tours = {
         element: '[data-tour="student-governance"]',
         popover: {
           title: 'Control del padrón',
-          description: 'Revisa calidad, altas manuales, historial y duplicados. Desde el encabezado puedes exportar el padrón operativo, administrativo o sus casos de calidad.',
+          description: 'Revisa calidad, altas manuales, historial y duplicados. La reversión segura se bloquea si hubo cambios posteriores y nunca borra fichas ni actividad institucional. Si una carga rechaza filas, conserva las válidas y muestra las causas por fila. Nombre Usuario es opcional: no se inventa cuando viene vacío. También puedes exportar el padrón.',
           side: 'top',
         },
       },
@@ -218,7 +218,7 @@ const tours = {
       element: '[data-tour="analytics-filters"]',
       popover: {
         title: 'Período y filtros',
-        description: 'El período se aplica a toda la página. Curso, justificación y severidad filtran los indicadores de puntualidad y las exportaciones; visitas, retiros y Convivencia permanecen institucionales dentro de esas mismas fechas.',
+        description: 'El período se aplica a toda la página. Curso, justificación y severidad filtran los indicadores de puntualidad y las exportaciones; visitas, retiros y Convivencia permanecen institucionales dentro de esas mismas fechas. Si una consulta falla, la pantalla muestra la causa segura y permite reintentar sin confundirla con cero resultados.',
         side: 'bottom',
       },
     }, {
@@ -260,14 +260,14 @@ const tours = {
       element: '[data-tour="analytics-export"]',
       popover: {
         title: 'Exportar el alcance actual',
-        description: 'PDF y Excel conservan el período, curso, justificación y severidad visibles. El archivo declara también qué secciones siguen mostrando totales institucionales.',
+        description: 'PDF y Excel conservan el período, curso, justificación y severidad visibles. El PDF incluye tablas y metodología; el Excel separa resumen, evolución, cursos, bloques, estudiantes, visitas, retiros, Convivencia, equipos y reglas en hojas revisables. Ambos declaran qué secciones siguen mostrando totales institucionales.',
         side: 'left',
       },
     }, {
       element: '[data-tour="analytics-schedules"]',
       popover: {
         title: 'Reportes automáticos',
-        description: 'Programa un informe del período anterior cerrado. El historial conserva resultado y archivo; permite descargar ejecuciones correctas y reintentar fallos con una causa clara. No reutiliza filtros temporales de pantalla.',
+        description: 'Programa un informe del período anterior cerrado. El historial conserva resultado y archivo; permite descargar ejecuciones correctas y reintentar fallos con una causa clara, evitando reintentos simultáneos o repetidos después de un resultado correcto. No reutiliza filtros temporales de pantalla.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -285,7 +285,7 @@ const tours = {
       element: '[data-tour="profiles-grid"]',
       popover: {
         title: 'Abrir un perfil',
-        description: 'Pulsa cualquier parte de una tarjeta para revisar sus cuentas, permisos recomendados y opciones de administración.',
+        description: 'Pulsa cualquier parte de una tarjeta para revisar sus cuentas, permisos recomendados y opciones de administración. Al habilitar una acción, el sistema incorpora también el acceso necesario a su módulo; al retirar ese acceso base, retira sus acciones dependientes para evitar pantallas visibles que luego no puedan operar.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -303,14 +303,14 @@ const tours = {
       element: '[data-tour="audit-filters"]',
       popover: {
         title: 'Búsqueda de actividad',
-        description: 'La consulta parte con los últimos 30 días. Puedes cambiar el período y, al revisar una cuenta, separar lo que hizo de los cambios administrativos aplicados sobre ella.',
+        description: 'La consulta parte con los últimos 30 días. Puedes filtrar por categoría, acción, sección, persona y período; los catálogos se actualizan con los eventos reales del sistema.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="audit-list"]',
       popover: {
         title: 'Registro de actividad',
-        description: 'Cada fila conserva quién realizó la acción, cuándo ocurrió y qué entidad fue afectada.',
+        description: 'Cada fila indica quién hizo la acción, cuándo ocurrió, qué sección o registro afectó y desde qué equipo o red. El detalle se presenta con etiquetas legibles y las exportaciones respetan exactamente los filtros visibles.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -321,7 +321,7 @@ const tours = {
       element: '[data-tour="punctuality-settings"]',
       popover: {
         title: 'Jornada institucional',
-        description: 'Aquí defines el nombre de la jornada y cuándo se activan las alertas por atrasos reiterados.',
+        description: 'Aquí defines el nombre de la jornada y cuándo se activan las alertas por atrasos reiterados. Si la configuración vigente no puede cargarse, la edición se bloquea hasta recuperarla para evitar sobrescribirla con valores incompletos.',
         side: 'top',
       },
     }, {
@@ -346,7 +346,7 @@ const tours = {
       element: '[data-tour="visits-summary"]',
       popover: {
         title: 'Situación del establecimiento',
-        description: 'Cada indicador es interactivo: abre directamente las personas dentro, los movimientos del día o los retiros registrados.',
+        description: 'Cada indicador es interactivo: abre directamente las personas dentro, los movimientos del día o los retiros registrados. Si no se puede confirmar el estado vigente, Portería bloquea cifras, listas y formularios hasta que la recarga funcione.',
         side: 'bottom',
       },
     }, {
@@ -406,7 +406,7 @@ const tours = {
       element: '[data-tour="coexistence-cases"]',
       popover: {
         title: 'Bandeja institucional',
-        description: 'Abre la ficha reservada para revisar responsable, próxima revisión y actividad. Solo las cuentas con permisos explícitos pueden consultar esta información.',
+        description: 'Abre la ficha reservada para revisar responsable, próxima revisión y actividad. Solo las cuentas con permisos explícitos pueden consultar esta información. Si la carga falla, la bandeja y la ficha lo distinguen de un resultado vacío y permiten reintentar.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -431,7 +431,7 @@ const tours = {
       element: '[data-tour="documents-list"]',
       popover: {
         title: 'Consulta transversal',
-        description: 'Filtra los documentos registrados por estudiante, título, categoría, estado o vencimiento.',
+        description: 'Filtra los documentos registrados por estudiante, título, categoría, estado o vencimiento. La lista se divide en páginas para conservar todos los resultados; si el servidor no responde, verás la causa y una acción para reintentar en lugar de una lista vacía.',
         side: 'top',
       },
     }, commonToolsStep],
@@ -442,14 +442,21 @@ const tours = {
       element: '[data-tour="operations-status"]',
       popover: {
         title: 'Estado de la jornada',
-        description: 'Resume las tareas visibles y confirma si el respaldo diario sigue vigente.',
+        description: 'Resume las tareas visibles y confirma si el respaldo diario sigue vigente. Si la bandeja no carga, el sistema bloquea el cierre: nunca interpreta el fallo como cero pendientes.',
         side: 'bottom',
       },
     }, {
       element: '[data-tour="operations-list"]',
       popover: {
         title: 'Pendientes accionables',
-        description: 'Cada fila muestra una responsabilidad concreta y abre directamente el módulo donde se resuelve.',
+        description: 'Cada fila muestra una responsabilidad concreta y abre directamente el módulo donde se resuelve. Las tareas internas permiten consultar su responsable, plazo e historial sin alterar los registros que les dieron contexto.',
+        side: 'top',
+      },
+    }, {
+      element: '[data-tour="operations-internal-tasks"]',
+      popover: {
+        title: 'Coordinación trazable',
+        description: 'Si tu perfil tiene permiso, aquí puedes crear una tarea, asignarla y fijar un plazo. Cada cambio conserva quién lo realizó, cuándo ocurrió y el motivo de cierre.',
         side: 'top',
       },
     }, {
@@ -532,15 +539,72 @@ const tours = {
       element: '[data-tour="chat-sidebar"]',
       popover: {
         title: 'Conversaciones institucionales',
-        description: 'Busca conversaciones o mensajes y crea comunicaciones directas, grupales, canales o chats vinculados al trabajo según tus permisos. La política de retención permanece desactivada hasta que se apruebe y guarde expresamente.',
+        description: 'Busca conversaciones o mensajes en la columna izquierda. El botón + inicia una conversación directa, un grupo o un canal según tus permisos. Panel principal vuelve al menú; Usar chat flotante vuelve a tu trabajo manteniendo la conversación. Al minimizar o ampliar se conserva el borrador, la urgencia y las menciones en esta pestaña; se borran al cerrar sesión o recargar. En celular, usa la flecha para volver a la lista.',
         side: 'right',
       },
     }, {
       element: '[data-tour="chat-thread"]',
       popover: {
         title: 'Coordinación con trazabilidad',
-        description: 'Envía mensajes, adjunta archivos, menciona integrantes y fija antecedentes. Un chat contextual identifica el registro relacionado y permite volver directamente al estudiante, visita, retiro, caso o documento original.',
+        description: 'Los mensajes se agrupan por día; los tuyos aparecen a la derecha. Una marca indica envío confirmado; dos indican lecturas registradas. Enter envía y Mayús + Enter agrega una línea. El clip adjunta archivos de hasta 8 MB y @ menciona integrantes. Toca una foto JPG o PNG para verla, ampliarla o descargarla; Escape cierra el visor. Solo propietarios y moderadores (administradores del grupo) pueden fijar mensajes. Si falla el envío, se conserva el texto para reintentar. Un chat contextual permite volver directamente al registro original.',
         side: 'left',
+      },
+    }, {
+      element: '[data-tour="chat-thread"]',
+      popover: {
+        title: 'Opciones del grupo y avisos',
+        description: 'En Preferencias puedes ajustar tus avisos y horarios de silencio. En grupos manuales, los administradores cambian foto, nombre, descripción y quién puede escribir. Solo los propietarios cambian roles; el último debe asignar otro antes de salir. Los canales institucionales automáticos se administran desde los equipos: el chat no ofrece cambios que la sincronización reemplazaría. La política de retención permanece desactivada hasta que se apruebe y guarde expresamente; no se activa al cambiar la apariencia.',
+        side: 'left',
+      },
+    }, {
+      element: '[data-tour="chat-sidebar"]',
+      popover: {
+        title: 'Tu apariencia personal',
+        description: 'El botón Apariencia del chat (paleta) permite elegir un fondo y el tamaño del texto solo para tu cuenta. Puedes usar una imagen JPG o PNG de hasta 4 MB. Guardar aplica el cambio en tus dispositivos; Cancelar descarta la selección. Restablecer apariencia vuelve al fondo institucional y elimina tu imagen guardada al confirmar. Un error no se presenta como guardado exitoso.',
+        side: 'right',
+      },
+    }, commonToolsStep],
+  },
+  '/agenda': {
+    title: 'Recorrido de la agenda interna',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="agenda-period"]',
+      popover: {
+        title: 'Tu semana de coordinación',
+        description: 'Avanza entre semanas para consultar únicamente reuniones, revisiones y recordatorios personales o donde fuiste invitado. Los eventos de otras cuentas no son visibles.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="agenda-grid"]',
+      popover: {
+        title: 'Eventos y respuestas',
+        description: 'Abre un evento para ver horario, lugar, participantes y recordatorio. Si recibiste una invitación puedes aceptarla o rechazarla; quien organiza puede cancelarla dejando el motivo en el historial.',
+        side: 'top',
+      },
+    }, commonToolsStep],
+  },
+  '/admin/recursos': {
+    title: 'Recorrido de recursos internos',
+    steps: [commonHeaderStep, {
+      element: '[data-tour="resources-overview"]',
+      popover: {
+        title: 'Inventario con trazabilidad',
+        description: 'El resumen distingue recursos, unidades disponibles, préstamos y solicitudes. Una solicitud no descuenta stock: la disponibilidad cambia únicamente cuando se confirma la entrega.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="resources-tabs"]',
+      popover: {
+        title: 'Catálogo, préstamos y solicitudes',
+        description: 'Consulta el inventario y, según tus permisos, solicita recursos o administra entregas y devoluciones. Cada cuenta sin administración ve solamente sus propios préstamos y solicitudes; las decisiones y entregas generan avisos dentro de la aplicación.',
+        side: 'bottom',
+      },
+    }, {
+      element: '[data-tour="resources-catalog"]',
+      popover: {
+        title: 'Disponibilidad comprobada',
+        description: 'Busca por nombre, código o categoría. Al agregar o editar un recurso puedes elegir una categoría institucional sugerida o escribir una propia. Al registrar una entrega, el sistema bloquea el recurso y vuelve a comprobar el stock para impedir cantidades negativas o préstamos simultáneos incompatibles.',
+        side: 'top',
       },
     }, commonToolsStep],
   },
@@ -550,7 +614,7 @@ const tours = {
       element: '[data-tour="scanner-status"]',
       popover: {
         title: 'Elige cómo registrar',
-        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos.',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos. Si el almacenamiento local falla, la pantalla lo distingue de una bandeja vacía y bloquea nuevos registros offline.',
         side: 'bottom',
       },
     }, {
@@ -575,7 +639,7 @@ const tours = {
       element: '[data-tour="scanner-status"]',
       popover: {
         title: 'Elige cómo registrar',
-        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos.',
+        description: 'Puedes utilizar la pistola conectada, la cámara del dispositivo o la búsqueda manual, según tus permisos. Ante un corte, la bandeja del dispositivo separa ingresos pendientes, sincronizados y con error, y permite reintentar sin duplicarlos. Si el almacenamiento local falla, la pantalla lo distingue de una bandeja vacía y bloquea nuevos registros offline.',
         side: 'bottom',
       },
     }, {

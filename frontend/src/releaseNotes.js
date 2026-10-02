@@ -1,13 +1,26 @@
 import { BarChart3, BellRing, ClipboardList, ContactRound, FolderArchive, HeartHandshake, Image, MessageCircle, ScanText, ShieldCheck, UserRound, UsersRound, Wifi } from 'lucide-react';
+import { PERMISSIONS } from './permissions';
 
 // Cambia este identificador cada vez que una actualización deba anunciarse al iniciar.
 export const CURRENT_RELEASE = {
-  id: '2026.08.28-cierre-operativo-v1',
-  label: 'Actualización de agosto 2026',
-  date: '28 de agosto de 2026',
-  title: 'Analítica, alertas y continuidad verificables',
-  summary: 'El sistema conecta la analítica con sus registros, conserva reportes descargables, amplía alertas y notificaciones auditables, y permite revisar la cola segura de Portería durante cortes de conexión.',
+  id: '2026.10.01-alta-manual-chat-v1',
+  label: 'Actualización de octubre 2026',
+  date: '1 de octubre de 2026',
+  title: 'Novedades para tu trabajo diario',
+  summary: 'Esta actualización corrige los selectores al agregar estudiantes, conserva el curso desde el que abriste el formulario y mejora el chat interno. También incluye mejoras de estadísticas, reportes, notificaciones y continuidad de Portería.',
+  chatHighlight: {
+    title: 'Chat interno para tu equipo',
+    description: 'Escribe a tus compañeros y coordina el trabajo sin salir del sistema. No necesitas instalar otra aplicación.',
+    location: 'Lo encuentras en el icono de conversación de la esquina superior derecha.',
+    action: 'Abrir chat interno',
+  },
   sections: [
+    {
+      icon: UsersRound,
+      title: 'Corrección del alta manual de estudiantes',
+      permission: PERMISSIONS.STUDENTS_MANAGE,
+      description: 'Los cursos y motivos se despliegan por encima del formulario. El curso de origen queda seleccionado y, si falla la carga, se muestra la causa y se permite reintentar. Se conservan las validaciones, los registros existentes y la auditoría.',
+    },
     {
       icon: UserRound,
       title: 'Mi perfil',
@@ -66,7 +79,8 @@ export const CURRENT_RELEASE = {
     {
       icon: MessageCircle,
       title: 'Chat interno vinculado al trabajo',
-      description: 'Crea conversaciones directas, grupos y canales; separa mensajes por día, muestra mejor los no leídos y guarda cada adjunto junto con su mensaje para evitar registros incompletos.',
+      permission: PERMISSIONS.CHAT_ACCESS,
+      description: 'Usa el chat completo o flotante sin perder el borrador. Incluye fotos con visor, administración de grupos, fondos personales y un editor compacto adaptable a celular; conserva menciones, urgencia, fijados y adjuntos.',
     },
     {
       icon: BellRing,
