@@ -5,6 +5,7 @@ import { API_URL } from '../../config';
 import { AuthContext } from '../../context/AuthContext';
 import { PERMISSIONS, hasPermission } from '../../permissions';
 import { mapGuardianRecord } from './studentUtils';
+import { matchesStudentSearch } from './studentSearch';
 import { getApiErrorMessage } from '../../utils/apiError';
 
 export function useStudentsController() {
@@ -24,6 +25,7 @@ const { logout, user } = useContext(AuthContext);
   const [students, setStudents] = useState([]);
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [page, setPage] = useState(1);
@@ -42,6 +44,7 @@ const { logout, user } = useContext(AuthContext);
   const [identityResolutions, setIdentityResolutions] = useState({});
   const [confirmNewCourses, setConfirmNewCourses] = useState(false);
   const [confirmMissingDeactivation, setConfirmMissingDeactivation] = useState(false);
+  const [confirmRepeatImport, setConfirmRepeatImport] = useState(false);
   const [importMode, setImportMode] = useState('PARCIAL');
   const [excelFileName, setExcelFileName] = useState('');
   const [excelFileHash, setExcelFileHash] = useState('');
@@ -108,15 +111,19 @@ const { logout, user } = useContext(AuthContext);
 
   const fetchStudents = async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const [studentsResponse, coursesResponse] = await Promise.all([
         axios.get(`${API_URL}/students`, { withCredentials: true }),
         axios.get(`${API_URL}/courses`, { withCredentials: true })
       ]);
-      setStudents(studentsResponse.data || []);
-      setCourses(coursesResponse.data || []);
+      if (!Array.isArray(studentsResponse.data) || !Array.isArray(coursesResponse.data)) {
+        throw new Error('Respuesta de padrón no válida');
+      }
+      setStudents(studentsResponse.data);
+      setCourses(coursesResponse.data);
     } catch (err) {
-      console.error(err);
+      setLoadError(getApiErrorMessage(err, 'No fue posible cargar el padrón y sus cursos. Reintenta antes de agregar un estudiante.'));
     } finally {
       setLoading(false);
     }
@@ -154,7 +161,8 @@ const { logout, user } = useContext(AuthContext);
     if (!file) return;
 
     try {
-      const XLSX = await import('xlsx');
+      const xlsxModule = await import('xlsx');
+      const XLSX = xlsxModule.default || xlsxModule;
       const data = await file.arrayBuffer();
       let fileHash = '';
       if (globalThis.crypto?.subtle) {
@@ -197,9 +205,10 @@ const { logout, user } = useContext(AuthContext);
       setIdentityResolutions({});
       setConfirmNewCourses(false);
       setConfirmMissingDeactivation(false);
+      setConfirmRepeatImport(false);
       const previewResponse = await axios.post(
         `${API_URL}/students/import-preview`,
-        { students: cleanRows, import_mode: importMode },
+        { students: cleanRows, import_mode: importMode, file_hash: fileHash },
         { withCredentials: true }
       );
       setImportPreview(previewResponse.data);
@@ -221,7 +230,7 @@ const { logout, user } = useContext(AuthContext);
     try {
       const previewResponse = await axios.post(
         `${API_URL}/students/import-preview`,
-        { students: excelRows, import_mode: nextMode },
+        { students: excelRows, import_mode: nextMode, file_hash: excelFileHash },
         { withCredentials: true }
       );
       setImportPreview(previewResponse.data);
@@ -274,6 +283,7 @@ const { logout, user } = useContext(AuthContext);
   const canConfirmImport = excelRows.length > 0
     && unresolvedImportRows.length === 0
     && (!createsNewCourses || confirmNewCourses)
+    && (!importPreview?.previous_import || confirmRepeatImport)
     && (importMode !== 'COMPLETA'
       || !(importPreview?.missing_students?.length)
       || confirmMissingDeactivation);
@@ -292,6 +302,7 @@ const { logout, user } = useContext(AuthContext);
         identity_resolutions: identityResolutions,
         confirm_new_courses: confirmNewCourses,
         confirm_missing_deactivation: confirmMissingDeactivation,
+        confirm_repeat_import: confirmRepeatImport,
         import_mode: importMode,
         file_name: excelFileName,
         file_hash: excelFileHash
@@ -299,10 +310,13 @@ const { logout, user } = useContext(AuthContext);
       setSyncResult(res.data);
       fetchStudents();
       setSelectedCourse(null);
-      setActiveSection('listado');
+      const rejectedRows = res.data.errors?.length || 0;
+      setActiveSection(rejectedRows ? 'carga' : 'listado');
       setToast({
-        type: 'success',
-        text: `Sincronización completada — Creados: ${res.data.inserted || 0}, actualizados: ${res.data.updated || 0}, vinculados manuales: ${res.data.linked_manual || 0}, reactivados: ${res.data.reactivated || 0}`
+        type: rejectedRows ? 'error' : 'success',
+        text: rejectedRows
+          ? `Importación con ${rejectedRows} ${rejectedRows === 1 ? 'fila rechazada' : 'filas rechazadas'}. Revisa el resultado y el detalle de cada fila.`
+          : `Sincronización completada — Creados: ${res.data.inserted || 0}, actualizados: ${res.data.updated || 0}, vinculados manuales: ${res.data.linked_manual || 0}, reactivados: ${res.data.reactivated || 0}`
       });
       setTimeout(() => setToast(null), 4500);
     } catch (err) {
@@ -316,9 +330,40 @@ const { logout, user } = useContext(AuthContext);
     }
   };
 
-  const openManualEditor = (mode, student = null) => {
-    setManualEditor({ mode, student });
+  const downloadImportTemplate = async (type) => {
+    const fallbackName = type === 'guardians'
+      ? 'plantilla-apoderados.xlsx'
+      : 'plantilla-estudiantes-erp.xlsx';
+    try {
+      const response = await axios.get(`${API_URL}/padron/import-template`, {
+        params: { type },
+        responseType: 'blob',
+        withCredentials: true
+      });
+      const fileName = (response.headers['content-disposition'] || '')
+        .match(/filename="?([^";]+)"?/i)?.[1] || fallbackName;
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      const message = getApiErrorMessage(error, 'No fue posible descargar la plantilla.');
+      if (type === 'guardians') setGuardianError(message);
+      else setUploadError(message);
+    }
   };
+
+  const openManualEditor = (mode, student = null) => {
+    const initialCourse = mode === 'create' && courses.some((course) => course.nombre_curso === selectedCourse)
+      ? selectedCourse : '';
+    setManualEditor({ mode, student, initialCourse });
+  };
+
+  const closeManualEditor = useCallback(() => setManualEditor(null), []);
 
   const handleManualSaved = async (message) => {
     setManualEditor(null);
@@ -359,7 +404,8 @@ const { logout, user } = useContext(AuthContext);
     if (!file) return;
 
     try {
-      const XLSX = await import('xlsx');
+      const xlsxModule = await import('xlsx');
+      const XLSX = xlsxModule.default || xlsxModule;
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array', cellDates: true });
       const preferredSheet = workbook.SheetNames.find((name) => /apoderad|autorizad|ficha/i.test(name));
@@ -437,11 +483,7 @@ const { logout, user } = useContext(AuthContext);
      : (courseGroups[selectedCourse] || []);
 
   const filtered = currentStudents.filter(s => {
-    const normalizedSearch = searchTerm.toLowerCase();
-    const matchText = (s.nombres + ' ' + s.paterno).toLowerCase().includes(normalizedSearch) ||
-            String(s.rut || '').toLowerCase().includes(normalizedSearch) ||
-            String(s.documento_erp || '').toLowerCase().includes(normalizedSearch) ||
-            String(s.uuid_erp || '').toLowerCase().includes(normalizedSearch);
+    const matchText = matchesStudentSearch(s, searchTerm);
     const matchEstado = filterEstado === '' ? true : filterEstado === 'activo' ? s.activo : !s.activo;
     const matchRol = filterRol === '' ? true : s.rol === filterRol;
     return matchText && matchEstado && matchRol;
@@ -534,6 +576,8 @@ const { logout, user } = useContext(AuthContext);
     setConfirmNewCourses,
     confirmMissingDeactivation,
     setConfirmMissingDeactivation,
+    confirmRepeatImport,
+    setConfirmRepeatImport,
     importMode,
     setImportMode,
     excelFileName,
@@ -567,6 +611,8 @@ const { logout, user } = useContext(AuthContext);
     loadingDetails,
     setLoadingDetails,
     manualEditor,
+    closeManualEditor,
+    loadError,
     setManualEditor,
     identityRegularization,
     setIdentityRegularization,
@@ -585,6 +631,7 @@ const { logout, user } = useContext(AuthContext);
     createsNewCourses,
     canConfirmImport,
     syncExcelWithDatabase,
+    downloadImportTemplate,
     openManualEditor,
     handleManualSaved,
     openIdentityRegularization,

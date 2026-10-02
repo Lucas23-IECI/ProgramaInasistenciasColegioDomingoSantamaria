@@ -1,7 +1,7 @@
 import * as Select from '@radix-ui/react-select';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 
-const EMPTY_VALUE = '__ldsm_empty__';
+import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../utils/selectValue';
 
 const AppSelect = ({
   value = '',
@@ -13,8 +13,12 @@ const AppSelect = ({
   disabled = false,
 }) => (
   <Select.Root
-    value={value === '' ? EMPTY_VALUE : String(value)}
-    onValueChange={(nextValue) => onChange(nextValue === EMPTY_VALUE ? '' : nextValue)}
+    value={toSelectValue(value, options)}
+    onValueChange={(nextValue) => {
+      // The hidden native select can emit '' while syncing a controlled value
+      // inside a form. It is never an item: explicit empty choices use our sentinel.
+      if (nextValue !== '') onChange(fromSelectValue(nextValue));
+    }}
     disabled={disabled}
   >
     <Select.Trigger className={`app-select-trigger ${className}`.trim()} aria-label={ariaLabel}>
@@ -22,11 +26,12 @@ const AppSelect = ({
       <Select.Icon className="app-select-trigger__icon"><ChevronDown size={17} /></Select.Icon>
     </Select.Trigger>
     <Select.Portal>
-      <Select.Content className="app-select-content" position="popper" sideOffset={6} collisionPadding={12}>
+      <Select.Content className="app-select-content" position="popper" sideOffset={6} collisionPadding={12}
+        onEscapeKeyDown={(event) => event.stopPropagation()}>
         <Select.ScrollUpButton className="app-select-scroll"><ChevronUp size={16} /></Select.ScrollUpButton>
         <Select.Viewport className="app-select-viewport">
           {options.map((option) => {
-            const normalizedValue = option.value === '' ? EMPTY_VALUE : String(option.value);
+            const normalizedValue = option.value === '' ? EMPTY_SELECT_VALUE : String(option.value);
             return (
               <Select.Item
                 className="app-select-item"

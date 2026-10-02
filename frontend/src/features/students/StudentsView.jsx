@@ -1,4 +1,4 @@
-import { Search, X, Users, GraduationCap, Database, Upload, FileSpreadsheet, RefreshCw, ShieldCheck, User, Mail, Phone, Calendar, Hash, Shield, Clock, Activity, AlertTriangle, BellRing, UserPlus, Pencil, Archive, RotateCcw, ContactRound } from 'lucide-react';
+import { Search, X, Users, GraduationCap, Database, Upload, Download, FileSpreadsheet, RefreshCw, ShieldCheck, User, Mail, Phone, Calendar, Hash, Shield, Clock, Activity, AlertTriangle, BellRing, UserPlus, Pencil, Archive, RotateCcw, ContactRound } from 'lucide-react';
 import ModuleHeader from '../../components/ModuleHeader';
 import AppSelect from '../../components/AppSelect';
 import StudentManualModal from '../../components/StudentManualModal';
@@ -6,6 +6,7 @@ import StudentIdentityRegularizationModal from '../../components/StudentIdentity
 import StudentGovernancePanel from '../../components/StudentGovernancePanel';
 import { StudentDetailDrawer } from './StudentDetailDrawer';
 import { StudentOriginBadge } from './StudentOriginBadge';
+import { matchesStudentSearch } from './studentSearch';
 import { getStudentIdentifier, getStudentIdentifierLabel } from '../../utils/studentFormat';
 
 
@@ -24,6 +25,8 @@ export function StudentsView(controller) {
     students,
     courses,
     loading,
+    loadError,
+    fetchStudents,
     searchTerm,
     setSearchTerm,
     selectedCourse,
@@ -53,6 +56,8 @@ export function StudentsView(controller) {
     setConfirmNewCourses,
     confirmMissingDeactivation,
     setConfirmMissingDeactivation,
+    confirmRepeatImport,
+    setConfirmRepeatImport,
     importMode,
     excelFileName,
     syncing,
@@ -70,7 +75,7 @@ export function StudentsView(controller) {
     studentDetails,
     loadingDetails,
     manualEditor,
-    setManualEditor,
+    closeManualEditor,
     identityRegularization,
     setIdentityRegularization,
     navigate,
@@ -84,6 +89,7 @@ export function StudentsView(controller) {
     createsNewCourses,
     canConfirmImport,
     syncExcelWithDatabase,
+    downloadImportTemplate,
     openManualEditor,
     handleManualSaved,
     openIdentityRegularization,
@@ -191,7 +197,7 @@ export function StudentsView(controller) {
               <strong>Gestión manual de matrícula</strong>
               <span>Para altas individuales, correcciones o cambios que no requieren importar otra planilla.</span>
             </div>
-            <button type="button" onClick={() => openManualEditor('create')}>
+            <button type="button" onClick={() => openManualEditor('create')} disabled={loading || Boolean(loadError)}>
               <UserPlus size={18} /> Agregar estudiante
             </button>
           </div>
@@ -199,6 +205,11 @@ export function StudentsView(controller) {
 
         {activeSection === 'listado' && loading ? (
           <div className="loader">Cargando base de datos escolar...</div>
+        ) : activeSection === 'listado' && loadError ? (
+          <div className="student-manual-error" role="alert">
+            <AlertTriangle size={18} /><span>{loadError}</span>
+            <button type="button" className="student-manual-secondary" onClick={fetchStudents}>Reintentar carga</button>
+          </div>
         ) : activeSection === 'listado' && !selectedCourse ? (
           <div className="fade-in">
              <p style={{color: 'var(--text-light)', marginBottom: '16px'}}>
@@ -227,13 +238,7 @@ export function StudentsView(controller) {
              </div>
 
              {globalStudentSearch.trim().length >= 2 && (() => {
-               const globalFiltered = students.filter(s =>
-                 (s.nombres + ' ' + s.paterno).toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
-                 String(s.rut || '').toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
-                 String(s.documento_erp || '').toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
-                 String(s.uuid_erp || '').toLowerCase().includes(globalStudentSearch.toLowerCase()) ||
-                 (s.nombre_usuario && s.nombre_usuario.toLowerCase().includes(globalStudentSearch.toLowerCase()))
-               );
+               const globalFiltered = students.filter((student) => matchesStudentSearch(student, globalStudentSearch));
                return (
                  <div className="fade-in" style={{marginBottom: '28px', background: 'rgba(15,23,42,0.4)', borderRadius: '14px', padding: '18px', border: '1px solid rgba(59,130,246,0.15)'}}>
                    <h3 style={{margin: '0 0 12px 0', color: 'var(--text-dark)', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px'}}>
@@ -447,6 +452,7 @@ export function StudentsView(controller) {
               onOpenStudent={openDetails}
               canManage={canManage}
               canExport={canExportStudents}
+              canImport={canImport}
             />
           </div>
         ) : activeSection === 'carga' ? (
@@ -483,6 +489,9 @@ export function StudentsView(controller) {
               </div>
 
               <div className="students-import-actions">
+                <button type="button" className="pagination-btn" onClick={() => downloadImportTemplate('students')}>
+                  <Download size={16} /> Descargar plantilla vacía
+                </button>
                 <label className="pagination-btn students-import-select">
                   <Upload size={16} /> Seleccionar Archivo Excel
                   <input
@@ -513,7 +522,7 @@ export function StudentsView(controller) {
                 <div className="login-error" style={{marginTop: '12px'}}>{uploadError}</div>
               )}
 
-              {importPreview && (
+              {importPreview && !syncResult && (
                 <div className="student-import-summary" aria-live="polite">
                   <div><strong>{importPreview.summary.total}</strong><span>filas revisadas</span></div>
                   <div><strong>{importPreview.summary.valid}</strong><span>listas</span></div>
@@ -552,6 +561,24 @@ export function StudentsView(controller) {
                   <div className={importPreview.summary.rejected ? 'has-error' : ''}>
                     <strong>{importPreview.summary.rejected}</strong><span>rechazadas</span>
                   </div>
+                </div>
+              )}
+
+              {importPreview?.previous_import && (
+                <div className="student-import-missing">
+                  <div>
+                    <AlertTriangle size={20} />
+                    <span>
+                      <strong>Esta misma planilla ya fue importada</strong>
+                      <small>
+                        {importPreview.previous_import.nombre_archivo} · {new Date(importPreview.previous_import.importado_en).toLocaleString('es-CL')}. Revisa el historial antes de repetirla.
+                      </small>
+                    </span>
+                  </div>
+                  <label className="student-import-confirm">
+                    <input type="checkbox" checked={confirmRepeatImport} onChange={(event) => setConfirmRepeatImport(event.target.checked)} />
+                    <span><strong>Confirmo que necesito repetir exactamente este archivo</strong><small>Se creará un registro nuevo y trazable.</small></span>
+                  </label>
                 </div>
               )}
 
@@ -604,17 +631,17 @@ export function StudentsView(controller) {
               )}
 
               {syncResult && (
-                <div className="students-sync-success">
-                  <div><strong>Carga Finalizada Exitosamente</strong></div>
-                  <div style={{marginTop: '6px', fontSize: '0.9rem'}}>Miembros nuevos: {syncResult.inserted} | Actualizados: {syncResult.updated} | Vinculados desde alta manual: {syncResult.linked_manual || 0} | Reactivados: {syncResult.reactivated || 0} | Omitidos sin cambios: {syncResult.unchanged}</div>
-                  <div style={{marginTop: '4px', fontSize: '0.9rem'}}>Errores encontrados: {syncResult.errors?.length || 0}</div>
+                <div className={`students-import-result${syncResult.errors?.length ? ' students-import-result--partial' : ' students-sync-success'}`} role="status">
+                  <div><strong>{syncResult.errors?.length ? 'Importación finalizada con filas rechazadas' : 'Importación completada'}</strong></div>
+                  <div>Estudiantes nuevos: {syncResult.inserted} · Actualizados: {syncResult.updated} · Vinculados desde alta manual: {syncResult.linked_manual || 0} · Reactivados: {syncResult.reactivated || 0} · Omitidos sin cambios: {syncResult.unchanged}</div>
+                  <div>Filas rechazadas: {syncResult.errors?.length || 0}</div>
                 </div>
               )}
 
               {syncResult?.errors?.length > 0 && (
                 <div style={{marginTop: '12px', maxHeight: '160px', overflowY: 'auto', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '10px', padding: '10px', background: 'rgba(239,68,68,0.05)'}}>
                   {syncResult.errors.map((errorItem, idx) => (
-                    <p key={`${errorItem.row}-${idx}`} style={{margin: '0 0 6px 0', color: '#f87171', fontSize: '0.85rem'}}>
+                    <p key={`${errorItem.row}-${idx}`} style={{margin: '0 0 6px 0', color: 'var(--text-dark)', fontSize: '0.85rem'}}>
                       Fila {errorItem.row}: {errorItem.message}
                     </p>
                   ))}
@@ -624,6 +651,7 @@ export function StudentsView(controller) {
 
             {previewRows.length > 0 && (
               <div className="students-import-preview students-table-wrap">
+                <p>{syncResult ? 'Previsualización del archivo antes del guardado. El resultado definitivo está arriba.' : 'Previsualización del archivo: todavía no se ha guardado.'}</p>
                 <table className="students-table students-table--cards students-import-table">
                   <thead>
                     <tr>
@@ -789,6 +817,9 @@ export function StudentsView(controller) {
             </section>
 
             <section className="guardian-import__actions">
+              <button type="button" className="pagination-btn" onClick={() => downloadImportTemplate('guardians')}>
+                <Download size={17} /> Descargar plantilla vacía
+              </button>
               <label className="pagination-btn students-import-select">
                 <Upload size={17} /> Seleccionar ficha Excel
                 <input type="file" accept=".xlsx,.xls" onChange={handleGuardianUpload} hidden />
@@ -895,8 +926,11 @@ export function StudentsView(controller) {
       <StudentManualModal
         state={manualEditor}
         courses={courses}
+        coursesLoading={loading}
+        coursesError={loadError}
+        onRetryCourses={fetchStudents}
         canReadPassportMrz={canReadPassportMrz}
-        onClose={() => setManualEditor(null)}
+        onClose={closeManualEditor}
         onSaved={handleManualSaved}
       />
 

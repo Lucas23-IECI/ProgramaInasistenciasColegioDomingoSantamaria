@@ -44,7 +44,7 @@ const manualReasonOptions = [
 
 const getStudent = (details) => details?.alumno || details || null;
 
-const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClose, onSaved }) => {
+const StudentManualModal = ({ state, courses = [], coursesLoading = false, coursesError = '', onRetryCourses, canReadPassportMrz = false, onClose, onSaved }) => {
   const student = getStudent(state?.student);
   const mode = state?.mode || 'create';
   const [form, setForm] = useState(emptyForm);
@@ -79,19 +79,24 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
       nombres: student?.nombres || '',
       paterno: student?.paterno || '',
       materno: student?.materno || '',
-      grade: student?.grade || '',
+      grade: student?.grade || state.initialCourse || '',
       email: student?.email || '',
       telefono: formatChilePhoneInput(student?.telefono || ''),
     });
+    setMrzOpen(false);
+  }, [state, student]);
+
+  useEffect(() => {
+    if (!state) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const closeOnEscape = (event) => event.key === 'Escape' && onClose();
+    const closeOnEscape = (event) => !event.defaultPrevented && event.key === 'Escape' && onClose();
     window.addEventListener('keydown', closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [state, student, onClose]);
+  }, [state, onClose]);
 
   const title = {
     create: 'Agregar estudiante manualmente',
@@ -128,7 +133,10 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
       if (form.motivo.trim().length < 5) return 'Explique brevemente por qué se retira la matrícula.';
       return '';
     }
-    if (mode === 'reactivate') return form.grade ? '' : 'Seleccione el curso vigente.';
+    if (coursesLoading || coursesError) return 'Espera a que se carguen los cursos o reintenta la carga antes de guardar.';
+    if (!courseOptions.length) return 'No hay cursos institucionales disponibles. Revisa el padrón antes de agregar o modificar una matrícula.';
+    if (!courseOptions.some((course) => course.value === form.grade)) return 'Seleccione un curso institucional disponible.';
+    if (mode === 'reactivate') return '';
     if (mode === 'create') {
       const identityError = validateManualIdentityForm(form);
       if (identityError) return identityError;
@@ -153,6 +161,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
 
   const submit = async (event) => {
     event.preventDefault();
+    if (saving) return;
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -202,6 +211,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
 
   const isRetire = mode === 'retire';
   const isReactivate = mode === 'reactivate';
+  const coursesUnavailable = coursesLoading || Boolean(coursesError) || !courseOptions.length;
 
   return (
     <div className="student-manual-overlay" onMouseDown={onClose}>
@@ -236,6 +246,13 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
         </header>
 
         <form onSubmit={submit}>
+          {!isRetire && coursesUnavailable && (
+            <div className="student-manual-error" role={coursesLoading ? 'status' : 'alert'}>
+              <AlertTriangle size={18} />
+              <span>{coursesLoading ? 'Cargando cursos institucionales…' : coursesError || 'No hay cursos institucionales disponibles. Revisa el padrón o reintenta la carga; no se crearán cursos automáticamente.'}</span>
+              {!coursesLoading && onRetryCourses && <button type="button" className="student-manual-secondary" onClick={onRetryCourses}>Reintentar cursos</button>}
+            </div>
+          )}
           {student && (
             <div className="student-manual-subject">
               <strong>{student.nombres} {student.paterno} {student.materno || ''}</strong>
@@ -268,6 +285,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
                 options={courseOptions}
                 placeholder="Seleccionar curso"
                 ariaLabel="Curso para reactivar matrícula"
+                disabled={coursesUnavailable}
               />
             </label>
           ) : (
@@ -301,6 +319,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
                   options={courseOptions}
                   placeholder="Seleccionar curso"
                   ariaLabel="Curso del estudiante"
+                  disabled={coursesUnavailable}
                 />
               </label>
               {form.tipo_identificador !== MANUAL_IDENTITY_TYPES.SIN_DOCUMENTO && (
@@ -462,7 +481,7 @@ const StudentManualModal = ({ state, courses, canReadPassportMrz = false, onClos
               <span>No se crean cursos nuevos ni se elimina historial automáticamente.</span>
             </div>
             <button type="button" className="student-manual-secondary" onClick={onClose}>Cancelar</button>
-            <button type="submit" className={`student-manual-primary student-manual-primary--${mode}`} disabled={saving}>
+            <button type="submit" className={`student-manual-primary student-manual-primary--${mode}`} disabled={saving || (!isRetire && coursesUnavailable)}>
               {saving ? 'Guardando…' : title}
             </button>
           </footer>
