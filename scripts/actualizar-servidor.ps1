@@ -8,6 +8,15 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ComposeFiles = @('-f', 'docker-compose.yml', '-f', 'docker-compose.https.yml')
 Set-Location $ProjectRoot
+$ManagedHttps = Test-Path -LiteralPath '.https-lan\estado.json'
+if ($ManagedHttps) {
+  Import-Module "$PSScriptRoot\https\Server.psm1" -Force
+  $httpsState = Get-Content -LiteralPath '.https-lan\estado.json' -Raw | ConvertFrom-Json
+  if (-not (Test-LdsmManagedOverride (Join-Path $ProjectRoot 'docker-compose.override.yml') $httpsState)) {
+    throw 'La configuracion HTTPS local fue modificada o falta. No se reconstruyo el servidor.'
+  }
+  $ComposeFiles = @('-f', 'docker-compose.yml', '-f', 'docker-compose.override.yml')
+}
 
 function Invoke-NativeChecked([string]$Description, [scriptblock]$Action) {
   & $Action
@@ -28,7 +37,8 @@ if ($workingTreeChanges.Count -gt 0) {
   throw 'Hay cambios o archivos locales no incorporados en el sistema. No se reconstruyó nada para evitar una versión mezclada.'
 }
 
-foreach ($required in @('.env', 'certs\ldsm-lan.pem', 'certs\ldsm-lan-key.pem', 'docker-compose.https.yml')) {
+$RequiredFiles = if ($ManagedHttps) { @('.env', 'docker-compose.override.yml', (Join-Path $httpsState.release_path 'ldsm-lan.pem'), (Join-Path $httpsState.release_path 'ldsm-lan-key.pem')) } else { @('.env', 'certs\ldsm-lan.pem', 'certs\ldsm-lan-key.pem', 'docker-compose.https.yml') }
+foreach ($required in $RequiredFiles) {
   if (-not (Test-Path -LiteralPath $required)) {
     throw "Falta $required. Ejecuta primero la preparación HTTPS inicial con soporte técnico."
   }
@@ -48,7 +58,11 @@ Invoke-NativeChecked 'iniciar y esperar la versión nueva' { docker compose @Com
 & "$PSScriptRoot\estado.ps1"
 if ($LASTEXITCODE -ne 0) { throw 'La versión se inició, pero no superó la comprobación de salud.' }
 
-& "$PSScriptRoot\verificar-produccion.ps1"
+if ($ManagedHttps) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\instalar-https-colegio.ps1" -Diagnostico
+} else {
+  & "$PSScriptRoot\verificar-produccion.ps1"
+}
 if ($LASTEXITCODE -ne 0) {
   throw 'La aplicación responde, pero conserva controles de producción pendientes. Revisa el diagnóstico anterior.'
 }

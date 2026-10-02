@@ -54,7 +54,7 @@ try {
   }
   Invoke-Step 'Actualizacion por pull: contrato operativo' {
     $contracts = @(
-      @{ Path = 'scripts\preparar-servidor-recomendado.ps1'; Patterns = @('preparar-https-red-interna\.ps1', 'Set-DatabaseRolePassword', 'instalar-actualizacion-por-pull\.ps1') },
+      @{ Path = 'scripts\instalar-https-colegio.ps1'; Patterns = @('Restore-HttpsTransaction', 'Test-LdsmServerHttps', 'New-LdsmHttpsCertificateMaterial', 'ConfirmarIpFija') },
       @{ Path = 'scripts\actualizar-servidor.ps1'; Patterns = @('respaldo-ahora\.ps1', 'docker compose @ComposeFiles build', '--wait-timeout 180', 'untracked-files=normal', 'verificar-produccion\.ps1') },
       @{ Path = 'scripts\instalar-actualizacion-por-pull.ps1'; Patterns = @('branch.*main', 'actualizar-servidor\.ps1') },
       @{ Path = 'scripts\estado.ps1'; Patterns = @('requiredServices', "healthState -ne 'healthy'", 'TotalHours -gt 26', 'Length -le 0') },
@@ -67,6 +67,11 @@ try {
       }
     }
     Write-Host 'Preparacion, respaldo, rama main, build y verificacion permanecen conectados.'
+  }
+  Invoke-Step 'HTTPS: cliente, certificados y recuperacion sin privilegios' {
+    foreach ($test in @('Certificates.Tests.ps1', 'Client.Tests.ps1', 'Server.Tests.ps1')) {
+      Invoke-CommandChecked "HTTPS $test" { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path "$PSScriptRoot\https\tests" $test) }
+    }
   }
   Invoke-Step 'Planilla ERP oficial: previsualizacion' {
     Push-Location frontend

@@ -27,8 +27,29 @@ foreach ($service in $requiredServices) {
 # ── Detectar si HTTPS está disponible (puerto 443) o usar HTTP (puerto 80) ──
 $scheme    = $null
 $webStatus = $null
+$managedHttps = Test-Path -LiteralPath '.https-lan\estado.json'
+$apiBase = 'http://127.0.0.1'
+$curlTrust = @()
+if ($managedHttps) {
+  $httpsState = Get-Content -LiteralPath '.https-lan\estado.json' -Raw | ConvertFrom-Json
+  Import-Module "$PSScriptRoot\https\Server.psm1" -Force
+  . "$PSScriptRoot\https\Confiar-Equipo.ps1"
+  if (-not (Test-LdsmManagedOverride (Join-Path $ProjectRoot 'docker-compose.override.yml') $httpsState)) { throw 'El override HTTPS no coincide con la instalacion validada.' }
+  Initialize-HttpsClientProbe
+  $httpsPort = if ($httpsState.PSObject.Properties['https_port']) { [int]$httpsState.https_port } else { 443 }
+  $httpPort = if ($httpsState.PSObject.Properties['http_port']) { [int]$httpsState.http_port } else { 80 }
+  Test-LdsmServerHttps $httpsState.lan_ip (Join-Path $httpsState.release_path 'rootCA.cer') (Join-Path $httpsState.release_path 'rootCA.pem') $httpsPort $httpPort
+  $scheme = 'https'
+  $webStatus = '200'
+  $apiBase = Get-LdsmHttpsOrigin $httpsState.lan_ip $httpsPort
+  $curlTrust = @('--ssl-revoke-best-effort', '--cacert', (Join-Path $httpsState.release_path 'rootCA.pem'))
+  $expires = if ($httpsState.leaf_not_after -is [datetime]) { [DateTimeOffset]$httpsState.leaf_not_after } else { [DateTimeOffset]::Parse($httpsState.leaf_not_after, [Globalization.CultureInfo]::InvariantCulture) }
+  if ($expires -lt [DateTimeOffset]::Now.AddDays(30)) { Write-Warning 'El certificado HTTPS vence pronto. Ejecuta scripts\instalar-https-colegio.ps1 -Renovar como administrador.' }
+  Write-Host 'HTTPS gestionado: certificado, IP y cadena de confianza verificados.'
+}
 
 # Intentar HTTPS primero (silenciosamente, sin romper si falla)
+if (-not $managedHttps) {
 try {
   $ErrorActionPreference = 'Continue'
   $webStatus = & curl.exe --ssl-no-revoke --insecure --silent --max-time 5 --output NUL --write-out '%{http_code}' 'https://127.0.0.1/healthz' 2>&1 | Where-Object { $_ -match '^\d+$' }
@@ -36,6 +57,7 @@ try {
   if ($webStatus -eq '200') { $scheme = 'https' }
 } catch {
   $ErrorActionPreference = 'Stop'
+}
 }
 
 # Si HTTPS no funcionó, intentar HTTP
@@ -47,7 +69,14 @@ if (-not $scheme) {
   $scheme = 'http'
 }
 
-$apiRaw = & curl.exe --ssl-no-revoke --insecure --silent "${scheme}://127.0.0.1/api/health/ready"
+if (-not $managedHttps) {
+  $apiBase = "${scheme}://127.0.0.1"
+  if ($scheme -eq 'https') {
+    $curlTrust = @('--ssl-no-revoke', '--insecure')
+    Write-Warning 'HTTPS anterior: esta comprobacion solo mide disponibilidad; NO valida su certificado.'
+  }
+}
+$apiRaw = & curl.exe @curlTrust --noproxy '*' --silent --max-time 15 "$apiBase/api/health/ready"
 if ($LASTEXITCODE -ne 0) { throw "El backend no respondio por ${scheme}." }
 $api = $apiRaw | ConvertFrom-Json
 if ($api.status -ne 'OK' -or $api.database -ne 'ready') {

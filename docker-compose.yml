@@ -62,7 +62,7 @@ services:
     container_name: ldsm_frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy
