@@ -9,6 +9,9 @@ const parsePositiveId = (value) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
+const OPERATIONAL_TASK_PRIORITIES = new Set(['BAJA', 'MEDIA', 'ALTA', 'URGENTE']);
+const OPERATIONAL_TASK_STATES = new Set(['PENDIENTE', 'EN_PROGRESO', 'COMPLETADA', 'CANCELADA']);
+const cleanText = (value, max) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 
 const readBackupStatus = async () => {
   try {
@@ -66,7 +69,8 @@ const createOperationsRouter = ({
       events,
       justifications,
       lockedUsers,
-      manualStudents
+      manualStudents,
+      internalTasks
     ] = await Promise.all([
       queryable.query(`
         SELECT v.id, v.ingreso_en, vi.nombre_completo, vm.nombre AS motivo, vd.nombre AS destino
@@ -148,6 +152,19 @@ const createOperationsRouter = ({
           AND a.erp_vinculado_en IS NULL
           AND a.fusionado_en_id IS NULL
         ORDER BY a.creado_manualmente_en ASC
+      `),
+      queryable.query(`
+        SELECT t.id_tarea, t.titulo, t.detalle, t.prioridad, t.estado, t.fecha_limite,
+               t.creada_en, t.actualizada_en, t.responsable_usuario_id,
+               responsable.nombre AS responsable_nombre, creador.nombre AS creada_por_nombre
+        FROM tareas_operacionales_internas t
+        LEFT JOIN usuarios responsable ON responsable.id = t.responsable_usuario_id
+        LEFT JOIN usuarios creador ON creador.id = t.creada_por
+        WHERE t.estado IN ('PENDIENTE', 'EN_PROGRESO')
+        ORDER BY
+          CASE WHEN t.fecha_limite < CURRENT_DATE THEN 0 ELSE 1 END,
+          CASE t.prioridad WHEN 'URGENTE' THEN 0 WHEN 'ALTA' THEN 1 WHEN 'MEDIA' THEN 2 ELSE 3 END,
+          t.fecha_limite NULLS LAST, t.creada_en
       `)
     ]);
 
@@ -159,7 +176,8 @@ const createOperationsRouter = ({
       operational_events: events.rows,
       pending_justifications: justifications.rows,
       blocked_users: lockedUsers.rows,
-      manual_students_pending: manualStudents.rows.map((student) => protectStudentRecord(student))
+      manual_students_pending: manualStudents.rows.map((student) => protectStudentRecord(student)),
+      internal_tasks: internalTasks.rows
     };
   };
 
@@ -194,6 +212,180 @@ const createOperationsRouter = ({
     } catch (error) {
       console.error('[operaciones:bandeja]', error.message);
       res.status(500).json({ message: 'No fue posible cargar las tareas operativas.' });
+    }
+  });
+
+  router.get('/tareas/responsables', verifyPermission('operations.tasks.manage'), async (req, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT DISTINCT u.id, u.nombre, u.correo
+        FROM usuarios u
+        WHERE u.activo = true AND u.eliminado_en IS NULL
+          AND COALESCE(
+            (SELECT pu.concedido FROM permisos_usuario pu
+             WHERE pu.usuario_id = u.id AND pu.permiso_codigo = 'operations.view'),
+            EXISTS (SELECT 1 FROM permisos_rol pr
+                    WHERE pr.rol = u.rol AND pr.permiso_codigo = 'operations.view')
+          )
+        ORDER BY u.nombre, u.correo
+      `);
+      res.json(result.rows);
+    } catch (error) {
+      console.error('[operaciones:tareas:responsables]', error.message);
+      res.status(500).json({ message: 'No fue posible cargar las personas responsables.' });
+    }
+  });
+
+  router.get('/tareas/:id', verifyPermission('operations.view'), async (req, res) => {
+    const taskId = parsePositiveId(req.params.id);
+    if (!taskId) return res.status(400).json({ message: 'La tarea indicada no es válida.' });
+    try {
+      const [task, events] = await Promise.all([
+        pool.query(`
+          SELECT t.*, responsable.nombre AS responsable_nombre, creador.nombre AS creada_por_nombre,
+                 cierre.nombre AS completada_por_nombre
+          FROM tareas_operacionales_internas t
+          LEFT JOIN usuarios responsable ON responsable.id=t.responsable_usuario_id
+          LEFT JOIN usuarios creador ON creador.id=t.creada_por
+          LEFT JOIN usuarios cierre ON cierre.id=t.completada_por
+          WHERE t.id_tarea=$1
+        `, [taskId]),
+        pool.query(`
+          SELECT e.*, u.nombre AS realizado_por_nombre
+          FROM tarea_operacional_eventos e
+          LEFT JOIN usuarios u ON u.id=e.realizado_por
+          WHERE e.id_tarea=$1
+          ORDER BY e.realizado_en, e.id_evento
+        `, [taskId])
+      ]);
+      if (!task.rowCount) return res.status(404).json({ message: 'La tarea interna no existe.' });
+      res.json({ tarea: task.rows[0], eventos: events.rows });
+    } catch (error) {
+      console.error('[operaciones:tareas:detalle]', error.message);
+      res.status(500).json({ message: 'No fue posible cargar el historial de la tarea.' });
+    }
+  });
+
+  router.post('/tareas', verifyPermission('operations.tasks.manage'), async (req, res) => {
+    const title = cleanText(req.body?.titulo, 160);
+    const detail = cleanText(req.body?.detalle, 1500) || null;
+    const priority = String(req.body?.prioridad || 'MEDIA').toUpperCase();
+    const dueDate = req.body?.fecha_limite || null;
+    const responsibleId = parsePositiveId(req.body?.responsable_usuario_id);
+    if (title.length < 3 || !OPERATIONAL_TASK_PRIORITIES.has(priority)) {
+      return res.status(400).json({ message: 'Indica un título y una prioridad válidos.' });
+    }
+    if (dueDate && !isIsoDate(dueDate)) {
+      return res.status(400).json({ message: 'La fecha límite no es válida. Selecciona una fecha del calendario.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (responsibleId) {
+        const responsible = await client.query(`
+          SELECT u.id
+          FROM usuarios u
+          WHERE u.id = $1 AND u.activo = true AND u.eliminado_en IS NULL
+            AND COALESCE(
+              (SELECT pu.concedido FROM permisos_usuario pu
+               WHERE pu.usuario_id = u.id AND pu.permiso_codigo = 'operations.view'),
+              EXISTS (SELECT 1 FROM permisos_rol pr
+                      WHERE pr.rol = u.rol AND pr.permiso_codigo = 'operations.view')
+            )
+        `, [responsibleId]);
+        if (!responsible.rowCount) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ message: 'La persona responsable ya no está disponible.' });
+        }
+      }
+      const created = await client.query(`
+        INSERT INTO tareas_operacionales_internas
+          (titulo, detalle, prioridad, responsable_usuario_id, fecha_limite, creada_por)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING *
+      `, [title, detail, priority, responsibleId, dueDate, req.user.id]);
+      await client.query(`
+        INSERT INTO tarea_operacional_eventos (id_tarea, tipo, detalle, metadata, realizado_por)
+        VALUES ($1, 'CREADA', $2, $3::jsonb, $4)
+      `, [created.rows[0].id_tarea, 'Tarea interna creada.', JSON.stringify({ prioridad: priority, responsable_usuario_id: responsibleId, fecha_limite: dueDate }), req.user.id]);
+      await insertarAudit(client, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'CREAR_TAREA_OPERACIONAL',
+        entidad: 'tarea_operacional_interna',
+        entidad_id: created.rows[0].id_tarea,
+        detalle: { prioridad: priority, responsable_usuario_id: responsibleId, fecha_limite: dueDate },
+        ip: getClientIp(req)
+      });
+      await client.query('COMMIT');
+      res.status(201).json(created.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[operaciones:tareas:crear]', error.message);
+      res.status(500).json({ message: 'No fue posible crear la tarea interna.' });
+    } finally {
+      client.release();
+    }
+  });
+
+  router.patch('/tareas/:id/estado', verifyPermission('operations.tasks.manage'), async (req, res) => {
+    const taskId = parsePositiveId(req.params.id);
+    const state = String(req.body?.estado || '').toUpperCase();
+    const reason = cleanText(req.body?.motivo, 500);
+    if (!taskId || !OPERATIONAL_TASK_STATES.has(state)) {
+      return res.status(400).json({ message: 'La tarea o el estado indicado no es válido.' });
+    }
+    if (['COMPLETADA', 'CANCELADA'].includes(state) && reason.length < 5) {
+      return res.status(400).json({ message: 'Indica un motivo de cierre de al menos 5 caracteres.' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query(
+        'SELECT * FROM tareas_operacionales_internas WHERE id_tarea = $1 FOR UPDATE',
+        [taskId]
+      );
+      if (!current.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'La tarea interna no existe.' });
+      }
+      if (['COMPLETADA', 'CANCELADA'].includes(current.rows[0].estado)) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'La tarea ya está cerrada y conserva su historial.' });
+      }
+      const updated = await client.query(`
+        UPDATE tareas_operacionales_internas
+        SET estado=$2::varchar(20),
+            completada_por=CASE WHEN $2::varchar(20) IN ('COMPLETADA','CANCELADA') THEN $3::integer ELSE NULL END,
+            completada_en=CASE WHEN $2::varchar(20) IN ('COMPLETADA','CANCELADA') THEN CURRENT_TIMESTAMP ELSE NULL END,
+            actualizada_en=CURRENT_TIMESTAMP,
+            version=version+1
+        WHERE id_tarea=$1
+        RETURNING *
+      `, [taskId, state, req.user.id]);
+      await client.query(`
+        INSERT INTO tarea_operacional_eventos (id_tarea, tipo, detalle, metadata, realizado_por)
+        VALUES ($1, 'ESTADO_CAMBIADO', $2, $3::jsonb, $4)
+      `, [taskId, reason || `Estado actualizado a ${state}.`, JSON.stringify({ estado_anterior: current.rows[0].estado, estado: state }), req.user.id]);
+      await insertarAudit(client, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'ACTUALIZAR_TAREA_OPERACIONAL',
+        entidad: 'tarea_operacional_interna',
+        entidad_id: taskId,
+        detalle: { estado_anterior: current.rows[0].estado, estado: state, motivo: reason || null },
+        ip: getClientIp(req)
+      });
+      await client.query('COMMIT');
+      res.json(updated.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[operaciones:tareas:estado]', error.message);
+      res.status(500).json({ message: 'No fue posible actualizar la tarea interna.' });
+    } finally {
+      client.release();
     }
   });
 
@@ -253,7 +445,8 @@ const createOperationsRouter = ({
         eventos_pendientes: pending.operational_events.length,
         justificaciones_pendientes: pending.pending_justifications.length,
         usuarios_bloqueados: pending.blocked_users.length,
-        altas_manuales_pendientes: pending.manual_students_pending.length
+        altas_manuales_pendientes: pending.manual_students_pending.length,
+        tareas_internas_pendientes: pending.internal_tasks.length
       };
       const result = await client.query(`
         INSERT INTO cierres_operacionales (fecha, resumen, observaciones, cerrado_por)
