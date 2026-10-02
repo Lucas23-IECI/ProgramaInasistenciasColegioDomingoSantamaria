@@ -20,6 +20,81 @@ const LEGACY_STUDENT_PRIVACY_PERMISSIONS = [
   'students.identifiers.view_sensitive'
 ];
 
+const PERMISSION_DEPENDENCIES = {
+  'punctuality.register.barcode': ['punctuality.register'],
+  'punctuality.register.camera': ['punctuality.register'],
+  'punctuality.register.manual': ['punctuality.register'],
+  'punctuality.correct': ['punctuality.view'],
+  'punctuality.cancel': ['punctuality.view'],
+  'punctuality.justify': ['punctuality.view'],
+  'reports.generate': ['punctuality.view'],
+  'analytics.institutional.export': ['analytics.institutional.view'],
+  'analytics.schedules.manage': ['analytics.institutional.view'],
+  'students.manage': ['students.view'],
+  'students.import': ['students.view'],
+  'students.identity.regularize': ['students.view'],
+  'students.identity.mrz': ['students.view'],
+  'students.export': ['students.view'],
+  'withdrawals.import_guardians': ['students.view'],
+  'visits.register': ['visits.view'],
+  'visits.checkout': ['visits.view'],
+  'visits.manage': ['visits.view'],
+  'visits.history': ['visits.view'],
+  'withdrawals.register': ['visits.view'],
+  'withdrawals.approve': ['visits.view'],
+  'withdrawals.authorizations': ['visits.view'],
+  'visits.reports': ['visits.view'],
+  'visits.preregistrations.manage': ['visits.view'],
+  'visits.restrictions.manage': ['visits.view'],
+  'visits.deliveries.manage': ['visits.view'],
+  'visits.vehicles.manage': ['visits.view'],
+  'visits.emergency.view': ['visits.view'],
+  'visits.emergency.manage': ['visits.view'],
+  'operations.close': ['operations.view'],
+  'operations.tasks.manage': ['operations.view'],
+  'profiles.contact.view': ['profiles.directory.view'],
+  'profiles.manage': ['profiles.directory.view'],
+  'convivencia.create': ['convivencia.view'],
+  'convivencia.manage': ['convivencia.view'],
+  'convivencia.documents': ['convivencia.view'],
+  'convivencia.close': ['convivencia.view'],
+  'documents.upload': ['documents.view'],
+  'documents.manage': ['documents.view'],
+  'documents.sign': ['documents.view'],
+  'documents.templates': ['documents.view'],
+  'documents.ocr': ['documents.view'],
+  'seguimiento.create': ['seguimiento.view'],
+  'seguimiento.manage': ['seguimiento.view'],
+  'seguimiento.assign': ['seguimiento.view'],
+  'seguimiento.contacts': ['seguimiento.view'],
+  'seguimiento.documents': ['seguimiento.view'],
+  'seguimiento.close': ['seguimiento.view'],
+  'seguimiento.automation.manage': ['seguimiento.view'],
+  'chat.direct.create': ['chat.access'],
+  'chat.group.create': ['chat.access'],
+  'chat.channels.manage': ['chat.access'],
+  'chat.urgent': ['chat.access'],
+  'chat.attach': ['chat.access'],
+  'chat.moderate': ['chat.access'],
+  'agenda.create': ['agenda.view'],
+  'resources.request': ['resources.view'],
+  'resources.manage': ['resources.view'],
+};
+
+const expandPermissionDependencies = (permissions) => {
+  const expanded = new Set(normalizePermissions(permissions));
+  const pending = [...expanded];
+  while (pending.length) {
+    const permission = pending.pop();
+    for (const dependency of PERMISSION_DEPENDENCIES[permission] || []) {
+      if (expanded.has(dependency)) continue;
+      expanded.add(dependency);
+      pending.push(dependency);
+    }
+  }
+  return [...expanded].sort();
+};
+
 const getPermissionCatalog = async (queryable) => {
   const result = await queryable.query(`
     SELECT codigo, grupo, etiqueta, descripcion, orden, critico
@@ -30,15 +105,19 @@ const getPermissionCatalog = async (queryable) => {
   return result.rows;
 };
 
-const getRecommendedPermissions = async (queryable, role) => {
+const getStoredRecommendedPermissions = async (queryable, role) => {
   const result = await queryable.query(`
     SELECT permiso_codigo
     FROM permisos_rol
     WHERE rol = $1 AND permiso_codigo <> ALL($2::varchar[])
     ORDER BY permiso_codigo
   `, [role, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
-  return result.rows.map((row) => row.permiso_codigo);
+  return normalizePermissions(result.rows.map((row) => row.permiso_codigo));
 };
+
+const getRecommendedPermissions = async (queryable, role) => expandPermissionDependencies(
+  await getStoredRecommendedPermissions(queryable, role)
+);
 
 const getAccessProfiles = async (queryable, { includeInactive = true } = {}) => {
   const result = await queryable.query(`
@@ -58,18 +137,24 @@ const getAccessProfiles = async (queryable, { includeInactive = true } = {}) => 
     FROM perfiles_acceso p
     LEFT JOIN usuarios u ON u.rol = p.codigo AND u.eliminado_en IS NULL
     LEFT JOIN permisos_rol pr ON pr.rol = p.codigo
-    WHERE ($1::boolean = true OR p.activo = true)
+    WHERE p.eliminado_en IS NULL
+      AND ($1::boolean = true OR p.activo = true)
     GROUP BY p.codigo, p.nombre, p.descripcion, p.sistema, p.activo, p.orden
     ORDER BY p.activo DESC, p.orden, LOWER(p.nombre)
   `, [includeInactive, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
-  return result.rows;
+  return result.rows.map((profile) => ({
+    ...profile,
+    recommended_permissions: expandPermissionDependencies(profile.recommended_permissions),
+  }));
 };
 
 const getAccessProfile = async (queryable, code, { includeInactive = false } = {}) => {
   const result = await queryable.query(`
     SELECT codigo, nombre, descripcion, sistema, activo, orden
     FROM perfiles_acceso
-    WHERE codigo = $1 AND ($2::boolean = true OR activo = true)
+    WHERE codigo = $1
+      AND eliminado_en IS NULL
+      AND ($2::boolean = true OR activo = true)
     LIMIT 1
   `, [String(code || '').trim(), includeInactive]);
   return result.rows[0] || null;
@@ -90,8 +175,8 @@ const getEffectivePermissionProfile = async (queryable, userId, role) => {
   `, [userId, role, LEGACY_STUDENT_PRIVACY_PERMISSIONS]);
 
   return {
-    permissions: result.rows.filter((row) => row.concedido).map((row) => row.codigo),
-    recommended_permissions: result.rows.filter((row) => row.recomendado).map((row) => row.codigo)
+    permissions: expandPermissionDependencies(result.rows.filter((row) => row.concedido).map((row) => row.codigo)),
+    recommended_permissions: expandPermissionDependencies(result.rows.filter((row) => row.recomendado).map((row) => row.codigo))
   };
 };
 
@@ -115,7 +200,7 @@ const validatePermissionSelection = async (queryable, permissions) => {
   if (!Array.isArray(permissions)) {
     return { error: 'La selección de permisos debe ser una lista.', permissions: [] };
   }
-  const normalized = normalizePermissions(permissions);
+  const normalized = expandPermissionDependencies(permissions);
   const catalog = await getPermissionCatalog(queryable);
   const validCodes = new Set(catalog.map((permission) => permission.codigo));
   const invalid = normalized.filter((permission) => !validCodes.has(permission));
@@ -127,7 +212,7 @@ const validatePermissionSelection = async (queryable, permissions) => {
 
 const replaceUserPermissionOverrides = async (client, { userId, role, permissions, updatedBy }) => {
   const desired = new Set(normalizePermissions(permissions));
-  const recommended = new Set(await getRecommendedPermissions(client, role));
+  const recommended = new Set(await getStoredRecommendedPermissions(client, role));
   const catalog = await getPermissionCatalog(client);
 
   await client.query('DELETE FROM permisos_usuario WHERE usuario_id = $1', [userId]);
@@ -177,6 +262,7 @@ module.exports = {
   getEffectivePermissionProfile,
   getPermissionCatalog,
   getRecommendedPermissions,
+  expandPermissionDependencies,
   normalizePermissions,
   normalizeProfileCode,
   replaceProfilePermissions,

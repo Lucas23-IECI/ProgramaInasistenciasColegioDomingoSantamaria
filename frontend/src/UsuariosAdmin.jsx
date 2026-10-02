@@ -31,7 +31,12 @@ import ModuleHeader from './components/ModuleHeader';
 import { useFeedback } from './context/FeedbackContext';
 import AppSelect from './components/AppSelect';
 import StaffAvatar from './components/StaffAvatar';
-import { PERMISSIONS, hasPermission } from './permissions';
+import {
+  PERMISSIONS,
+  expandPermissionDependencies,
+  hasPermission,
+  removePermissionWithDependents,
+} from './permissions';
 import { getApiErrorMessage } from './utils/apiError';
 import './styles/users-permissions.css';
 
@@ -142,8 +147,8 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
   const togglePermission = (code) => setForm((current) => ({
     ...current,
     permissions: current.permissions.includes(code)
-      ? current.permissions.filter((permission) => permission !== code)
-      : [...current.permissions, code],
+      ? removePermissionWithDependents(current.permissions, code)
+      : expandPermissionDependencies([...current.permissions, code]),
   }));
 
   return (
@@ -213,6 +218,15 @@ const UserEditor = ({ form, setForm, catalog, mode, saving, error, onSave, onClo
           <div><strong>Acceso fijo de Portería</strong><span>Esta cuenta siempre tendrá únicamente Registro de estudiantes y Control de visitas y retiros.</span></div>
         </div>
       )}
+      {!fixedReaderProfile && (
+        <div className="permission-fixed-note">
+          <ShieldCheck size={20} />
+          <div>
+            <strong>Accesos coherentes automáticamente</strong>
+            <span>Al habilitar una acción, también se habilita la entrada necesaria a su módulo. Si retiras esa entrada, se retirarán sus acciones dependientes.</span>
+          </div>
+        </div>
+      )}
       <PermissionGrid permissions={catalog.permissions || []} selected={form.permissions} recommended={recommended} onToggle={togglePermission} disabled={fixedReaderProfile} />
       {error && <div className="permission-editor__error" role="alert">{error}</div>}
       <div className="permission-editor__footer">
@@ -230,8 +244,8 @@ const ProfileEditor = ({ form, setForm, catalog, mode, saving, error, onSave, on
   const togglePermission = (code) => setForm((current) => ({
     ...current,
     permissions: current.permissions.includes(code)
-      ? current.permissions.filter((permission) => permission !== code)
-      : [...current.permissions, code],
+      ? removePermissionWithDependents(current.permissions, code)
+      : expandPermissionDependencies([...current.permissions, code]),
   }));
   return (
     <section className="permission-editor profile-editor" aria-label={mode === 'create' ? 'Crear perfil de usuario' : 'Editar perfil de usuario'}>

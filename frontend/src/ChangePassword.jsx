@@ -1,9 +1,10 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
 import { getApiErrorMessage } from './utils/apiError';
+import { getSafeReturnPath } from './utils/authNavigation';
 
 const PASSWORD_RULES = [
   { label: '12 caracteres como mínimo', test: (value) => value.length >= 12 },
@@ -15,6 +16,7 @@ const PASSWORD_RULES = [
 const ChangePassword = () => {
   const { user, changePassword, logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -37,8 +39,8 @@ const ChangePassword = () => {
 
     setSaving(true);
     try {
-      await changePassword(currentPassword, newPassword);
-      navigate('/', { replace: true });
+      if (!await changePassword(currentPassword, newPassword)) return;
+      navigate(getSafeReturnPath(location.state?.returnTo), { replace: true });
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible actualizar la contraseña.'));
     } finally {

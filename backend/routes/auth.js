@@ -153,6 +153,9 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
 app.get('/api/auth/me', verifyToken, async (req, res) => {
   try {
+    // La identidad vigente nunca debe reutilizarse desde la caché del navegador:
+    // perfiles, permisos y sesiones pueden cambiar entre pestañas.
+    res.setHeader('Cache-Control', 'no-store, private, max-age=0');
     res.json({ user: toPublicUser(req.user) });
   } catch (err) {
     res.status(500).json({ message: 'No fue posible verificar la sesión actual.' });

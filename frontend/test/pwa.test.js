@@ -19,15 +19,17 @@ test('el service worker nunca almacena respuestas de la API', () => {
   const worker = read('public/sw.js');
   assert.match(worker, /url\.pathname\.startsWith\('\/api\/'\)/u);
   assert.match(worker, /request\.mode === 'navigate'/u);
-  assert.match(worker, /caches\.match\('\/'\)/u);
+  assert.match(worker, /readCachedResponse\('\/'\)/u);
+  assert.match(worker, /caches\.open\(CACHE_VERSION\)\)\.match\(key\)/u);
 });
 
 test('el service worker tolera respuestas consumidas y prioriza bundles vigentes', () => {
   const worker = read('public/sw.js');
   assert.match(worker, /if \(!response\?\.ok \|\| response\.bodyUsed\) return/u);
   assert.match(worker, /try \{[\s\S]*response\.clone\(\)[\s\S]*\} catch \{/u);
-  assert.match(worker, /event\.respondWith\(fetchAndStore\(request\)\.catch\(\(\) => caches\.match\(request\)\)\)/u);
+  assert.match(worker, /event\.respondWith\(fetchAndStore\(request\)\.catch\(\(\) => readCachedResponse\(request\)\)\)/u);
   assert.doesNotMatch(worker, /cached \|\| fetch\(request\)/u);
+  assert.match(worker, /key\.startsWith\('ldsm-shell-'\) && key !== CACHE_VERSION/u);
 });
 
 test('las actualizaciones esperan confirmación y conservan la cola IndexedDB', () => {
@@ -95,6 +97,9 @@ test('la PWA muestra una bandeja paginada y permite reintentos seguros', () => {
   assert.match(panel, /Página \{page\} de \{pages\}/u);
   assert.match(panel, /retryOfflineRegistration/u);
   assert.match(panel, /sin crear duplicados/u);
+  assert.match(panel, /Bandeja local no disponible/u);
+  assert.match(panel, /La lista no se muestra porque su contenido no pudo verificarse/u);
+  assert.doesNotMatch(panel, /storageError \? ['"]No hay ingresos pendientes/u);
 });
 
 test('solo el terminal de puntualidad incorpora la cola diferida', () => {
@@ -103,7 +108,18 @@ test('solo el terminal de puntualidad incorpora la cola diferida', () => {
   assert.match(scanner, /Pendiente de sincronización/u);
   assert.match(scanner, /flushOfflineRegistrations/u);
   assert.match(scanner, /Revisar bandeja/u);
+  assert.match(scanner, /El ingreso no quedó registrado ni pendiente/u);
   assert.doesNotMatch(read('src/VisitsAdmin.jsx'), /queueOfflineRegistration/u);
+});
+
+test('los fallos de instalación y actualización conservan el estado y explican la recuperación', () => {
+  const context = read('src/context/PwaContext.jsx');
+  const experience = read('src/components/PwaExperience.jsx');
+  assert.match(context, /setOperationError/u);
+  assert.match(context, /La aplicación no se recargó y los ingresos guardados/u);
+  assert.match(context, /finally \{\s*setUpdating\(false\)/u);
+  assert.match(experience, /La acción no se completó/u);
+  assert.match(experience, /state\.operationError/u);
 });
 
 test('los avisos de sincronización son opcionales y requieren permiso explícito', () => {

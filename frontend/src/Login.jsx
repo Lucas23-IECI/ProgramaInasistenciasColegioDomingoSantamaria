@@ -1,9 +1,10 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Lock, Mail, MapPin, ShieldCheck } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
 import { getApiErrorMessage } from './utils/apiError';
+import { getSafeReturnPath } from './utils/authNavigation';
 
 const Login = () => {
   const [correo, setCorreo] = useState('');
@@ -13,6 +14,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -20,8 +22,10 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(correo, password);
-      navigate('/');
+      if (!await login(correo, password)) return;
+      // Recupera la sección que la persona intentó abrir y reemplaza el acceso
+      // en el historial para que volver atrás no muestre un formulario obsoleto.
+      navigate(getSafeReturnPath(location.state?.returnTo), { replace: true });
     } catch (error) {
       if (error.response?.status === 401) {
         setErrorMsg('Las credenciales no son válidas.');
@@ -77,11 +81,12 @@ const Login = () => {
           )}
 
           <form onSubmit={handleLogin} className="login-form">
-            <label className="login-field">
-              <span>Correo electrónico</span>
+            <div className="login-field">
+              <label htmlFor="login-email">Correo electrónico</label>
               <div className="login-input-wrapper">
                 <Mail size={18} className="login-input-icon" />
                 <input
+                  id="login-email"
                   type="email"
                   className="login-input"
                   placeholder="nombre@establecimiento.cl"
@@ -91,13 +96,14 @@ const Login = () => {
                   required
                 />
               </div>
-            </label>
+            </div>
 
-            <label className="login-field">
-              <span>Contraseña</span>
+            <div className="login-field">
+              <label htmlFor="login-password">Contraseña</label>
               <div className="login-input-wrapper">
                 <Lock size={18} className="login-input-icon" />
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   className="login-input"
                   placeholder="Tu contraseña"
@@ -117,7 +123,7 @@ const Login = () => {
                   {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
                 </button>
               </div>
-            </label>
+            </div>
 
             <button type="submit" className="login-btn" disabled={loading}>
               <span>{loading ? 'Ingresando...' : 'Ingresar al sistema'}</span>

@@ -1,16 +1,35 @@
 import { lazy, Suspense, useContext, useEffect, useRef, useState } from 'react';
-import { CircleHelp, ContactRound, Download, KeyRound, LogOut, MessageCircle, Moon, Newspaper, RefreshCw, Smartphone, Sun, UserRound, WifiOff } from 'lucide-react';
+import { CircleHelp, ContactRound, Download, KeyRound, LogOut, MessageCircle, Moon, Newspaper, RefreshCw, Search, Smartphone, Sun, UserRound, WifiOff } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { AuthContext } from '../context/AuthContext';
 import { ThemeContext } from '../context/ThemeContext';
 import { useHelpTour } from '../context/HelpTourContext';
-import { PERMISSIONS, hasPermission, roleLabel } from '../permissions';
+import { PERMISSIONS, hasAnyPermission, hasPermission, roleLabel } from '../permissions';
 import { useReleaseNotes } from '../context/ReleaseNotesContext';
 import StaffAvatar from './StaffAvatar';
 import { PwaContext } from '../context/PwaContext';
 import { showChatNotification, subscribeToChatRealtime } from '../pwa/chatRealtime';
+import { useChatWorkspace } from '../context/ChatWorkspaceContext';
 
 const NotificationCenter = lazy(() => import('./NotificationCenter'));
+const GlobalSearch = lazy(() => import('./GlobalSearch'));
+const ChatDock = lazy(() => import('./ChatDock'));
+
+const GLOBAL_SEARCH_PERMISSIONS = [
+  PERMISSIONS.STUDENTS_VIEW,
+  PERMISSIONS.STUDENTS_MANAGE,
+  PERMISSIONS.STUDENTS_IMPORT,
+  PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS,
+  PERMISSIONS.PROFILES_DIRECTORY_VIEW,
+  PERMISSIONS.FOLLOW_UP_VIEW,
+  PERMISSIONS.DOCUMENTS_VIEW,
+  PERMISSIONS.COEXISTENCE_VIEW,
+  PERMISSIONS.VISITS_VIEW,
+  PERMISSIONS.VISITS_HISTORY,
+  PERMISSIONS.WITHDRAWALS_REGISTER,
+  PERMISSIONS.WITHDRAWALS_APPROVE,
+  PERMISSIONS.WITHDRAWALS_AUTHORIZATIONS,
+];
 
 const initialsFrom = (value) => String(value || 'Usuario')
   .split(/\s+/)
@@ -21,15 +40,18 @@ const initialsFrom = (value) => String(value || 'Usuario')
   .toUpperCase();
 
 const GlobalTools = () => {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, loading, sessionError } = useContext(AuthContext);
+  const chatWorkspace = useChatWorkspace();
   const { theme, toggleTheme } = useContext(ThemeContext);
   const { available, startTour, title } = useHelpTour();
   const { openReleaseNotes } = useReleaseNotes();
   const pwa = useContext(PwaContext);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [unreadChat, setUnreadChat] = useState(0);
   const [online, setOnline] = useState(() => navigator.onLine);
   const menuRef = useRef(null);
+  const searchTriggerRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const context = location.pathname === '/admin'
@@ -37,6 +59,10 @@ const GlobalTools = () => {
     : location.pathname === '/' || location.pathname === '/scanner'
       ? 'kiosk'
       : 'module';
+  const searchAvailable = location.pathname !== '/scanner'
+    && hasAnyPermission(user, GLOBAL_SEARCH_PERMISSIONS);
+  const chatAvailable = user && !loading && !sessionError && !user.debe_cambiar_password && hasPermission(user, PERMISSIONS.CHAT_ACCESS);
+  const inChat = /^\/chat(?:\/|$)/.test(location.pathname);
 
   useEffect(() => {
     const markOnline = () => setOnline(true);
@@ -66,20 +92,34 @@ const GlobalTools = () => {
   }, [menuOpen]);
 
   useEffect(() => {
-    if (!user || !hasPermission(user, PERMISSIONS.CHAT_ACCESS)) return undefined;
+    if (!searchAvailable) return undefined;
+    const openWithShortcut = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setMenuOpen(false);
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener('keydown', openWithShortcut);
+    return () => document.removeEventListener('keydown', openWithShortcut);
+  }, [searchAvailable]);
+
+  useEffect(() => {
+    if (!chatAvailable) return undefined;
     let active = true;
     const refresh = () => fetch('/api/chat/resumen', { credentials: 'include', cache: 'no-store' })
       .then((response) => response.ok ? response.json() : null)
       .then((data) => { if (active && data) setUnreadChat(Number(data.no_leidos) || 0); })
       .catch(() => {});
     refresh();
+    window.addEventListener('ldsm:chat-read', refresh);
     const unsubscribe = subscribeToChatRealtime((event) => {
       refresh();
       showChatNotification(event).catch(() => {});
     });
     const timer = setInterval(refresh, 60000);
-    return () => { active = false; unsubscribe(); clearInterval(timer); };
-  }, [user]);
+    return () => { active = false; unsubscribe(); clearInterval(timer); window.removeEventListener('ldsm:chat-read', refresh); };
+  }, [user, chatAvailable]);
 
   if (!user) return null;
 
@@ -87,6 +127,11 @@ const GlobalTools = () => {
     setMenuOpen(false);
     logout();
     navigate('/login');
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    window.requestAnimationFrame(() => searchTriggerRef.current?.focus());
   };
 
   return (
@@ -98,6 +143,20 @@ const GlobalTools = () => {
       </aside>
     )}
     <nav className="global-tools" data-context={context} aria-label="Herramientas globales" data-tour="global-tools">
+      {searchAvailable && (
+        <button
+          ref={searchTriggerRef}
+          type="button"
+          className="global-tool-button"
+          onClick={() => { setMenuOpen(false); setSearchOpen(true); }}
+          title="Buscar en el sistema (Ctrl + K)"
+          aria-label="Buscar en el sistema"
+          aria-expanded={searchOpen}
+          data-tour="global-search"
+        >
+          <Search size={20} />
+        </button>
+      )}
       <button
         type="button"
         className="global-tool-button"
@@ -117,12 +176,13 @@ const GlobalTools = () => {
       >
         {theme === 'light' ? <Moon size={19} /> : <Sun size={19} />}
       </button>
-      {hasPermission(user, PERMISSIONS.CHAT_ACCESS) && (
+      {chatAvailable && (
         <button
           type="button"
           className="global-tool-button global-tool-button--chat"
-          onClick={() => navigate('/chat')}
+          onClick={() => { if (inChat) { chatWorkspace.setDockPath(`${location.pathname}${location.search}`); chatWorkspace.setDockOpen(true); navigate(chatWorkspace.returnPath); } else chatWorkspace.setDockOpen((open) => !open); }}
           title="Abrir chat interno"
+          aria-expanded={!inChat && chatWorkspace.dockOpen}
           aria-label={`Abrir chat interno${unreadChat ? `, ${unreadChat} mensajes sin leer` : ''}`}
         >
           <MessageCircle size={19} />
@@ -190,6 +250,12 @@ const GlobalTools = () => {
         )}
       </div>
     </nav>
+    {chatAvailable && <Suspense fallback={null}><ChatDock unread={unreadChat} /></Suspense>}
+    {searchOpen && (
+      <Suspense fallback={null}>
+        <GlobalSearch onClose={closeSearch} />
+      </Suspense>
+    )}
     </>
   );
 };

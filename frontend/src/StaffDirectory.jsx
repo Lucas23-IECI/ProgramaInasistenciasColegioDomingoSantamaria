@@ -34,6 +34,8 @@ const StaffDirectory = () => {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(() => (
     typeof window === 'undefined' || !window.matchMedia('(max-width: 680px)').matches
   ));
@@ -42,6 +44,7 @@ const StaffDirectory = () => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setLoading(true);
+      setLoadError('');
       axios.get(`${API_URL}/directory/staff`, {
         params: { search, area, cargo, status, account_type: accountType, sort },
         signal: controller.signal
@@ -50,9 +53,14 @@ const StaffDirectory = () => {
           setRows(data.rows || []);
           setFilters(data.filters || EMPTY_FILTERS);
           setTotal(Number.isInteger(data.total) ? data.total : (data.rows || []).length);
+          setLoadError('');
         })
         .catch((error) => {
-          if (error.code !== 'ERR_CANCELED') notify(getApiErrorMessage(error, 'No fue posible cargar el directorio.'), 'error');
+          if (error.code !== 'ERR_CANCELED') {
+            const message = getApiErrorMessage(error, 'No fue posible cargar el directorio.');
+            setLoadError(message);
+            notify(message, 'error');
+          }
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);
@@ -62,7 +70,7 @@ const StaffDirectory = () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [accountType, area, cargo, notify, search, sort, status]);
+  }, [accountType, area, cargo, notify, retryToken, search, sort, status]);
 
   const filtersActive = Boolean(search || area || cargo || status || accountType || sort !== 'name_asc');
   const clearFilters = () => {
@@ -114,7 +122,14 @@ const StaffDirectory = () => {
         </div>
       </section>
 
-      {!loading && rows.length === 0 ? (
+      {!loading && loadError ? (
+        <section className="staff-directory-empty staff-directory-empty--error" role="alert">
+          <UsersRound size={34} />
+          <h2>No pudimos cargar el directorio</h2>
+          <p>{loadError}</p>
+          <button type="button" className="staff-directory-clear staff-directory-clear--empty" onClick={() => setRetryToken((current) => current + 1)}><RotateCcw size={16} /> Reintentar</button>
+        </section>
+      ) : !loading && rows.length === 0 ? (
         <section className="staff-directory-empty">
           <UsersRound size={34} />
           <h2>No encontramos coincidencias</h2>

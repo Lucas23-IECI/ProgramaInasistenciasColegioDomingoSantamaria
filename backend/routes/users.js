@@ -209,7 +209,7 @@ app.patch('/api/access-profiles/:code/status', verifyToken, verifyPermission('us
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 FOR UPDATE', [code]);
+    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 AND eliminado_en IS NULL FOR UPDATE', [code]);
     const current = locked.rows[0];
     if (!current) {
       await client.query('ROLLBACK');
@@ -249,7 +249,7 @@ app.delete('/api/access-profiles/:code', verifyToken, verifyPermission('users.ma
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 FOR UPDATE', [code]);
+    const locked = await client.query('SELECT * FROM perfiles_acceso WHERE codigo = $1 AND eliminado_en IS NULL FOR UPDATE', [code]);
     const current = locked.rows[0];
     if (!current) {
       await client.query('ROLLBACK');
@@ -271,7 +271,14 @@ app.delete('/api/access-profiles/:code', verifyToken, verifyPermission('users.ma
       });
     }
     await client.query('DELETE FROM permisos_rol WHERE rol = $1', [code]);
-    await client.query('DELETE FROM perfiles_acceso WHERE codigo = $1', [code]);
+    await client.query(`
+      UPDATE perfiles_acceso
+      SET activo = false,
+          eliminado_en = CURRENT_TIMESTAMP,
+          eliminado_por = $1,
+          actualizado_en = CURRENT_TIMESTAMP
+      WHERE codigo = $2
+    `, [req.user.id, code]);
     await insertarAudit(client, {
       usuario_id: req.user.id,
       usuario_correo: req.user.correo,

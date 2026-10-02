@@ -365,6 +365,8 @@ body:has(.profile-image-editor-backdrop) .global-tools {
 .staff-directory-empty { display: grid; min-height: 340px; place-items: center; align-content: center; padding: 48px; text-align: center; }
 .staff-directory-empty h2 { margin: 16px 0 4px; }
 .staff-directory-empty p { margin: 0; color: var(--muted); }
+.staff-directory-empty--error { color: var(--danger, #a43f3f); }
+.staff-directory-empty--error h2 { color: var(--ink); }
 
 @media (max-width: 980px) {
   .staff-profile-section { grid-template-columns: 1fr; gap: 24px; }

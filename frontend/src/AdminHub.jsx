@@ -18,11 +18,13 @@ import {
   FolderArchive,
   BriefcaseBusiness,
   MessagesSquare,
+  CalendarDays,
+  PackageOpen,
 } from 'lucide-react';
 import { AuthContext } from './context/AuthContext';
 import InstitutionalMark from './components/InstitutionalMark';
 import RoleOverview from './components/RoleOverview';
-import { PERMISSIONS, hasAnyPermission, roleLabel } from './permissions';
+import { MODULE_ACCESS_PERMISSIONS, PERMISSIONS, hasAnyPermission, roleLabel } from './permissions';
 
 const ALL_MODULES = [
   {
@@ -34,7 +36,7 @@ const ALL_MODULES = [
     description: 'Reúne visitas abiertas, retiros pendientes, incidencias y estado del respaldo.',
     path: '/admin/operacion',
     tone: 'blue',
-    permissions: [PERMISSIONS.OPERATIONS_VIEW],
+    permissions: MODULE_ACCESS_PERMISSIONS.operations,
   },
   {
     key: 'visitas',
@@ -45,19 +47,7 @@ const ALL_MODULES = [
     description: 'Registra visitas, salidas y solicitudes de retiro de estudiantes con trazabilidad.',
     path: '/admin/visitas',
     tone: 'ochre',
-    permissions: [
-      PERMISSIONS.VISITS_VIEW,
-      PERMISSIONS.VISITS_REGISTER,
-      PERMISSIONS.VISITS_CHECKOUT,
-      PERMISSIONS.VISITS_MANAGE,
-      PERMISSIONS.VISITS_HISTORY,
-      PERMISSIONS.VISITS_REPORTS,
-      PERMISSIONS.VISITS_SETTINGS,
-      PERMISSIONS.WITHDRAWALS_REGISTER,
-      PERMISSIONS.WITHDRAWALS_APPROVE,
-      PERMISSIONS.WITHDRAWALS_AUTHORIZATIONS,
-      PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS,
-    ],
+    permissions: MODULE_ACCESS_PERMISSIONS.visits,
   },
   {
     key: 'atrasos',
@@ -68,7 +58,7 @@ const ALL_MODULES = [
     description: 'Registro diario, seguimiento de puntualidad y reportes por período.',
     path: '/admin/atrasos',
     tone: 'blue',
-    permissions: [PERMISSIONS.PUNCTUALITY_VIEW],
+    permissions: MODULE_ACCESS_PERMISSIONS.punctuality,
   },
   {
     key: 'analiticas',
@@ -79,7 +69,7 @@ const ALL_MODULES = [
     description: 'Indicadores de atrasos y puntualidad desglosados por curso.',
     path: '/admin/analiticas',
     tone: 'green',
-    permissions: [PERMISSIONS.ANALYTICS_VIEW],
+    permissions: MODULE_ACCESS_PERMISSIONS.analytics,
   },
   {
     key: 'estudiantes',
@@ -90,7 +80,7 @@ const ALL_MODULES = [
     description: 'Padrón institucional, importaciones y asignación de matrículas.',
     path: '/admin/estudiantes',
     tone: 'navy',
-    permissions: [PERMISSIONS.STUDENTS_VIEW, PERMISSIONS.STUDENTS_MANAGE, PERMISSIONS.STUDENTS_IMPORT, PERMISSIONS.STUDENTS_IDENTITY_REGULARIZE, PERMISSIONS.WITHDRAWALS_IMPORT_GUARDIANS],
+    permissions: MODULE_ACCESS_PERMISSIONS.students,
   },
   {
     key: 'directorio',
@@ -101,7 +91,18 @@ const ALL_MODULES = [
     description: 'Perfiles, cargos, ubicaciones y disponibilidad del personal autorizado.',
     path: '/directorio',
     tone: 'navy',
-    permissions: [PERMISSIONS.PROFILES_DIRECTORY_VIEW],
+    permissions: MODULE_ACCESS_PERMISSIONS.directory,
+  },
+  {
+    key: 'familias',
+    icon: BookUser,
+    section: 'comunidad',
+    category: 'Vínculos y autorizaciones',
+    title: 'Directorio familiar',
+    description: 'Responsables, contactos, estudiantes vinculados, vigencias y restricciones familiares.',
+    path: '/admin/familias',
+    tone: 'ochre',
+    permissions: MODULE_ACCESS_PERMISSIONS.families,
   },
   {
     key: 'seguimiento',
@@ -112,12 +113,7 @@ const ALL_MODULES = [
     description: 'Casos, responsables, contactos, acuerdos, tareas y derivaciones coordinadas.',
     path: '/admin/seguimiento',
     tone: 'blue',
-    permissions: [
-      PERMISSIONS.FOLLOW_UP_VIEW,
-      PERMISSIONS.FOLLOW_UP_CREATE,
-      PERMISSIONS.FOLLOW_UP_MANAGE,
-      PERMISSIONS.FOLLOW_UP_CONTACTS,
-    ],
+    permissions: MODULE_ACCESS_PERMISSIONS.followUp,
   },
   {
     key: 'convivencia',
@@ -128,13 +124,18 @@ const ALL_MODULES = [
     description: 'Gestión reservada de situaciones, medidas, acuerdos y seguimientos.',
     path: '/admin/convivencia',
     tone: 'red',
-    permissions: [
-      PERMISSIONS.COEXISTENCE_VIEW,
-      PERMISSIONS.COEXISTENCE_CREATE,
-      PERMISSIONS.COEXISTENCE_MANAGE,
-      PERMISSIONS.COEXISTENCE_DOCUMENTS,
-      PERMISSIONS.COEXISTENCE_CLOSE,
-    ],
+    permissions: MODULE_ACCESS_PERMISSIONS.coexistence,
+  },
+  {
+    key: 'agenda',
+    icon: CalendarDays,
+    section: 'comunicacion',
+    category: 'Coordinación privada',
+    title: 'Agenda interna',
+    description: 'Reuniones, revisiones y recordatorios visibles solo para participantes.',
+    path: '/agenda',
+    tone: 'blue',
+    permissions: MODULE_ACCESS_PERMISSIONS.agenda,
   },
   {
     key: 'chat',
@@ -145,7 +146,7 @@ const ALL_MODULES = [
     description: 'Conversaciones directas, grupos y canales vinculados al trabajo institucional.',
     path: '/chat',
     tone: 'green',
-    permissions: [PERMISSIONS.CHAT_ACCESS],
+    permissions: MODULE_ACCESS_PERMISSIONS.chat,
   },
   {
     key: 'documentos',
@@ -156,14 +157,7 @@ const ALL_MODULES = [
     description: 'Certificados, autorizaciones, vigencias, versiones, firmas internas y OCR revisable.',
     path: '/admin/documentos',
     tone: 'purple',
-    permissions: [
-      PERMISSIONS.DOCUMENTS_VIEW,
-      PERMISSIONS.DOCUMENTS_UPLOAD,
-      PERMISSIONS.DOCUMENTS_MANAGE,
-      PERMISSIONS.DOCUMENTS_SIGN,
-      PERMISSIONS.DOCUMENTS_TEMPLATES,
-      PERMISSIONS.DOCUMENTS_OCR,
-    ],
+    permissions: MODULE_ACCESS_PERMISSIONS.documents,
   },
   {
     key: 'usuarios',
@@ -177,6 +171,17 @@ const ALL_MODULES = [
     permissions: [PERMISSIONS.USERS_MANAGE],
   },
   {
+    key: 'recursos',
+    icon: PackageOpen,
+    section: 'administracion',
+    category: 'Operación interna',
+    title: 'Recursos internos',
+    description: 'Inventario, solicitudes, préstamos y devoluciones del equipo institucional.',
+    path: '/admin/recursos',
+    tone: 'blue',
+    permissions: MODULE_ACCESS_PERMISSIONS.resources,
+  },
+  {
     key: 'configuracion',
     icon: Settings2,
     section: 'puntualidad',
@@ -185,7 +190,7 @@ const ALL_MODULES = [
     description: 'Ingreso, recreos, almuerzo y otros hitos de la jornada.',
     path: '/admin/configuracion',
     tone: 'slate',
-    permissions: [PERMISSIONS.SETTINGS_MANAGE],
+    permissions: MODULE_ACCESS_PERMISSIONS.punctualitySettings,
   },
   {
     key: 'auditoria',
@@ -207,7 +212,7 @@ const ALL_MODULES = [
     description: 'Documenta períodos de retención y previsualiza su alcance sin eliminar información.',
     path: '/admin/gobierno-datos',
     tone: 'slate',
-    permissions: [PERMISSIONS.SETTINGS_MANAGE, PERMISSIONS.PUNCTUALITY_CONTROLS_MANAGE],
+    permissions: [PERMISSIONS.SETTINGS_MANAGE],
   },
   {
     key: 'terminal',

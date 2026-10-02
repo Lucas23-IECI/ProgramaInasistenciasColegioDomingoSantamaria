@@ -3,7 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { normalizePermissions, normalizeProfileCode } = require('../utils/permissions');
+const {
+  expandPermissionDependencies,
+  normalizePermissions,
+  normalizeProfileCode,
+} = require('../utils/permissions');
 
 test('normaliza una selección de permisos sin duplicados ni valores vacíos', () => {
   assert.deepEqual(
@@ -77,6 +81,10 @@ test('la auditoría permite consultar actividad y cambios de una cuenta específ
 
 test('los perfiles reutilizables tienen ciclo de vida auditado y Administrador queda protegido en API', () => {
   const routes = fs.readFileSync(path.join(__dirname, '..', 'routes', 'users.js'), 'utf8');
+  const safeDeletion = fs.readFileSync(
+    path.join(__dirname, '..', 'migrations', '053_eliminacion_segura_perfiles_acceso.sql'),
+    'utf8'
+  );
   assert.match(routes, /PROTECTED_ADMIN_PROFILE = 'admin'/);
   assert.match(routes, /\/api\/access-profiles\/:code\/status/);
   assert.match(routes, /DESACTIVAR_PERFIL_ACCESO/);
@@ -87,6 +95,10 @@ test('los perfiles reutilizables tienen ciclo de vida auditado y Administrador q
   assert.match(routes, /El perfil Administrador es obligatorio y no se puede eliminar/);
   assert.match(routes, /permisos_agregados/);
   assert.match(routes, /permisos_retirados/);
+  assert.match(routes, /SET activo = false,[\s\S]*eliminado_en = CURRENT_TIMESTAMP/u);
+  assert.doesNotMatch(routes, /DELETE FROM perfiles_acceso WHERE codigo/u);
+  assert.match(safeDeletion, /ADD COLUMN IF NOT EXISTS eliminado_en TIMESTAMPTZ/u);
+  assert.match(safeDeletion, /WHERE eliminado_en IS NULL/u);
 });
 
 test('la actividad de un perfil consolida cuentas, conserva snapshots y permite exportación exacta', () => {
@@ -127,6 +139,28 @@ test('la API de lectura MRZ exige permiso y no conserva imágenes ni texto', () 
   assert.match(routeSource, /conserva_imagen: false/);
   assert.match(routeSource, /conserva_mrz: false/);
   assert.match(migrationSource, /'students\.identity\.mrz'/);
+});
+
+test('completa las dependencias de acceso de permisos operativos configurables', () => {
+  assert.deepEqual(
+    expandPermissionDependencies(['resources.manage']),
+    ['resources.manage', 'resources.view']
+  );
+  assert.deepEqual(
+    expandPermissionDependencies(['documents.sign', 'agenda.create']),
+    ['agenda.create', 'agenda.view', 'documents.sign', 'documents.view']
+  );
+  assert.deepEqual(
+    expandPermissionDependencies(['punctuality.register.camera']),
+    ['punctuality.register', 'punctuality.register.camera']
+  );
+  assert.deepEqual(
+    expandPermissionDependencies(['reports.generate', 'profiles.manage', 'withdrawals.import_guardians']),
+    [
+      'profiles.directory.view', 'profiles.manage', 'punctuality.view', 'reports.generate',
+      'students.view', 'withdrawals.import_guardians'
+    ]
+  );
 });
 
 test('las exportaciones del padrón exigen permiso y mantienen trazabilidad', () => {

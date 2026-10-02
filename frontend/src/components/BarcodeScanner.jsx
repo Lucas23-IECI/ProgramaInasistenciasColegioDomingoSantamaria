@@ -324,26 +324,36 @@ const BarcodeScanner = ({ tipoRegistro }) => {
   };
 
   const queueOfflineValue = async (value, method) => {
-    const matches = await findOfflineStudent(value);
-    if (matches.length !== 1) {
-      setError(matches.length ? 'La búsqueda sin conexión tiene más de una coincidencia. Conéctate o utiliza un identificador más preciso.' : 'Esta persona no está disponible en el padrón operativo guardado.');
-      return;
+    try {
+      const matches = await findOfflineStudent(value);
+      if (matches.length !== 1) {
+        setError(matches.length ? 'La búsqueda sin conexión tiene más de una coincidencia. Conéctate o utiliza un identificador más preciso.' : 'Esta persona no está disponible en el padrón operativo guardado.');
+        return;
+      }
+      const found = matches[0];
+      const payload = {
+        offline_operation_id: crypto.randomUUID(), capturado_en: new Date().toISOString(),
+        dispositivo: `${navigator.platform || 'dispositivo'} · PWA`, id_alumno: found.id_alumno,
+        origen: method === REGISTRATION_METHODS.MANUAL ? 'manual' : 'lector', metodo_registro: method,
+        control_id: selectedControlId ? Number(selectedControlId) : undefined
+      };
+      await queueOfflineRegistration(payload);
+      setOfflinePending(await countOfflineRegistrations());
+      setStudent(found);
+      setAlreadyRegistered(true);
+      setStatusRegistrado('Pendiente de sincronización');
+      setSuccessMsg(`${found.nombres} ${found.paterno || ''} — guardado de forma segura`);
+      playBeep('success');
+      vibrateForRegistration('success');
+    } catch {
+      setStudent(null);
+      setAlreadyRegistered(false);
+      setStatusRegistrado('');
+      setSuccessMsg('');
+      setError('No fue posible guardar este ingreso en el dispositivo. El ingreso no quedó registrado ni pendiente: recarga la aplicación o recupera la conexión antes de intentarlo otra vez.');
+      playBeep('error');
+      vibrateForRegistration('error');
     }
-    const found = matches[0];
-    const payload = {
-      offline_operation_id: crypto.randomUUID(), capturado_en: new Date().toISOString(),
-      dispositivo: `${navigator.platform || 'dispositivo'} · PWA`, id_alumno: found.id_alumno,
-      origen: method === REGISTRATION_METHODS.MANUAL ? 'manual' : 'lector', metodo_registro: method,
-      control_id: selectedControlId ? Number(selectedControlId) : undefined
-    };
-    await queueOfflineRegistration(payload);
-    setOfflinePending(await countOfflineRegistrations());
-    setStudent(found);
-    setAlreadyRegistered(true);
-    setStatusRegistrado('Pendiente de sincronización');
-    setSuccessMsg(`${found.nombres} ${found.paterno || ''} — guardado de forma segura`);
-    playBeep('success');
-    vibrateForRegistration('success');
   };
 
   const handleSubmit = async (e) => {

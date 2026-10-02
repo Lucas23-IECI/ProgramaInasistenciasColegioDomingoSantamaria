@@ -97,6 +97,13 @@ const PwaExperience = ({ open, onClose, onInstall, onUpdate, state }) => {
                 </div>
               )}
 
+              {state.operationError && (
+                <div className="pwa-experience__notice pwa-experience__notice--warning" role="alert">
+                  <ShieldCheck size={20} />
+                  <div><strong>La acción no se completó</strong><p>{state.operationError}</p></div>
+                </div>
+              )}
+
               <Suspense fallback={<div className="offline-sync-panel__empty">Revisando la bandeja de este dispositivo…</div>}><OfflineSyncPanel /></Suspense>
 
               <dl className="pwa-experience__facts">

@@ -5,8 +5,9 @@ const test = require('node:test');
 
 const { normalizeAttendanceFilters, validatePeriod } = require('../services/institutionalAnalyticsService');
 const { previousPeriod } = require('../services/institutionalReportScheduler');
-const { buildInstitutionalPdf } = require('../services/institutionalReportService');
+const { buildInstitutionalPdf, buildInstitutionalWorkbook, buildInstitutionalWorkbookSheets } = require('../services/institutionalReportService');
 const { buildReportArtifact, publicReportError } = require('../services/institutionalReportExecutionService');
+const { normalizeReportScheduleInput, parsePositiveId } = require('../routes/analytics');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -17,9 +18,28 @@ test('la analítica institucional limita y valida el período solicitado', () =>
     to: '2026-08-01',
     days: 1,
   });
-  assert.throws(() => validatePeriod('01-08-2026', '2026-08-02'), /fechas válidas/u);
-  assert.throws(() => validatePeriod('2026-08-02', '2026-08-01'), /entre 1 y 366 días/u);
-  assert.throws(() => validatePeriod('2025-01-01', '2026-08-01'), /entre 1 y 366 días/u);
+  assert.throws(() => validatePeriod('01-08-2026', '2026-08-02'), /formato AAAA-MM-DD/u);
+  assert.throws(() => validatePeriod('2026-02-30', '2026-03-02'), /formato AAAA-MM-DD/u);
+  assert.throws(() => validatePeriod('2026-08-02', '2026-08-01'), /inicial no puede ser posterior/u);
+  assert.deepEqual(validatePeriod('2025-01-01', '2026-01-01').days, 366);
+  assert.throws(() => validatePeriod('2025-01-01', '2026-01-02'), /no puede superar 366 días/u);
+});
+
+test('las programaciones validan nombre, día, hora, formato e identificadores sin corregirlos silenciosamente', () => {
+  assert.deepEqual(normalizeReportScheduleInput({
+    nombre: 'Resumen semanal', frecuencia: 'semanal', formato: 'pdf', dia_semana: '5', hora: '07:30'
+  }).value, {
+    name: 'Resumen semanal', frequency: 'SEMANAL', format: 'PDF', dayWeek: 5, dayMonth: null, time: '07:30'
+  });
+  assert.match(normalizeReportScheduleInput({ nombre: 'R', frecuencia: 'SEMANAL', dia_semana: 1, hora: '07:00' }).error, /entre 3 y 120/u);
+  assert.match(normalizeReportScheduleInput({ nombre: 'Resumen', frecuencia: 'SEMANAL', dia_semana: 8, hora: '07:00' }).error, /entre 1 y 7/u);
+  assert.match(normalizeReportScheduleInput({ nombre: 'Resumen', frecuencia: 'MENSUAL', dia_mes: 29, hora: '07:00' }).error, /entre 1 y 28/u);
+  assert.match(normalizeReportScheduleInput({ nombre: 'Resumen', frecuencia: 'MENSUAL', dia_mes: 1, hora: '25:90' }).error, /hora del reporte/u);
+  assert.match(normalizeReportScheduleInput(null).error, /nombre del reporte/u);
+  assert.equal(parsePositiveId('42'), 42);
+  assert.equal(parsePositiveId('0'), null);
+  assert.equal(parsePositiveId('abc'), null);
+  assert.equal(parsePositiveId('1e2'), null);
 });
 
 test('los reportes semanales y mensuales utilizan períodos anteriores cerrados', () => {
@@ -125,6 +145,47 @@ test('el PDF institucional contiene informe paginado, gráfico, tablas y metadat
   assert.match(artifact.fileName, /^Resumen-institucional-2026-08-01-2026-08-26\.pdf$/u);
   assert.equal(artifact.mime, 'application/pdf');
   assert.equal(artifact.buffer.subarray(0, 5).toString('ascii'), '%PDF-');
+});
+
+test('el Excel institucional conserva el mismo alcance y todos los desgloses visibles', async () => {
+  const analytics = {
+    periodo: { from: '2026-08-01', to: '2026-08-26' },
+    filtros: { curso_id: 7, curso: 'Pre-Kínder', justificado: false, severidad: 'Grave' },
+    resumen: { ingresos: 38, atrasos: 12, tasa_atrasos: 31.6 },
+    tendencia_diaria: [{ fecha: '2026-08-04', ingresos: 4, atrasos: 3 }],
+    alertas: [{ level: 'alta', title: 'Alerta', explanation: 'Explicación', rule: 'Regla visible' }],
+    comparacion_cursos: [{ curso: 'Pre-Kínder', ingresos: 38, atrasos: 12, porcentaje_atrasos: 31.6 }],
+    bloques_horarios: [{ bloque: 'Ingreso', hora_limite: '08:00', ingresos: 38, atrasos: 12, promedio_minutos: 8.4 }],
+    estudiantes_mejoraron: [{ estudiante: 'Estudiante de prueba', antes: 4, despues: 1, reduccion: 3 }],
+    motivos_visita: [{ motivo: 'Entrevista', total: 7 }],
+    retiros_anticipados: [{ motivo: 'Atención médica', total: 2, entregados: 2 }],
+    convivencia: { total: 5, abiertos: 3, resueltos: 2, promedio_dias_resolucion: 4.5 },
+    reincidencia_post_intervencion: { estudiantes_evaluados: 2, mejoraron: 1, sin_cambio: 1, reincidieron: 0 },
+    contactos_apoderados: { casos_con_contacto: 2, cerrados: 1, porcentaje_cierre: 50 },
+    carga_trabajo: [{ area: 'Inspectoría', casos: 5, abiertos: 3, resueltos: 2 }],
+    metodologia: { privacidad: 'Solo entrega información autorizada.' }
+  };
+  const sheets = buildInstitutionalWorkbookSheets(analytics);
+  assert.deepEqual(sheets.map((sheet) => sheet.sheet), [
+    'Resumen', 'Alertas explicadas', 'Evolución diaria', 'Cursos', 'Bloques horarios',
+    'Estudiantes mejoraron', 'Visitas y retiros', 'Convivencia', 'Carga por área', 'Metodología'
+  ]);
+  assert.equal(sheets[0].data[1][1].value, '01 ago 2026 al 26 ago 2026');
+  assert.equal(sheets[0].data[6][1].value, 0.316);
+  assert.equal(sheets[0].data[6][1].format, '0.0%');
+  assert.equal(sheets[3].data[1][3].value, 0.316);
+  assert.equal(sheets[3].data[1][3].type, Number);
+  assert.equal(sheets[3].data[1][3].format, '0.0%');
+  assert.equal(sheets[4].data[1][4].value, 8.4);
+  assert.equal(sheets[4].data[1][4].type, Number);
+  assert.equal(sheets[7].data[4][2].value, 4.5);
+  assert.equal(sheets[7].data[11][2].value, 0.5);
+  assert.equal(sheets[7].data[11][2].format, '0.0%');
+  assert.equal(sheets[5].data[1][0].value, 'Estudiante de prueba');
+  assert.equal(sheets[6].data[2][3].value, 2);
+  const workbook = await buildInstitutionalWorkbook(analytics);
+  assert.equal(workbook.subarray(0, 2).toString('ascii'), 'PK');
+  assert.ok(workbook.length > 10_000, `El Excel fue inesperadamente pequeño: ${workbook.length} bytes`);
 });
 
 test('los fallos de reportes se traducen sin publicar detalles internos', () => {
