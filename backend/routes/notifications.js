@@ -3,6 +3,8 @@ const express = require('express');
 const PRIORITIES = new Set(['NORMAL', 'IMPORTANTE', 'URGENTE']);
 const id = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const uniqueIds = (values) => [...new Set((Array.isArray(values) ? values : []).map(id).filter(Boolean))];
+const uniqueCodes = (values) => [...new Set((Array.isArray(values) ? values : [])
+  .map((value) => String(value || '').trim()).filter(Boolean))];
 const clean = (value, max = 300) => String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 const narrative = (value, max = 1000) => String(value || '').trim().slice(0, max);
 
@@ -42,6 +44,56 @@ const reconcileStaleShipments = (pool, senderId) => pool.query(`
   WHERE enviado_por = $1 AND estado = 'PENDIENTE'
     AND creado_en < CURRENT_TIMESTAMP - INTERVAL '5 minutes'
 `, [senderId]);
+
+const resolveAudienceRecipients = async (pool, {
+  directRecipients = [], profileCodes = [], groupCodes = [], senderId
+}) => {
+  const recipients = new Set(uniqueIds(directRecipients).filter((userId) => userId !== Number(senderId)));
+  const profiles = uniqueCodes(profileCodes);
+  const groups = uniqueCodes(groupCodes);
+  if (profiles.length > 30 || groups.length > 30) {
+    const error = new Error('Selecciona como máximo 30 perfiles y 30 equipos por envío.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const [profileResult, groupResult] = await Promise.all([
+    profiles.length ? pool.query(`
+      SELECT p.codigo,
+             COALESCE(array_agg(u.id ORDER BY u.id)
+               FILTER (WHERE u.id IS NOT NULL), ARRAY[]::int[]) AS destinatarios
+      FROM perfiles_acceso p
+      LEFT JOIN usuarios u ON u.rol = p.codigo
+        AND u.activo = true AND u.eliminado_en IS NULL AND u.id <> $2
+      WHERE p.activo = true AND p.codigo = ANY($1::varchar[])
+      GROUP BY p.codigo
+    `, [profiles, senderId]) : Promise.resolve({ rows: [] }),
+    groups.length ? pool.query(`
+      SELECT g.codigo,
+             COALESCE(array_agg(DISTINCT u.id ORDER BY u.id)
+               FILTER (WHERE u.id IS NOT NULL), ARRAY[]::int[]) AS destinatarios
+      FROM seguimiento_grupos_notificacion g
+      LEFT JOIN seguimiento_grupo_perfiles gp ON gp.grupo_codigo = g.codigo
+      LEFT JOIN perfiles_acceso p ON p.codigo = gp.perfil_codigo AND p.activo = true
+      LEFT JOIN usuarios u ON u.rol = p.codigo
+        AND u.activo = true AND u.eliminado_en IS NULL AND u.id <> $2
+      WHERE g.activo = true AND g.codigo = ANY($1::varchar[])
+      GROUP BY g.codigo
+    `, [groups, senderId]) : Promise.resolve({ rows: [] })
+  ]);
+
+  const foundProfiles = new Set(profileResult.rows.map((row) => row.codigo));
+  const foundGroups = new Set(groupResult.rows.map((row) => row.codigo));
+  if (profiles.some((code) => !foundProfiles.has(code)) || groups.some((code) => !foundGroups.has(code))) {
+    const error = new Error('Uno de los perfiles o equipos seleccionados ya no está disponible. Actualiza los destinatarios antes de enviar.');
+    error.statusCode = 409;
+    throw error;
+  }
+  for (const row of [...profileResult.rows, ...groupResult.rows]) {
+    for (const userId of uniqueIds(row.destinatarios)) recipients.add(userId);
+  }
+  return [...recipients];
+};
 
 const createNotificationsRouter = ({
   pool,
@@ -134,6 +186,50 @@ const createNotificationsRouter = ({
     }
   });
 
+  router.get('/audiencias', verifyPermission('notifications.send'), async (req, res) => {
+    try {
+      const [people, profiles, groups] = await Promise.all([
+        pool.query(`
+          SELECT u.id, COALESCE(NULLIF(u.nombre, ''), u.correo) AS nombre,
+                 u.correo, COALESCE(NULLIF(u.cargo, ''), p.nombre, 'Personal') AS cargo,
+                 p.nombre AS perfil_nombre
+          FROM usuarios u
+          LEFT JOIN perfiles_acceso p ON p.codigo = u.rol
+          WHERE u.activo = true AND u.eliminado_en IS NULL AND u.id <> $1
+          ORDER BY lower(COALESCE(NULLIF(u.nombre, ''), u.correo))
+          LIMIT 150
+        `, [req.user.id]),
+        pool.query(`
+          SELECT p.codigo, p.nombre, p.descripcion,
+                 COUNT(u.id)::int AS cuentas_activas
+          FROM perfiles_acceso p
+          LEFT JOIN usuarios u ON u.rol = p.codigo
+            AND u.activo = true AND u.eliminado_en IS NULL AND u.id <> $1
+          WHERE p.activo = true
+          GROUP BY p.codigo
+          HAVING COUNT(u.id) > 0
+          ORDER BY p.orden, lower(p.nombre)
+        `, [req.user.id]),
+        pool.query(`
+          SELECT g.codigo, g.nombre, g.descripcion,
+                 COUNT(DISTINCT u.id)::int AS cuentas_activas
+          FROM seguimiento_grupos_notificacion g
+          LEFT JOIN seguimiento_grupo_perfiles gp ON gp.grupo_codigo = g.codigo
+          LEFT JOIN perfiles_acceso p ON p.codigo = gp.perfil_codigo AND p.activo = true
+          LEFT JOIN usuarios u ON u.rol = p.codigo
+            AND u.activo = true AND u.eliminado_en IS NULL AND u.id <> $1
+          WHERE g.activo = true
+          GROUP BY g.codigo
+          HAVING COUNT(DISTINCT u.id) > 0
+          ORDER BY g.orden, lower(g.nombre)
+        `, [req.user.id])
+      ]);
+      res.json({ personas: people.rows, perfiles: profiles.rows, grupos: groups.rows });
+    } catch (error) {
+      safeError(res, error, 'No fue posible cargar las personas, perfiles y equipos disponibles.');
+    }
+  });
+
   router.get('/enviadas', verifyPermission('notifications.send'), async (req, res) => {
     const page = Math.max(1, Number.parseInt(req.query.pagina, 10) || 1);
     const limit = Math.min(50, Math.max(5, Number.parseInt(req.query.limite, 10) || 20));
@@ -220,8 +316,19 @@ const createNotificationsRouter = ({
     const title = clean(payload.titulo, 180);
     const detail = narrative(payload.detalle, 1000);
     const priority = String(payload.prioridad || 'NORMAL').toUpperCase();
-    const recipients = uniqueIds(payload.destinatarios).filter((userId) => userId !== req.user.id);
     const link = safeInternalLink(payload.enlace);
+
+    let recipients;
+    try {
+      recipients = await resolveAudienceRecipients(pool, {
+        directRecipients: payload.destinatarios,
+        profileCodes: payload.perfiles,
+        groupCodes: payload.grupos,
+        senderId: req.user.id
+      });
+    } catch (error) {
+      return safeError(res, error, 'No fue posible confirmar los destinatarios seleccionados.');
+    }
 
     if (title.length < 4) return res.status(400).json({ message: 'Escribe un título de al menos 4 caracteres.' });
     if (detail.length < 5) return res.status(400).json({ message: 'Escribe el contenido del aviso con al menos 5 caracteres.' });
@@ -379,4 +486,9 @@ const createNotificationsRouter = ({
   return router;
 };
 
-module.exports = { createNotificationsRouter, safeInternalLink, reconcileStaleShipments };
+module.exports = {
+  createNotificationsRouter,
+  safeInternalLink,
+  reconcileStaleShipments,
+  resolveAudienceRecipients
+};

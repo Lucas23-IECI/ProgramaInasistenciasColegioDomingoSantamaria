@@ -1392,6 +1392,15 @@ const createPunctualityRouter = ({ pool, verifyToken, verifyPermission, verifyAn
       if (!filePath) return res.status(404).json({ message: 'El documento no es válido o ya no existe.' });
 
       await fs.promises.access(filePath, fs.constants.R_OK);
+      await insertarAudit(pool, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'DESCARGAR_RESPALDO_ATRASO',
+        entidad: 'attendance_registration',
+        entidad_id: registrationId,
+        detalle: { contiene_documento: true },
+        ip: getClientIp(req)
+      });
       res.setHeader('Cache-Control', 'private, no-store, max-age=0');
       res.type(document.mime_type);
       return res.download(filePath, document.nombre_original);

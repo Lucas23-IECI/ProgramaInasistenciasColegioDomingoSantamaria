@@ -24,7 +24,16 @@ const positiveInteger = (value) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
-const isoDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(String(value));
+const isoDate = (value) => {
+  if (!value) return true;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+};
 const booleanValue = (value) => String(value).toLowerCase() === 'true';
 
 const audit = (insertarAudit, queryable, req, action, entity, entityId, detail) => insertarAudit(queryable, {
@@ -83,7 +92,9 @@ const getOrCreateFile = async (client, studentId, userId) => {
 
 const requireDocument = async (queryable, documentId, { lock = false } = {}) => {
   const result = await queryable.query(`
-    SELECT d.*, e.id_alumno
+    SELECT d.*,
+           CASE WHEN d.estado NOT IN ('ARCHIVADO', 'VENCIDO') AND d.vence_en < CURRENT_DATE THEN 'VENCIDO' ELSE d.estado END AS estado_efectivo,
+           e.id_alumno
     FROM documentos_expediente d
     JOIN expedientes_documentales e ON e.id_expediente = d.id_expediente
     WHERE d.id_documento_expediente = $1
@@ -174,7 +185,10 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
           WHERE ($1 = '' OR d.titulo ILIKE '%' || $1 || '%' OR trim(concat_ws(' ', a.nombres, a.paterno, a.materno)) ILIKE '%' || $1 || '%')
             AND ($2::varchar IS NULL OR d.categoria = $2)
             AND ($3::varchar IS NULL OR CASE WHEN d.estado NOT IN ('ARCHIVADO', 'VENCIDO') AND d.vence_en < CURRENT_DATE THEN 'VENCIDO' ELSE d.estado END = $3)
-            AND ($4::boolean = false OR d.vence_en <= CURRENT_DATE + 30)
+            AND ($4::boolean = false OR (
+              d.estado <> 'ARCHIVADO'
+              AND d.vence_en BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+            ))
         )
         SELECT items.*, COUNT(*) OVER()::int AS total
         FROM items
@@ -199,7 +213,10 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
     try {
       const student = await requireStudent(pool, studentId);
       const file = await pool.query('SELECT * FROM expedientes_documentales WHERE id_alumno = $1', [studentId]);
-      if (!file.rowCount) return res.json({ student, file: null, documents: [] });
+      if (!file.rowCount) {
+        await audit(insertarAudit, pool, req, 'CONSULTAR_EXPEDIENTE_DOCUMENTAL', 'alumno', studentId, { documentos: 0 });
+        return res.json({ student, file: null, documents: [] });
+      }
       const documents = await pool.query(`
         SELECT d.*,
                COALESCE(NULLIF(trim(u.nombre), ''), u.correo, 'Sin responsable') AS responsable_nombre,
@@ -213,6 +230,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
         WHERE d.id_expediente = $1
         ORDER BY d.estado = 'ARCHIVADO', d.actualizado_en DESC
       `, [file.rows[0].id_expediente]);
+      await audit(insertarAudit, pool, req, 'CONSULTAR_EXPEDIENTE_DOCUMENTAL', 'alumno', studentId, { documentos: documents.rows.length });
       res.json({ student, file: file.rows[0], documents: documents.rows });
     } catch (error) {
       safeErrorResponse(res, error, 'No fue posible cargar el expediente.');
@@ -243,6 +261,7 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
           ORDER BY v.numero_version DESC
         `, [documentId])
       ]);
+      await audit(insertarAudit, pool, req, 'CONSULTAR_DOCUMENTO_ESTUDIANTE', 'documento_expediente', documentId, { versiones: versions.rows.length });
       res.json({ document, student, versions: versions.rows });
     } catch (error) {
       safeErrorResponse(res, error, 'No fue posible cargar la ficha documental.');
@@ -501,18 +520,38 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
   router.post('/versiones/:versionId/ocr', verifyPermission('documents.ocr'), async (req, res) => {
     const versionId = positiveInteger(req.params.versionId);
     if (!versionId) return res.status(400).json({ message: 'La versión seleccionada no es válida. Recarga la ficha e inténtalo nuevamente.' });
+    const client = await pool.connect();
+    let version;
     try {
-      const result = await pool.query(`
-        SELECT v.id_version, v.id_documento_expediente, jd.mime_type, jd.nombre_almacenado
+      await client.query('BEGIN');
+      const result = await client.query(`
+        SELECT v.id_version, v.id_documento_expediente, v.ocr_estado, jd.mime_type, jd.nombre_almacenado
         FROM documento_expediente_versiones v
         JOIN justification_documents jd ON jd.id_documento = v.id_documento
         WHERE v.id_version = $1
+        FOR UPDATE OF v
       `, [versionId]);
-      if (!result.rowCount) return res.status(404).json({ message: 'La versión no existe.' });
-      const version = result.rows[0];
+      if (!result.rowCount) {
+        const error = new Error('La versión no existe.');
+        error.statusCode = 404;
+        throw error;
+      }
+      version = result.rows[0];
+      if (!['NO_SOLICITADO', 'ERROR', 'RECHAZADO'].includes(version.ocr_estado)) {
+        const error = new Error(version.ocr_estado === 'PENDIENTE'
+          ? 'El OCR de esta versión ya se está procesando. Espera a que termine antes de intentarlo nuevamente.'
+          : 'Esta versión ya tiene una propuesta OCR pendiente o aprobada. Revísala antes de volver a procesar el archivo.');
+        error.statusCode = 409;
+        throw error;
+      }
       const filePath = resolveDocumentPath(version.nombre_almacenado);
-      if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ message: 'El archivo protegido no está disponible.' });
-      await pool.query("UPDATE documento_expediente_versiones SET ocr_estado = 'PENDIENTE' WHERE id_version = $1", [versionId]);
+      if (!filePath || !fs.existsSync(filePath)) {
+        const error = new Error('El archivo protegido no está disponible.');
+        error.statusCode = 404;
+        throw error;
+      }
+      await client.query("UPDATE documento_expediente_versiones SET ocr_estado = 'PENDIENTE' WHERE id_version = $1", [versionId]);
+      await client.query('COMMIT');
       let proposal;
       try {
         proposal = await recognizeImage({ filePath, mimeType: version.mime_type });
@@ -532,7 +571,10 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
       });
       res.json(proposal);
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       safeErrorResponse(res, error, 'No fue posible ejecutar el OCR local.');
+    } finally {
+      client.release();
     }
   });
 
@@ -583,6 +625,20 @@ const createStudentDocumentsRouter = ({ pool, verifyToken, verifyPermission, ver
         error.statusCode = 404;
         throw error;
       }
+      const existing = await client.query(`
+        SELECT id_firma
+        FROM firmas_documentales
+        WHERE id_version = $1
+          AND tipo = $2
+          AND firmante_usuario_id = $3
+          AND revocada_en IS NULL
+        LIMIT 1
+      `, [versionId, type, req.user.id]);
+      if (existing.rowCount) {
+        const error = new Error('Ya registraste una firma activa de este tipo sobre esta versión. No es necesario firmarla nuevamente.');
+        error.statusCode = 409;
+        throw error;
+      }
       const user = await client.query(`
         SELECT COALESCE(NULLIF(trim(nombre), ''), correo) AS nombre, COALESCE(NULLIF(trim(cargo), ''), rol) AS cargo
         FROM usuarios WHERE id = $1
@@ -616,5 +672,6 @@ module.exports = {
   CATEGORIES,
   SIGNATURE_TYPES,
   STATES,
-  createStudentDocumentsRouter
+  createStudentDocumentsRouter,
+  isoDate
 };

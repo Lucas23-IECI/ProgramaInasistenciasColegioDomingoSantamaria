@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
 import { Activity, AlertTriangle, BarChart3, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Download, FileSpreadsheet, Power, RefreshCw, ShieldCheck, TrendingDown, TrendingUp, Users } from 'lucide-react';
@@ -106,6 +106,17 @@ const DailyChart = ({ data, onOpen }) => {
   );
 };
 
+const AnalyticsErrorState = ({ title, message, onRetry, compact = false }) => (
+  <div className={`analytics-error-state${compact ? ' analytics-error-state--compact' : ''}`} role="alert">
+    <AlertTriangle size={compact ? 20 : 28} aria-hidden="true" />
+    <div>
+      <h2>{title}</h2>
+      <p>{message}</p>
+    </div>
+    <button type="button" onClick={onRetry}><RefreshCw size={16} /> Reintentar</button>
+  </div>
+);
+
 const DistributionBars = ({ data, valueKey = 'atrasos', labelKey, suffix = 'atrasos', onSelect }) => {
   if (!data?.length) return <div className="analytics-empty">Sin datos para mostrar.</div>;
   const max = Math.max(1, ...data.map((item) => Number(item[valueKey])));
@@ -126,15 +137,22 @@ const AnaliticasAdmin = () => {
   const [courses, setCourses] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState('');
   const [institutional, setInstitutional] = useState(null);
+  const [institutionalError, setInstitutionalError] = useState('');
   const [schedules, setSchedules] = useState([]);
+  const [schedulesError, setSchedulesError] = useState('');
   const [executions, setExecutions] = useState({ items: [], pagina: 1, paginas: 1, total: 0 });
+  const [executionsError, setExecutionsError] = useState('');
   const [executionPage, setExecutionPage] = useState(1);
   const [executionBusy, setExecutionBusy] = useState(null);
   const [coursePage, setCoursePage] = useState(1);
   const [showImprovedStudents, setShowImprovedStudents] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleForm, setScheduleForm] = useState({ nombre: 'Resumen institucional', frecuencia: 'SEMANAL', formato: 'PDF', dia_semana: '1', dia_mes: '1', hora: '07:00' });
+  const analyticsRequestRef = useRef(0);
+  const institutionalRequestRef = useRef(0);
+  const executionsRequestRef = useRef(0);
   const canViewInstitutional = hasPermission(user, PERMISSIONS.ANALYTICS_INSTITUTIONAL_VIEW);
   const canExportInstitutional = hasPermission(user, PERMISSIONS.ANALYTICS_INSTITUTIONAL_EXPORT);
   const canManageSchedules = hasPermission(user, PERMISSIONS.ANALYTICS_SCHEDULES_MANAGE);
@@ -147,51 +165,75 @@ const AnaliticasAdmin = () => {
   }, [notify]);
 
   const loadAnalytics = useCallback(async () => {
+    const requestId = ++analyticsRequestRef.current;
     setLoading(true);
+    setAnalyticsError('');
     try {
       const response = await axios.get(`${API_URL}/puntualidad/analitica`, {
         params: activeAnalyticsParams
       });
+      if (requestId !== analyticsRequestRef.current) return;
       setData(response.data);
     } catch (error) {
+      if (requestId !== analyticsRequestRef.current) return;
+      const message = getApiErrorMessage(error, 'No fue posible calcular los indicadores.');
       setData(null);
-      notify(getApiErrorMessage(error, 'No fue posible calcular los indicadores.'), 'error');
+      setAnalyticsError(message);
+      notify(message, 'error');
     } finally {
-      setLoading(false);
+      if (requestId === analyticsRequestRef.current) setLoading(false);
     }
   }, [activeAnalyticsParams, notify]);
 
   useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
 
-  useEffect(() => {
-    if (!canViewInstitutional) { setInstitutional(null); return; }
-    axios.get(`${API_URL}/analitica/institucional`, { params: activeAnalyticsParams })
-      .then((response) => setInstitutional(response.data))
-      .catch((error) => {
-        setInstitutional(null);
-        notify(getApiErrorMessage(error, 'No fue posible cargar la analítica institucional.'), 'error');
-      });
+  const loadInstitutional = useCallback(async () => {
+    if (!canViewInstitutional) { setInstitutional(null); setInstitutionalError(''); return; }
+    const requestId = ++institutionalRequestRef.current;
+    setInstitutionalError('');
+    try {
+      const response = await axios.get(`${API_URL}/analitica/institucional`, { params: activeAnalyticsParams });
+      if (requestId !== institutionalRequestRef.current) return;
+      setInstitutional(response.data);
+    } catch (error) {
+      if (requestId !== institutionalRequestRef.current) return;
+      const message = getApiErrorMessage(error, 'No fue posible cargar la analítica institucional.');
+      setInstitutional(null);
+      setInstitutionalError(message);
+      notify(message, 'error');
+    }
   }, [activeAnalyticsParams, canViewInstitutional, notify]);
 
+  useEffect(() => { loadInstitutional(); }, [loadInstitutional]);
+
   const loadSchedules = useCallback(async () => {
-    if (!canManageSchedules) { setSchedules([]); return; }
+    if (!canManageSchedules) { setSchedules([]); setSchedulesError(''); return; }
+    setSchedulesError('');
     try {
       const response = await axios.get(`${API_URL}/analitica/programaciones`);
       setSchedules(response.data || []);
     } catch (error) {
-      notify(getApiErrorMessage(error, 'No fue posible cargar los reportes automáticos.'), 'error');
+      const message = getApiErrorMessage(error, 'No fue posible cargar los reportes automáticos.');
+      setSchedulesError(message);
+      notify(message, 'error');
     }
   }, [canManageSchedules, notify]);
 
   useEffect(() => { loadSchedules(); }, [loadSchedules]);
 
   const loadExecutions = useCallback(async (page = executionPage) => {
-    if (!canManageSchedules) { setExecutions({ items: [], pagina: 1, paginas: 1, total: 0 }); return; }
+    if (!canManageSchedules) { setExecutions({ items: [], pagina: 1, paginas: 1, total: 0 }); setExecutionsError(''); return; }
+    const requestId = ++executionsRequestRef.current;
+    setExecutionsError('');
     try {
       const response = await axios.get(`${API_URL}/analitica/programaciones/ejecuciones`, { params: { pagina: page, limite: 10 } });
+      if (requestId !== executionsRequestRef.current) return;
       setExecutions(response.data);
     } catch (error) {
-      notify(getApiErrorMessage(error, 'No fue posible cargar el historial de reportes.'), 'error');
+      if (requestId !== executionsRequestRef.current) return;
+      const message = getApiErrorMessage(error, 'No fue posible cargar el historial de reportes.');
+      setExecutionsError(message);
+      notify(message, 'error');
     }
   }, [canManageSchedules, executionPage, notify]);
 
@@ -331,7 +373,7 @@ const AnaliticasAdmin = () => {
           </div>
         </section>
 
-        {loading ? <div className="analytics-loading-v2"><Activity size={24} className="spin" /> Calculando indicadores…</div> : data ? <>
+        {loading ? <div className="analytics-loading-v2"><Activity size={24} className="spin" /> Calculando indicadores…</div> : analyticsError ? <AnalyticsErrorState title="No pudimos calcular las estadísticas" message={analyticsError} onRetry={loadAnalytics} /> : data ? <>
           <section className="analytics-kpi-grid" data-tour="analytics-summary">
             <AnalyticsMetric icon={ShieldCheck} value={summary.puntualidad_registrada === null ? '—' : `${summary.puntualidad_registrada}%`} label="Puntualidad registrada" detail="Sobre ingresos marcados · Ver ingresos" tone="green" onClick={() => openLateRecords({ includeAll: true })} />
             <AnalyticsMetric icon={Users} value={summary.ingresos} label="Ingresos registrados" detail={`${summary.a_tiempo} a tiempo · Ver detalle`} tone="blue" onClick={() => openLateRecords({ includeAll: true })} />
@@ -362,6 +404,7 @@ const AnaliticasAdmin = () => {
             <div className="recurrence-table-wrap"><table className="recurrence-table"><thead><tr><th>Persona</th><th>Curso</th><th>Atrasos</th><th>Graves</th><th>Nivel</th><th>Detalle</th></tr></thead><tbody>{data.recurrentes.map((person, index) => <tr key={person.id_alumno}><td data-label="Persona"><span className="rank-number">{index + 1}</span><strong>{[person.nombres, person.paterno, person.materno].filter(Boolean).join(' ')}</strong></td><td data-label="Curso">{person.curso}</td><td data-label="Atrasos"><strong>{person.atrasos}</strong></td><td data-label="Graves">{person.graves}</td><td data-label="Nivel"><span className="recurrence-level" data-level={person.graves >= 3 ? 'critical' : person.atrasos >= 3 ? 'warning' : 'normal'}>{person.graves >= 3 ? 'Prioritario' : person.atrasos >= 3 ? 'Preventivo' : 'Observación'}</span></td><td data-label="Detalle"><button type="button" className="analytics-reset" onClick={() => openLateRecords({ studentId: person.id_alumno })}>Ver registros</button></td></tr>)}</tbody></table>{!data.recurrentes.length && <div className="analytics-empty">No hay atrasos recurrentes con estos filtros.</div>}</div>
           </section>
 
+          {canViewInstitutional && institutionalError && <section className="institutional-analytics" data-tour="analytics-institutional"><AnalyticsErrorState title="No pudimos cargar la visión institucional" message={institutionalError} onRetry={loadInstitutional} /></section>}
           {institutional && <section className="institutional-analytics" aria-labelledby="institutional-title" data-tour="analytics-institutional">
             <header className="institutional-analytics__header">
               <div><span className="section-kicker">Visión institucional</span><h2 id="institutional-title">Analítica explicable</h2><p>Indicadores calculados con reglas visibles, sin puntajes opacos.</p></div>
@@ -394,26 +437,26 @@ const AnaliticasAdmin = () => {
                 <button type="submit" disabled={scheduleSaving}>{scheduleSaving ? <RefreshCw size={17} className="spin" /> : <CalendarClock size={17} />} Programar</button>
               </form>
               <div className="analytics-schedules__list">
-                {schedules.map((schedule) => <div key={schedule.id_reporte} className="analytics-schedule" data-active={schedule.activo}>
+                {schedulesError ? <AnalyticsErrorState compact title="No pudimos cargar los reportes programados" message={schedulesError} onRetry={loadSchedules} /> : schedules.map((schedule) => <div key={schedule.id_reporte} className="analytics-schedule" data-active={schedule.activo}>
                   <div><strong>{schedule.nombre}</strong><span>{schedule.frecuencia === 'SEMANAL' ? `Semanal · día ${schedule.dia_semana}` : `Mensual · día ${schedule.dia_mes}`} · {String(schedule.hora).slice(0, 5)} · {schedule.formato}</span><small>{schedule.ultima_ejecucion ? `Última ejecución: ${formatExecutionDate(schedule.ultima_ejecucion)}` : 'Aún no registra ejecuciones'}</small></div>
                   <span className="analytics-schedule__status">{schedule.activo ? 'Activo' : 'Pausado'}</span>
                   <button type="button" onClick={() => toggleSchedule(schedule)} aria-label={`${schedule.activo ? 'Pausar' : 'Reactivar'} ${schedule.nombre}`}><Power size={16} /> {schedule.activo ? 'Pausar' : 'Reactivar'}</button>
                 </div>)}
-                {!schedules.length && <div className="analytics-empty">Todavía no hay reportes automáticos programados.</div>}
+                {!schedulesError && !schedules.length && <div className="analytics-empty">Todavía no hay reportes automáticos programados.</div>}
               </div>
               <header><FileSpreadsheet size={22} /><div><span className="section-kicker">Trazabilidad</span><h2>Historial de ejecuciones</h2><p>Cada intento conserva período, resultado y archivo generado. Los fallos muestran una causa segura y pueden reintentarse.</p></div></header>
               <div className="analytics-schedules__list">
-                {executions.items.map((execution) => <div key={execution.id_ejecucion} className="analytics-schedule" data-active={execution.estado === 'GENERADO'}>
+                {executionsError ? <AnalyticsErrorState compact title="No pudimos cargar el historial" message={executionsError} onRetry={() => loadExecutions(executionPage)} /> : executions.items.map((execution) => <div key={execution.id_ejecucion} className="analytics-schedule" data-active={execution.estado === 'GENERADO'}>
                   <div><strong>{execution.nombre_reporte}</strong><span>{execution.periodo_desde} a {execution.periodo_hasta} · {execution.formato}{execution.reintento_de ? ` · Reintento de #${execution.reintento_de}` : ''}</span><small>{formatExecutionDate(execution.generado_en)}{execution.error_publico ? ` · ${execution.error_publico}` : execution.archivo_bytes ? ` · ${Math.max(1, Math.round(execution.archivo_bytes / 1024))} KB` : ''}</small></div>
                   <span className="analytics-schedule__status">{execution.estado === 'GENERADO' ? execution.archivo_bytes ? 'Generado' : 'Sin archivo' : 'Fallido'}</span>
                   {execution.estado === 'GENERADO' ? execution.archivo_bytes ? <button type="button" onClick={() => downloadExecution(execution)} disabled={executionBusy === execution.id_ejecucion}><Download size={16} /> Descargar</button> : <span className="analytics-schedule__legacy">Ejecución anterior a esta mejora</span> : <button type="button" onClick={() => retryExecution(execution)} disabled={executionBusy === execution.id_ejecucion}><RefreshCw size={16} className={executionBusy === execution.id_ejecucion ? 'spin' : ''} /> Reintentar</button>}
                 </div>)}
-                {!executions.items.length && <div className="analytics-empty">Aún no existen ejecuciones registradas.</div>}
+                {!executionsError && !executions.items.length && <div className="analytics-empty">Aún no existen ejecuciones registradas.</div>}
               </div>
-              {executions.paginas > 1 && <div className="analytics-panel__pagination"><button type="button" disabled={executionPage <= 1} onClick={() => setExecutionPage((current) => current - 1)}><ChevronLeft size={17} /> Anterior</button><span>Página {executions.pagina} de {executions.paginas}</span><button type="button" disabled={executionPage >= executions.paginas} onClick={() => setExecutionPage((current) => current + 1)}>Siguiente <ChevronRight size={17} /></button></div>}
+              {!executionsError && executions.paginas > 1 && <div className="analytics-panel__pagination"><button type="button" disabled={executionPage <= 1} onClick={() => setExecutionPage((current) => current - 1)}><ChevronLeft size={17} /> Anterior</button><span>Página {executions.pagina} de {executions.paginas}</span><button type="button" disabled={executionPage >= executions.paginas} onClick={() => setExecutionPage((current) => current + 1)}>Siguiente <ChevronRight size={17} /></button></div>}
             </article>}
           </section>}
-        </> : <div className="analytics-empty analytics-empty--page">No fue posible mostrar el análisis.</div>}
+        </> : <AnalyticsErrorState title="No pudimos mostrar las estadísticas" message="La respuesta no contenía indicadores válidos. Intenta nuevamente." onRetry={loadAnalytics} />}
       </div>
     </div>
   );

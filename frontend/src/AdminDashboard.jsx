@@ -110,6 +110,7 @@ const AdminDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const requestedFrom = searchParams.get('desde') || '';
   const requestedTo = searchParams.get('hasta') || '';
   const requestedCourseId = searchParams.get('curso_id') || '';
@@ -151,6 +152,7 @@ const AdminDashboard = () => {
   const [pendingPage, setPendingPage] = useState(1);
   const [pendingPages, setPendingPages] = useState(1);
   const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingError, setPendingError] = useState('');
   const [pendingRefreshToken, setPendingRefreshToken] = useState(0);
 
   const [reportOpen, setReportOpen] = useState(false);
@@ -167,6 +169,7 @@ const AdminDashboard = () => {
 
   const loadOperationalData = useCallback(async ({ quiet = false } = {}) => {
     if (quiet) setRefreshing(true); else setLoading(true);
+    setLoadError('');
     try {
       const recordsRequest = historicalView
         ? axios.get(`${API_URL}/puntualidad/registros`, {
@@ -201,6 +204,7 @@ const AdminDashboard = () => {
       if (historicalView && rowsResponse.data.pagina && rowsResponse.data.pagina !== page) setPage(rowsResponse.data.pagina);
       setConfig(configResponse.data);
       setCourses(coursesResponse.data || []);
+      setLoadError('');
       setSelectedRow((currentSelection) => {
         if (!currentSelection) return null;
         const updatedSelection = loadedRows.find(
@@ -215,7 +219,9 @@ const AdminDashboard = () => {
         return updatedSelection;
       });
     } catch (error) {
-      notify(getApiErrorMessage(error, 'No fue posible actualizar la operación del día.'), 'error');
+      const message = getApiErrorMessage(error, 'No fue posible actualizar la operación del día.');
+      setLoadError(message);
+      notify(message, 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -225,6 +231,7 @@ const AdminDashboard = () => {
   const loadPendingJustifications = useCallback(async () => {
     if (!canJustify) return;
     setPendingLoading(true);
+    setPendingError('');
     try {
       const response = await axios.get(`${API_URL}/puntualidad/justificaciones-pendientes`, {
         params: {
@@ -239,13 +246,14 @@ const AdminDashboard = () => {
       setPendingRows(response.data.registros || []);
       setPendingTotal(response.data.total || 0);
       setPendingPages(response.data.paginas || 1);
+      setPendingError('');
       if (response.data.pagina && response.data.pagina !== pendingPage) {
         setPendingPage(response.data.pagina);
       }
     } catch (error) {
-      setPendingRows([]);
-      setPendingTotal(0);
-      notify(getApiErrorMessage(error, 'No fue posible cargar las justificaciones pendientes.'), 'error');
+      const message = getApiErrorMessage(error, 'No fue posible cargar las justificaciones pendientes.');
+      setPendingError(message);
+      notify(message, 'error');
     } finally {
       setPendingLoading(false);
     }
@@ -457,7 +465,8 @@ const AdminDashboard = () => {
       const records = response.data.registros || [];
       if (!records.length) return notify('No existen atrasos en el período y alcance seleccionados.', 'info');
 
-      const XLSX = await import('xlsx');
+      const xlsxModule = await import('xlsx');
+      const XLSX = xlsxModule.default || xlsxModule;
       const rowsForSheet = reportFormat === 'detalle' ? buildDetailedRows(records) : buildSummaryRows(records);
       const title = `REPORTE DE ATRASOS · ${period.from} A ${period.to}`;
       const worksheet = XLSX.utils.aoa_to_sheet([[title], [], ...rowsForSheet]);
@@ -516,7 +525,9 @@ const AdminDashboard = () => {
           </div>
         </section>
 
-        {loading ? <div className="punctuality-loading">Preparando la jornada…</div> : (
+        {loading ? <div className="punctuality-loading">Preparando la jornada…</div> : loadError ? (
+          <div className="operation-load-error" role="alert"><AlertTriangle size={28} /><div><h2>No pudimos confirmar la operación de puntualidad</h2><p>{loadError}</p></div><button type="button" onClick={() => loadOperationalData()}><RotateCcw size={17} /> Reintentar</button></div>
+        ) : (
           <section className="punctuality-metrics" aria-label="Resumen operativo">
             <Metric icon={Users} value={summary?.matricula_activa ?? 0} label="Matrícula activa" tone="slate" note="Dato de referencia" />
             <Metric icon={CalendarClock} value={summary?.ingresos_registrados ?? 0} label="Ingresos registrados" tone="blue" />
@@ -543,7 +554,7 @@ const AdminDashboard = () => {
             <label><span>Control horario</span><AppSelect ariaLabel="Filtrar por control horario" value={controlFilter} onChange={setControlFilter} options={[{ value: '', label: 'Todos los controles' }, { value: 'sin_control', label: 'Sin control asociado' }, ...(config?.controles || []).filter((control) => control.activo).map((control) => ({ value: String(control.id), label: control.nombre }))]} /></label>
           </div>
 
-          <div className="operation-table-wrap">
+          {loadError ? <div className="operation-load-error operation-load-error--compact" role="alert"><AlertTriangle size={24} /><div><h3>No pudimos cargar los registros</h3><p>{loadError}</p></div><button type="button" onClick={() => loadOperationalData()}><RotateCcw size={17} /> Reintentar</button></div> : <div className="operation-table-wrap">
             <table className="operation-table">
               <thead><tr><th>Persona</th><th>Curso</th>{historicalView && <th>Fecha</th>}<th>Control</th><th>Hora</th><th>Clasificación</th><th>Respaldo</th><th><span className="sr-only">Acciones</span></th></tr></thead>
               <tbody>
@@ -562,9 +573,9 @@ const AdminDashboard = () => {
               </tbody>
             </table>
             {!visibleRows.length && <div className="operation-empty"><ShieldCheck size={34} /><strong>No hay registros con estos filtros</strong><span>Prueba otra búsqueda o actualiza la jornada.</span></div>}
-          </div>
+          </div>}
 
-          {totalPages > 1 && <div className="operation-pagination"><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {page} de {totalPages}</span><button type="button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
+          {!loadError && totalPages > 1 && <div className="operation-pagination"><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {page} de {totalPages}</span><button type="button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
         </section>
 
         {canJustify && <section className="pending-justifications" data-tour="pending-justifications">
@@ -602,7 +613,7 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-          <div className="operation-table-wrap">
+          {pendingError ? <div className="operation-load-error operation-load-error--compact" role="alert"><AlertTriangle size={24} /><div><h3>No pudimos cargar las justificaciones pendientes</h3><p>{pendingError}</p></div><button type="button" onClick={loadPendingJustifications}><RotateCcw size={17} /> Reintentar</button></div> : <div className="operation-table-wrap">
             <table className="operation-table pending-justifications__table">
               <thead><tr><th>Estudiante</th><th>Curso</th><th>Fecha del atraso</th><th>Hora</th><th>Clasificación</th><th>Control</th><th>Acción requerida</th></tr></thead>
               <tbody>
@@ -620,9 +631,9 @@ const AdminDashboard = () => {
               </tbody>
             </table>
             {!pendingRows.length && <div className="operation-empty">{pendingLoading ? <><RotateCcw size={30} className="spin" /><strong>Buscando atrasos pendientes…</strong></> : <><ShieldCheck size={34} /><strong>No hay atrasos pendientes con estos filtros</strong><span>Amplía el período o revisa otro curso o estudiante.</span></>}</div>}
-          </div>
+          </div>}
 
-          {pendingPages > 1 && <div className="operation-pagination"><button type="button" disabled={pendingPage === 1 || pendingLoading} onClick={() => setPendingPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {pendingPage} de {pendingPages}</span><button type="button" disabled={pendingPage === pendingPages || pendingLoading} onClick={() => setPendingPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
+          {!pendingError && pendingPages > 1 && <div className="operation-pagination"><button type="button" disabled={pendingPage === 1 || pendingLoading} onClick={() => setPendingPage((current) => current - 1)}><ChevronLeft size={18} /> Anterior</button><span>Página {pendingPage} de {pendingPages}</span><button type="button" disabled={pendingPage === pendingPages || pendingLoading} onClick={() => setPendingPage((current) => current + 1)}>Siguiente <ChevronRight size={18} /></button></div>}
         </section>}
 
         {canReport && <section className="report-section-v2" data-tour="report-builder">

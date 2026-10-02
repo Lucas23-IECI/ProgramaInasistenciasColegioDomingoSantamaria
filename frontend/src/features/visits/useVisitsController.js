@@ -61,7 +61,16 @@ const navigate = useNavigate();
   const requestedTo = new URLSearchParams(window.location.search).get('hasta') || '';
   const requestedMotive = new URLSearchParams(window.location.search).get('motivo') || '';
   const focusHandledRef = useRef(false);
-  const [tab, setTab] = useState(requestedTab || initialTab);
+  const [tab, setTabState] = useState(requestedTab || initialTab);
+  const setTab = useCallback((nextTab) => {
+    setTabState(nextTab);
+    if (!requestedVisitId && !requestedWithdrawalId) return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete('visita_id');
+    params.delete('retiro_id');
+    params.set('tab', nextTab);
+    navigate(`/admin/visitas?${params.toString()}`, { replace: true });
+  }, [navigate, requestedVisitId, requestedWithdrawalId]);
   const [catalogs, setCatalogs] = useState({
     motivos: [],
     destinos: [],
@@ -73,6 +82,7 @@ const navigate = useNavigate();
   const [withdrawals, setWithdrawals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [visitForm, setVisitForm] = useState(emptyVisit);
   const [withdrawalForm, setWithdrawalForm] = useState(emptyWithdrawal);
   const [visitorMatches, setVisitorMatches] = useState([]);
@@ -105,6 +115,7 @@ const navigate = useNavigate();
   const fetchData = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
     else setRefreshing(true);
+    setLoadError('');
     try {
       const requests = [
         axios.get(`${API_URL}/visitas/catalogos`, requestConfig),
@@ -130,8 +141,11 @@ const navigate = useNavigate();
       setSummary(responses[1].data);
       if (visitIndex >= 0) setVisits(responses[visitIndex].data.rows || []);
       if (withdrawalIndex >= 0) setWithdrawals(responses[withdrawalIndex].data || []);
+      setLoadError('');
     } catch (error) {
-      notify(getApiErrorMessage(error, 'No fue posible cargar el módulo de visitas.'), 'error');
+      const message = getApiErrorMessage(error, 'No fue posible cargar el módulo de visitas.');
+      setLoadError(message);
+      notify(message, 'error');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -143,7 +157,7 @@ const navigate = useNavigate();
   useEffect(() => {
     if (loading || focusHandledRef.current || (!requestedVisitId && !requestedWithdrawalId)) return;
     const targetId = requestedVisitId ? `visita-${requestedVisitId}` : `retiro-${requestedWithdrawalId}`;
-    setTab(requestedVisitId ? 'historial' : 'retiros');
+    setTabState(requestedVisitId ? 'historial' : 'retiros');
     focusHandledRef.current = true;
     requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -490,6 +504,7 @@ const navigate = useNavigate();
     setLoading,
     refreshing,
     setRefreshing,
+    loadError,
     visitForm,
     setVisitForm,
     withdrawalForm,

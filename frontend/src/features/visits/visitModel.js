@@ -35,7 +35,7 @@ export const emptyAuthorization = {
   vigente_hasta: ''
 };
 
-export const isoDate = (date) => date.toISOString().slice(0, 10);
+export const isoDate = (date) => localDateInputValue(date);
 export const todayIso = () => isoDate(new Date());
 export const daysAgoIso = (days) => {
   const date = new Date();
@@ -66,3 +66,4 @@ export const stateLabel = (state) => ({
 }[state] || state);
 
 export const requestConfig = { withCredentials: true };
+import { localDateInputValue } from '../../utils/dateInput.js';

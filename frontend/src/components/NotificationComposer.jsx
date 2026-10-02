@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Search } from 'lucide-react';
+import { Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react';
 import { useFeedback } from '../context/FeedbackContext';
 import { getApiErrorMessage } from '../utils/apiError';
 
@@ -8,6 +8,12 @@ const PRIORITIES = [
   { value: 'NORMAL', label: 'Normal', description: 'Información habitual.' },
   { value: 'IMPORTANTE', label: 'Importante', description: 'Requiere atención.' },
   { value: 'URGENTE', label: 'Urgente', description: 'Debe revisarse pronto.' }
+];
+
+const AUDIENCE_VIEWS = [
+  { value: 'personas', label: 'Personas', icon: UserRound },
+  { value: 'perfiles', label: 'Perfiles', icon: ShieldCheck },
+  { value: 'grupos', label: 'Equipos', icon: UsersRound }
 ];
 
 const NotificationComposer = ({
@@ -20,13 +26,16 @@ const NotificationComposer = ({
   initialLink = ''
 }) => {
   const { notify } = useFeedback();
-  const [directory, setDirectory] = useState([]);
+  const [audiences, setAudiences] = useState({ personas: [], perfiles: [], grupos: [] });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [directoryAttempt, setDirectoryAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState(() => [...new Set(initialRecipients.map(Number).filter(Number.isSafeInteger))]);
+  const [audienceView, setAudienceView] = useState('personas');
+  const [selectedPeople, setSelectedPeople] = useState(() => [...new Set(initialRecipients.map(Number).filter(Number.isSafeInteger))]);
+  const [selectedProfiles, setSelectedProfiles] = useState([]);
+  const [selectedGroups, setSelectedGroups] = useState([]);
   const [title, setTitle] = useState(initialTitle);
   const [detail, setDetail] = useState(initialDetail);
   const [priority, setPriority] = useState(initialPriority);
@@ -36,8 +45,15 @@ const NotificationComposer = ({
     let active = true;
     setLoading(true);
     setLoadError('');
-    axios.get('/api/notificaciones/directorio')
-      .then((response) => { if (active) setDirectory(response.data || []); })
+    axios.get('/api/notificaciones/audiencias')
+      .then((response) => {
+        if (!active) return;
+        setAudiences({
+          personas: response.data?.personas || [],
+          perfiles: response.data?.perfiles || [],
+          grupos: response.data?.grupos || []
+        });
+      })
       .catch((error) => {
         if (!active) return;
         const message = getApiErrorMessage(error, 'No fue posible cargar el directorio institucional.');
@@ -56,40 +72,51 @@ const NotificationComposer = ({
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return directory;
-    return directory.filter((person) => (
-      `${person.nombre} ${person.cargo} ${person.perfil_nombre || ''} ${person.correo}`
+    const options = audiences[audienceView] || [];
+    if (!normalized) return options;
+    return options.filter((item) => (
+      `${item.nombre} ${item.cargo || ''} ${item.perfil_nombre || ''} ${item.correo || ''} ${item.descripcion || ''}`
         .toLowerCase()
         .includes(normalized)
     ));
-  }, [directory, query]);
+  }, [audiences, audienceView, query]);
 
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const allFilteredSelected = filtered.length > 0 && filtered.every((person) => selectedSet.has(person.id));
+  const activeSelection = audienceView === 'personas'
+    ? selectedPeople
+    : audienceView === 'perfiles' ? selectedProfiles : selectedGroups;
+  const setActiveSelection = audienceView === 'personas'
+    ? setSelectedPeople
+    : audienceView === 'perfiles' ? setSelectedProfiles : setSelectedGroups;
+  const optionId = (item) => audienceView === 'personas' ? Number(item.id) : item.codigo;
+  const selectedSet = useMemo(() => new Set(activeSelection), [activeSelection]);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((item) => selectedSet.has(optionId(item)));
+  const selectionCount = selectedPeople.length + selectedProfiles.length + selectedGroups.length;
 
-  const togglePerson = (personId) => {
-    setSelected((current) => current.includes(personId)
-      ? current.filter((id) => id !== personId)
-      : [...current, personId]);
+  const toggleAudience = (itemId) => {
+    setActiveSelection((current) => current.includes(itemId)
+      ? current.filter((id) => id !== itemId)
+      : [...current, itemId]);
   };
 
   const toggleFiltered = () => {
-    const filteredIds = filtered.map((person) => person.id);
-    setSelected((current) => allFilteredSelected
-      ? current.filter((personId) => !filteredIds.includes(personId))
+    const filteredIds = filtered.map(optionId);
+    setActiveSelection((current) => allFilteredSelected
+      ? current.filter((itemId) => !filteredIds.includes(itemId))
       : [...new Set([...current, ...filteredIds])]);
   };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (selected.length === 0 || saving) return;
+    if (selectionCount === 0 || saving) return;
     setSaving(true);
     try {
       const response = await axios.post('/api/notificaciones/envios', {
         titulo: title,
         detalle: detail,
         prioridad: priority,
-        destinatarios: selected,
+        destinatarios: selectedPeople,
+        perfiles: selectedProfiles,
+        grupos: selectedGroups,
         enlace: link || null
       });
       const count = response.data.destinatarios_total;
@@ -182,15 +209,22 @@ const NotificationComposer = ({
             <div className="notification-composer__recipients-header">
               <div>
                 <strong>Destinatarios</strong>
-                <span>{selected.length} seleccionada{selected.length === 1 ? '' : 's'}</span>
+                <span>{selectionCount} {selectionCount === 1 ? 'selección' : 'selecciones'}</span>
               </div>
               <button type="button" onClick={toggleFiltered} disabled={filtered.length === 0}>
                 {allFilteredSelected ? 'Quitar visibles' : 'Seleccionar visibles'}
               </button>
             </div>
+            <div className="notification-audience-tabs" role="tablist" aria-label="Tipo de destinatario">
+              {AUDIENCE_VIEWS.map((view) => {
+                const Icon = view.icon;
+                const count = view.value === 'personas' ? selectedPeople.length : view.value === 'perfiles' ? selectedProfiles.length : selectedGroups.length;
+                return <button key={view.value} type="button" role="tab" aria-selected={audienceView === view.value} className={audienceView === view.value ? 'is-active' : ''} onClick={() => { setAudienceView(view.value); setQuery(''); }}><Icon size={15} /> {view.label}{count > 0 ? ` · ${count}` : ''}</button>;
+              })}
+            </div>
             <label className="notification-directory-search">
               <Search size={17} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, cargo o perfil" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={audienceView === 'personas' ? 'Buscar por nombre, cargo o perfil' : audienceView === 'perfiles' ? 'Buscar perfil de acceso' : 'Buscar equipo institucional'} />
             </label>
             <div className="notification-directory">
               {loading ? <p>Cargando directorio…</p> : loadError ? (
@@ -199,28 +233,33 @@ const NotificationComposer = ({
                   <button type="button" onClick={() => setDirectoryAttempt((current) => current + 1)}>Reintentar</button>
                 </div>
               ) : filtered.length === 0 ? (
-                <p>No hay personas que coincidan con la búsqueda.</p>
-              ) : filtered.map((person) => (
-                <label key={person.id}>
+                <p>No hay {audienceView} que coincidan con la búsqueda.</p>
+              ) : filtered.map((item) => {
+                const itemId = optionId(item);
+                const detailText = audienceView === 'personas'
+                  ? `${item.cargo}${item.perfil_nombre ? ` · ${item.perfil_nombre}` : ''}`
+                  : `${item.cuentas_activas} ${Number(item.cuentas_activas) === 1 ? 'cuenta activa' : 'cuentas activas'}${item.descripcion ? ` · ${item.descripcion}` : ''}`;
+                return <label key={`${audienceView}-${itemId}`}>
                   <input
                     type="checkbox"
-                    checked={selectedSet.has(person.id)}
-                    onChange={() => togglePerson(person.id)}
+                    checked={selectedSet.has(itemId)}
+                    onChange={() => toggleAudience(itemId)}
                   />
                   <span>
-                    <strong>{person.nombre}</strong>
-                    <small>{person.cargo}{person.perfil_nombre ? ` · ${person.perfil_nombre}` : ''}</small>
+                    <strong>{item.nombre}</strong>
+                    <small>{detailText}</small>
                   </span>
-                </label>
-              ))}
+                </label>;
+              })}
             </div>
+            <small className="notification-audience-note">Las personas repetidas entre perfiles y equipos reciben un solo aviso. El total exacto se confirma antes de entregar.</small>
           </section>
         </div>
 
         <footer>
           <span>El envío quedará registrado en auditoría.</span>
           <button type="button" className="app-action app-action--secondary" onClick={onClose}>Cancelar</button>
-          <button className="app-action app-action--primary" disabled={saving || selected.length === 0 || title.trim().length < 4 || detail.trim().length < 5}>
+          <button className="app-action app-action--primary" disabled={saving || selectionCount === 0 || title.trim().length < 4 || detail.trim().length < 5}>
             {saving ? 'Enviando…' : 'Enviar notificación'}
           </button>
         </footer>

@@ -29,6 +29,7 @@ import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from './permissions';
 import { buildContextChatUrl } from './utils/chatContext';
+import { localDateInputValue } from './utils/dateInput';
 
 const API = '/api/convivencia';
 
@@ -75,13 +76,17 @@ const formatDate = (value) => value
 const formatDateTime = (value) => value
   ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   : 'Sin fecha';
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDateInputValue();
 const toInputDateTime = () => {
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
   return now.toISOString().slice(0, 16);
 };
 const errorMessage = getApiErrorMessage;
+const updateFormValue = (setter, field) => (event) => {
+  const { value } = event.currentTarget;
+  setter((current) => ({ ...current, [field]: value }));
+};
 
 const Modal = ({ title, eyebrow, onClose, children, actions, wide = false }) => {
   const closeButtonRef = useRef(null);
@@ -285,6 +290,7 @@ const CoexistenceList = () => {
     };
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [participants, setParticipants] = useState([]);
@@ -292,21 +298,31 @@ const CoexistenceList = () => {
     titulo: '', categoria: 'CONVIVENCIA', prioridad: 'MEDIA', fecha_situacion: today(),
     proxima_revision: '', descripcion_inicial: ''
   });
+  const loadSequenceRef = useRef(0);
 
   const load = useCallback(async () => {
+    const sequence = loadSequenceRef.current + 1;
+    loadSequenceRef.current = sequence;
     setLoading(true);
+    setLoadError('');
     try {
       const params = { ...filters, q: filters.q.trim() };
       const [summaryResponse, casesResponse] = await Promise.all([
         axios.get(`${API}/resumen`),
         axios.get(`${API}/casos`, { params })
       ]);
+      if (sequence !== loadSequenceRef.current) return;
       setSummary(summaryResponse.data);
       setData(casesResponse.data);
     } catch (error) {
-      notify(errorMessage(error, 'No fue posible cargar Convivencia Escolar.'), 'error');
+      if (sequence !== loadSequenceRef.current) return;
+      const message = errorMessage(error, 'No fue posible cargar Convivencia Escolar.');
+      setSummary(null);
+      setData({ items: [], total: 0, pagina: 1, limite: 20 });
+      setLoadError(message);
+      notify(message, 'error');
     } finally {
-      setLoading(false);
+      if (sequence === loadSequenceRef.current) setLoading(false);
     }
   }, [filters, notify]);
 
@@ -378,6 +394,8 @@ const CoexistenceList = () => {
 
         {loading ? (
           <div className="coex-empty"><RefreshCw className="coex-spin" size={30} /><h3>Cargando casos protegidos…</h3></div>
+        ) : loadError ? (
+          <div className="coex-empty coex-empty--error" role="alert"><ShieldAlert size={34} /><h3>No pudimos cargar los casos</h3><p>{loadError}</p><button type="button" className="coex-button coex-button--secondary" onClick={load}><RefreshCw size={18} /> Reintentar</button></div>
         ) : data.items.length === 0 ? (
           <div className="coex-empty"><ShieldCheck size={34} /><h3>No hay casos con estos filtros</h3><p>Ajusta la búsqueda o registra una nueva situación si corresponde.</p></div>
         ) : (
@@ -416,12 +434,12 @@ const CoexistenceList = () => {
         >
           <div className="coex-privacy-notice"><ShieldAlert size={22} /><div><strong>Registra solo antecedentes pertinentes</strong><p>El acceso queda limitado a cuentas autorizadas. La auditoría registra la operación sin duplicar el relato sensible.</p></div></div>
           <div className="coex-form-grid coex-form-grid--two">
-            <label className="coex-field coex-field--span-2"><span>Título breve del caso</span><input value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} maxLength={180} /></label>
-            <label className="coex-field"><span>Categoría</span><select value={form.categoria} onChange={(event) => setForm({ ...form, categoria: event.target.value })}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="coex-field"><span>Prioridad de gestión</span><select value={form.prioridad} onChange={(event) => setForm({ ...form, prioridad: event.target.value })}>{PRIORITIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="coex-field"><span>Fecha de la situación</span><input type="date" value={form.fecha_situacion} onChange={(event) => setForm({ ...form, fecha_situacion: event.target.value })} /></label>
-            <label className="coex-field"><span>Primera fecha de revisión</span><input type="date" value={form.proxima_revision} onChange={(event) => setForm({ ...form, proxima_revision: event.target.value })} min={form.fecha_situacion} /></label>
-            <label className="coex-field coex-field--span-2"><span>Descripción inicial</span><textarea rows="5" value={form.descripcion_inicial} onChange={(event) => setForm({ ...form, descripcion_inicial: event.target.value })} placeholder="Describe hechos observables, contexto y antecedentes necesarios para iniciar la gestión." /></label>
+            <label className="coex-field coex-field--span-2"><span>Título breve del caso</span><input value={form.titulo} onChange={updateFormValue(setForm, 'titulo')} maxLength={180} /></label>
+            <label className="coex-field"><span>Categoría</span><select value={form.categoria} onChange={updateFormValue(setForm, 'categoria')}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="coex-field"><span>Prioridad de gestión</span><select value={form.prioridad} onChange={updateFormValue(setForm, 'prioridad')}>{PRIORITIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="coex-field"><span>Fecha de la situación</span><input type="date" value={form.fecha_situacion} onChange={updateFormValue(setForm, 'fecha_situacion')} /></label>
+            <label className="coex-field"><span>Primera fecha de revisión</span><input type="date" value={form.proxima_revision} onChange={updateFormValue(setForm, 'proxima_revision')} min={form.fecha_situacion} /></label>
+            <label className="coex-field coex-field--span-2"><span>Descripción inicial</span><textarea rows="5" value={form.descripcion_inicial} onChange={updateFormValue(setForm, 'descripcion_inicial')} placeholder="Describe hechos observables, contexto y antecedentes necesarios para iniciar la gestión." /></label>
           </div>
           <div className="coex-subsection"><h3><Users size={20} /> Personas involucradas</h3><p>Debe existir al menos una persona vinculada antes de abrir el caso.</p><ParticipantComposer value={participants} onChange={setParticipants} /></div>
         </Modal>
@@ -439,6 +457,7 @@ const CoexistenceDetail = ({ caseId }) => {
   const canClose = hasPermission(user, PERMISSIONS.COEXISTENCE_CLOSE);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [dialog, setDialog] = useState(null);
   const [saving, setSaving] = useState(false);
   const [participantDraft, setParticipantDraft] = useState([]);
@@ -449,12 +468,18 @@ const CoexistenceDetail = ({ caseId }) => {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const response = await axios.get(`${API}/casos/${caseId}`);
       setData(response.data);
     } catch (error) {
-      notify(errorMessage(error, 'No fue posible cargar el caso.'), 'error');
+      const message = errorMessage(error, 'No fue posible cargar el caso.');
+      setData(null);
       if (error?.response?.status === 404) navigate('/admin/convivencia');
+      else {
+        setLoadError(message);
+        notify(message, 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -524,6 +549,7 @@ const CoexistenceDetail = ({ caseId }) => {
   };
 
   if (loading) return <main className="coex-page"><div className="coex-empty coex-empty--page"><RefreshCw className="coex-spin" size={34} /><h2>Cargando caso protegido…</h2></div></main>;
+  if (loadError) return <main className="coex-page"><div className="coex-empty coex-empty--page coex-empty--error" role="alert"><ShieldAlert size={38} /><h2>No pudimos abrir el caso</h2><p>{loadError}</p><div className="coex-empty__actions"><button type="button" className="coex-button coex-button--secondary" onClick={() => navigate('/admin/convivencia')}><ArrowLeft size={18} /> Volver a casos</button><button type="button" className="coex-button coex-button--primary" onClick={load}><RefreshCw size={18} /> Reintentar</button></div></div></main>;
   if (!data) return null;
   const item = data.case;
   const closed = item.estado === 'CERRADO' || item.estado === 'ANULADO';
@@ -615,32 +641,32 @@ const CoexistenceDetail = ({ caseId }) => {
       {dialog === 'event' && (
         <Modal wide title="Registrar actuación" eyebrow="Seguimiento del caso" onClose={() => !saving && setDialog(null)} actions={<><button type="button" className="coex-button coex-button--secondary" onClick={() => setDialog(null)}>Cancelar</button><button type="button" className="coex-button coex-button--primary" disabled={saving || eventForm.titulo.trim().length < 3 || eventForm.detalle.trim().length < 5} onClick={saveEvent}>{saving ? 'Guardando…' : 'Registrar actuación'}</button></>}>
           <div className="coex-form-grid coex-form-grid--two">
-            <label className="coex-field"><span>Tipo de actuación</span><select value={eventForm.tipo} onChange={(event) => setEventForm({ ...eventForm, tipo: event.target.value })}>{EVENT_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="coex-field"><span>Fecha y hora</span><input type="datetime-local" value={eventForm.fecha_evento} onChange={(event) => setEventForm({ ...eventForm, fecha_evento: event.target.value })} /></label>
-            <label className="coex-field coex-field--span-2"><span>Título</span><input value={eventForm.titulo} onChange={(event) => setEventForm({ ...eventForm, titulo: event.target.value })} /></label>
-            <label className="coex-field coex-field--span-2"><span>Detalle</span><textarea rows="5" value={eventForm.detalle} onChange={(event) => setEventForm({ ...eventForm, detalle: event.target.value })} /></label>
-            <label className="coex-field"><span>Resultado o compromiso</span><textarea rows="3" value={eventForm.resultado} onChange={(event) => setEventForm({ ...eventForm, resultado: event.target.value })} /></label>
-            <label className="coex-field"><span>Próxima revisión</span><input type="date" value={eventForm.proxima_revision} onChange={(event) => setEventForm({ ...eventForm, proxima_revision: event.target.value })} /></label>
+            <label className="coex-field"><span>Tipo de actuación</span><select value={eventForm.tipo} onChange={updateFormValue(setEventForm, 'tipo')}>{EVENT_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="coex-field"><span>Fecha y hora</span><input type="datetime-local" value={eventForm.fecha_evento} onChange={updateFormValue(setEventForm, 'fecha_evento')} /></label>
+            <label className="coex-field coex-field--span-2"><span>Título</span><input value={eventForm.titulo} onChange={updateFormValue(setEventForm, 'titulo')} /></label>
+            <label className="coex-field coex-field--span-2"><span>Detalle</span><textarea rows="5" value={eventForm.detalle} onChange={updateFormValue(setEventForm, 'detalle')} /></label>
+            <label className="coex-field"><span>Resultado o compromiso</span><textarea rows="3" value={eventForm.resultado} onChange={updateFormValue(setEventForm, 'resultado')} /></label>
+            <label className="coex-field"><span>Próxima revisión</span><input type="date" value={eventForm.proxima_revision} onChange={updateFormValue(setEventForm, 'proxima_revision')} /></label>
           </div>
-          <fieldset className="coex-checklist"><legend>Personas que participaron</legend>{data.participants.map((person) => <label key={person.id_participante}><input type="checkbox" checked={eventForm.participantes.includes(person.id_participante)} onChange={(event) => setEventForm({ ...eventForm, participantes: event.target.checked ? [...eventForm.participantes, person.id_participante] : eventForm.participantes.filter((id) => id !== person.id_participante) })} /><span><strong>{person.nombre}</strong><small>{labelFrom(PARTICIPANT_ROLES, person.rol_en_caso)}</small></span></label>)}</fieldset>
+          <fieldset className="coex-checklist"><legend>Personas que participaron</legend>{data.participants.map((person) => <label key={person.id_participante}><input type="checkbox" checked={eventForm.participantes.includes(person.id_participante)} onChange={(event) => { const checked = event.currentTarget.checked; setEventForm((current) => ({ ...current, participantes: checked ? [...current.participantes, person.id_participante] : current.participantes.filter((id) => id !== person.id_participante) })); }} /><span><strong>{person.nombre}</strong><small>{labelFrom(PARTICIPANT_ROLES, person.rol_en_caso)}</small></span></label>)}</fieldset>
         </Modal>
       )}
       {dialog === 'edit' && caseForm && (
         <Modal title="Editar ficha del caso" eyebrow={item.codigo} onClose={() => !saving && setDialog(null)} actions={<><button type="button" className="coex-button coex-button--secondary" onClick={() => setDialog(null)}>Cancelar</button><button type="button" className="coex-button coex-button--primary" disabled={saving} onClick={saveCase}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>}>
           <div className="coex-form-grid coex-form-grid--two">
-            <label className="coex-field coex-field--span-2"><span>Título</span><input value={caseForm.titulo} onChange={(event) => setCaseForm({ ...caseForm, titulo: event.target.value })} /></label>
-            <label className="coex-field"><span>Categoría</span><select value={caseForm.categoria} onChange={(event) => setCaseForm({ ...caseForm, categoria: event.target.value })}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="coex-field"><span>Prioridad</span><select value={caseForm.prioridad} onChange={(event) => setCaseForm({ ...caseForm, prioridad: event.target.value })}>{PRIORITIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <label className="coex-field"><span>Estado operativo</span><select value={caseForm.estado} onChange={(event) => setCaseForm({ ...caseForm, estado: event.target.value })}><option value="ABIERTO">Abierto</option><option value="EN_SEGUIMIENTO">En seguimiento</option><option value="EN_REVISION">En revisión</option></select></label>
-            <label className="coex-field"><span>Próxima revisión</span><input type="date" value={caseForm.proxima_revision} onChange={(event) => setCaseForm({ ...caseForm, proxima_revision: event.target.value })} /></label>
+            <label className="coex-field coex-field--span-2"><span>Título</span><input value={caseForm.titulo} onChange={updateFormValue(setCaseForm, 'titulo')} /></label>
+            <label className="coex-field"><span>Categoría</span><select value={caseForm.categoria} onChange={updateFormValue(setCaseForm, 'categoria')}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="coex-field"><span>Prioridad</span><select value={caseForm.prioridad} onChange={updateFormValue(setCaseForm, 'prioridad')}>{PRIORITIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <label className="coex-field"><span>Estado operativo</span><select value={caseForm.estado} onChange={updateFormValue(setCaseForm, 'estado')}><option value="ABIERTO">Abierto</option><option value="EN_SEGUIMIENTO">En seguimiento</option><option value="EN_REVISION">En revisión</option></select></label>
+            <label className="coex-field"><span>Próxima revisión</span><input type="date" value={caseForm.proxima_revision} onChange={updateFormValue(setCaseForm, 'proxima_revision')} /></label>
           </div>
         </Modal>
       )}
       {dialog === 'document' && (
         <Modal title="Adjuntar documento protegido" eyebrow="Documentación del caso" onClose={() => !saving && setDialog(null)} actions={<><button type="button" className="coex-button coex-button--secondary" onClick={() => setDialog(null)}>Cancelar</button><button type="button" className="coex-button coex-button--primary" disabled={saving || !documentForm.file} onClick={saveDocument}>{saving ? 'Procesando…' : 'Adjuntar documento'}</button></>}>
-          <div className="coex-file-drop"><FilePlus2 size={30} /><label><strong>{documentForm.file?.name || 'Seleccionar PDF, PNG o JPG'}</strong><span>Máximo 8 MB. El archivo se almacena fuera del acceso público.</span><input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(event) => setDocumentForm({ ...documentForm, file: event.target.files?.[0] || null })} /></label></div>
-          <label className="coex-field"><span>Descripción</span><input value={documentForm.descripcion} onChange={(event) => setDocumentForm({ ...documentForm, descripcion: event.target.value })} placeholder="Ej. acta de entrevista o antecedente recibido" /></label>
-          <label className="coex-field"><span>Vincular a una actuación (opcional)</span><select value={documentForm.id_evento} onChange={(event) => setDocumentForm({ ...documentForm, id_evento: event.target.value })}><option value="">Documento general del caso</option>{data.events.map((event) => <option key={event.id_evento} value={event.id_evento}>{formatDate(event.fecha_evento)} · {event.titulo}</option>)}</select></label>
+          <div className="coex-file-drop"><FilePlus2 size={30} /><label><strong>{documentForm.file?.name || 'Seleccionar PDF, PNG o JPG'}</strong><span>Máximo 8 MB. El archivo se almacena fuera del acceso público.</span><input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(event) => { const file = event.currentTarget.files?.[0] || null; setDocumentForm((current) => ({ ...current, file })); }} /></label></div>
+          <label className="coex-field"><span>Descripción</span><input value={documentForm.descripcion} onChange={updateFormValue(setDocumentForm, 'descripcion')} placeholder="Ej. acta de entrevista o antecedente recibido" /></label>
+          <label className="coex-field"><span>Vincular a una actuación (opcional)</span><select value={documentForm.id_evento} onChange={updateFormValue(setDocumentForm, 'id_evento')}><option value="">Documento general del caso</option>{data.events.map((event) => <option key={event.id_evento} value={event.id_evento}>{formatDate(event.fecha_evento)} · {event.titulo}</option>)}</select></label>
         </Modal>
       )}
       {dialog === 'close' && (

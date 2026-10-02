@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   BarChart3,
   BadgeCheck,
@@ -267,6 +268,7 @@ export function VisitsView(controller) {
     summary,
     visits,
     refreshing,
+    loadError,
     visitForm,
     setVisitForm,
     withdrawalForm,
@@ -363,6 +365,8 @@ export function VisitsView(controller) {
             Actualizar
           </button>
         </ModuleHeader>
+
+        {loadError ? <section className="visits-load-error" role="alert"><AlertTriangle size={30} /><div><h2>No pudimos confirmar el estado de visitas y retiros</h2><p>{loadError}</p><span>Las cifras, listas y formularios permanecen bloqueados hasta recuperar información vigente.</span></div><button type="button" onClick={() => fetchData()}><RefreshCw size={17} /> Reintentar</button></section> : <>
 
         {(requestedFrom || requestedTo || requestedMotive) && (
           <div className="historical-detail-notice">
@@ -1701,6 +1705,7 @@ export function VisitsView(controller) {
             )}
           </section>
         )}
+        </>}
       </main>
 
       <ActionDialog

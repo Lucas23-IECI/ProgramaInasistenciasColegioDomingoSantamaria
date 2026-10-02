@@ -20,7 +20,16 @@ const positiveInteger = (value) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
-const isDate = (value) => !value || /^\d{4}-\d{2}-\d{2}$/.test(String(value));
+const isDate = (value) => {
+  if (!value) return true;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+};
 const isDateTime = (value) => !value || !Number.isNaN(Date.parse(String(value)));
 
 const validateParticipant = (input = {}) => {
@@ -312,6 +321,19 @@ const createCoexistenceRouter = ({
         `, [caseId])
       ]);
       if (!caseResult.rowCount) return res.status(404).json({ message: 'El caso no existe.' });
+      await insertarAudit(pool, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'CONSULTAR_CASO_CONVIVENCIA',
+        entidad: 'convivencia_caso',
+        entidad_id: caseId,
+        detalle: {
+          participantes: participants.rows.length,
+          actuaciones: events.rows.length,
+          documentos: documents.rows.length
+        },
+        ip: getClientIp(req)
+      });
       res.json({
         case: caseResult.rows[0],
         participants: participants.rows,
@@ -709,5 +731,6 @@ module.exports = {
   PARTICIPANT_ROLES,
   PARTICIPANT_TYPES,
   createCoexistenceRouter,
-  validateParticipant
+  validateParticipant,
+  isDate
 };

@@ -9,6 +9,21 @@ const PAGE = { left: 46, right: 46, top: 46, bottom: 50 };
 
 const titleCell = (value) => ({ value, fontWeight: 'bold', backgroundColor: '#15384C', color: '#FFFFFF' });
 const valueCell = (value) => ({ value: value ?? '' });
+const numericCell = (value, format = '#,##0.0') => {
+  if (value === null || value === undefined || value === '') return valueCell('Sin datos');
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? { value: parsed, type: Number, format } : valueCell('Sin datos');
+};
+const percentageCell = (value) => {
+  if (value === null || value === undefined || value === '') return valueCell('Sin datos');
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? { value: parsed / 100, type: Number, format: '0.0%' } : valueCell('Sin datos');
+};
+const metricCell = (key, value) => /(?:tasa|porcentaje)/iu.test(key)
+  ? percentageCell(value)
+  : typeof value === 'number' || /^-?\d+(?:\.\d+)?$/u.test(String(value || ''))
+    ? numericCell(value)
+    : valueCell(value);
 const label = (value) => String(value || '').replaceAll('_', ' ').replace(/\b\w/gu, (character) => character.toUpperCase());
 const number = (value) => value === null || value === undefined || value === '' ? 'Sin datos' : new Intl.NumberFormat('es-CL').format(Number(value));
 const percent = (value) => value === null || value === undefined || value === '' ? 'Sin datos' : `${Number(value).toLocaleString('es-CL', { maximumFractionDigits: 1 })}%`;
@@ -37,23 +52,50 @@ const punctualityScope = (analytics) => {
 const operationScope = (analytics) => analytics.filtros?.operacion_institucional
   || 'Visitas, retiros y Convivencia se agregan para toda la institución dentro del período seleccionado.';
 
-const buildInstitutionalWorkbook = async (analytics) => {
+const buildInstitutionalWorkbookSheets = (analytics) => {
   const scopeRows = [
     [valueCell('Período analizado'), valueCell(`${shortDate(analytics.periodo.from)} al ${shortDate(analytics.periodo.to)}`)],
     [valueCell('Alcance de puntualidad'), valueCell(punctualityScope(analytics))],
     [valueCell('Alcance de operación'), valueCell(operationScope(analytics))]
   ];
-  const summaryRows = Object.entries(analytics.resumen || {}).map(([key, value]) => [valueCell(label(key)), valueCell(value)]);
+  const summaryRows = Object.entries(analytics.resumen || {}).map(([key, value]) => [valueCell(label(key)), metricCell(key, value)]);
   const alerts = (analytics.alertas || []).map((alert) => [valueCell(alert.level), valueCell(alert.title), valueCell(alert.explanation), valueCell(alert.rule)]);
-  const courses = (analytics.comparacion_cursos || []).map((row) => [valueCell(row.curso), valueCell(row.ingresos), valueCell(row.atrasos), valueCell(row.porcentaje_atrasos)]);
+  const courses = (analytics.comparacion_cursos || []).map((row) => [valueCell(row.curso), numericCell(row.ingresos, '#,##0'), numericCell(row.atrasos, '#,##0'), percentageCell(row.porcentaje_atrasos)]);
+  const daily = (analytics.tendencia_diaria || []).map((row) => [valueCell(shortDate(row.fecha)), valueCell(row.ingresos), valueCell(row.atrasos)]);
+  const blocks = (analytics.bloques_horarios || []).map((row) => [valueCell(row.bloque), valueCell(row.hora_limite), numericCell(row.ingresos, '#,##0'), numericCell(row.atrasos, '#,##0'), numericCell(row.promedio_minutos)]);
+  const improved = (analytics.estudiantes_mejoraron || []).map((row) => [valueCell(row.estudiante), valueCell(row.antes), valueCell(row.despues), valueCell(row.reduccion)]);
+  const visitsAndWithdrawals = [
+    ...(analytics.motivos_visita || []).map((row) => [valueCell('Visita'), valueCell(row.motivo), valueCell(row.total), valueCell('')]),
+    ...(analytics.retiros_anticipados || []).map((row) => [valueCell('Retiro'), valueCell(row.motivo), valueCell(row.total), valueCell(row.entregados)])
+  ];
+  const coexistence = analytics.convivencia || {};
+  const interventions = analytics.reincidencia_post_intervencion || {};
+  const contacts = analytics.contactos_apoderados || {};
+  const coexistenceRows = [
+    ...Object.entries(coexistence).map(([key, value]) => [valueCell('Casos de convivencia'), valueCell(label(key)), metricCell(key, value)]),
+    ...Object.entries(interventions).map(([key, value]) => [valueCell('Después de intervención'), valueCell(label(key)), metricCell(key, value)]),
+    ...Object.entries(contacts).map(([key, value]) => [valueCell('Contacto con apoderados'), valueCell(label(key)), metricCell(key, value)])
+  ];
   const workload = (analytics.carga_trabajo || []).map((row) => [valueCell(row.area), valueCell(row.casos), valueCell(row.abiertos), valueCell(row.resueltos)]);
-  return writeExcelFile([
+  const methodology = Object.entries(analytics.metodologia || {}).map(([key, value]) => [valueCell(label(key)), valueCell(value)]);
+  return [
     { sheet: 'Resumen', data: [[titleCell('Métrica'), titleCell('Resultado')], ...scopeRows, ...summaryRows], columns: [{ width: 34 }, { width: 68 }] },
     { sheet: 'Alertas explicadas', data: [[titleCell('Nivel'), titleCell('Alerta'), titleCell('Explicación'), titleCell('Regla')], ...alerts], columns: [{ width: 15 }, { width: 34 }, { width: 70 }, { width: 42 }] },
+    { sheet: 'Evolución diaria', data: [[titleCell('Fecha'), titleCell('Ingresos'), titleCell('Atrasos')], ...daily], columns: [{ width: 22 }, { width: 16 }, { width: 16 }] },
     { sheet: 'Cursos', data: [[titleCell('Curso'), titleCell('Ingresos'), titleCell('Atrasos'), titleCell('% atrasos')], ...courses], columns: [{ width: 28 }, { width: 15 }, { width: 15 }, { width: 18 }] },
-    { sheet: 'Carga por área', data: [[titleCell('Área'), titleCell('Casos'), titleCell('Abiertos'), titleCell('Resueltos')], ...workload], columns: [{ width: 32 }, { width: 14 }, { width: 14 }, { width: 14 }] }
-  ], { fontFamily: 'Arial', fontSize: 10 }).toBuffer();
+    { sheet: 'Bloques horarios', data: [[titleCell('Bloque'), titleCell('Hora límite'), titleCell('Ingresos'), titleCell('Atrasos'), titleCell('Promedio min')], ...blocks], columns: [{ width: 34 }, { width: 18 }, { width: 15 }, { width: 15 }, { width: 18 }] },
+    { sheet: 'Estudiantes mejoraron', data: [[titleCell('Estudiante'), titleCell('Primera mitad'), titleCell('Segunda mitad'), titleCell('Reducción')], ...improved], columns: [{ width: 42 }, { width: 18 }, { width: 18 }, { width: 16 }] },
+    { sheet: 'Visitas y retiros', data: [[titleCell('Tipo'), titleCell('Motivo'), titleCell('Total'), titleCell('Entregados')], ...visitsAndWithdrawals], columns: [{ width: 16 }, { width: 42 }, { width: 15 }, { width: 18 }] },
+    { sheet: 'Convivencia', data: [[titleCell('Indicador'), titleCell('Métrica'), titleCell('Resultado')], ...coexistenceRows], columns: [{ width: 30 }, { width: 34 }, { width: 18 }] },
+    { sheet: 'Carga por área', data: [[titleCell('Área'), titleCell('Casos'), titleCell('Abiertos'), titleCell('Resueltos')], ...workload], columns: [{ width: 32 }, { width: 14 }, { width: 14 }, { width: 14 }] },
+    { sheet: 'Metodología', data: [[titleCell('Indicador'), titleCell('Definición y límites')], ...methodology], columns: [{ width: 34 }, { width: 92 }] }
+  ];
 };
+
+const buildInstitutionalWorkbook = async (analytics) => writeExcelFile(
+  buildInstitutionalWorkbookSheets(analytics),
+  { fontFamily: 'Arial', fontSize: 10 }
+).toBuffer();
 
 const pageWidth = (doc) => doc.page.width - PAGE.left - PAGE.right;
 const pageBottom = (doc) => doc.page.height - PAGE.bottom - 24;
@@ -267,6 +309,23 @@ const buildInstitutionalPdf = (analytics) => new Promise((resolve, reject) => {
     { label: 'Área', width: 260 }, { label: 'Casos', width: 78, align: 'right' }, { label: 'Abiertos', width: 78, align: 'right' }, { label: 'Resueltos', width: pageWidth(doc) - 416, align: 'right' }
   ], (analytics.carga_trabajo || []).map((item) => [item.area, number(item.casos), number(item.abiertos), number(item.resueltos)]));
 
+  sectionTitle(doc, analytics, 'Seguimiento', 'Cambios e intervención', 'Comparaciones descriptivas construidas desde los registros del período. No atribuyen causalidad.');
+  drawTable(doc, analytics, [
+    { label: 'Indicador', width: 260 }, { label: 'Resultado', width: pageWidth(doc) - 260, align: 'right' }
+  ], [
+    ['Estudiantes que redujeron atrasos entre mitades', number((analytics.estudiantes_mejoraron || []).length)],
+    ['Estudiantes evaluados después de una intervención', number(analytics.reincidencia_post_intervencion?.estudiantes_evaluados)],
+    ['Mejoraron después de una intervención', number(analytics.reincidencia_post_intervencion?.mejoraron)],
+    ['Casos con contacto de apoderado', number(analytics.contactos_apoderados?.casos_con_contacto)],
+    ['Casos con contacto que están cerrados', number(analytics.contactos_apoderados?.cerrados)],
+    ['Porcentaje descriptivo de cierre con contacto', percent(analytics.contactos_apoderados?.porcentaje_cierre)]
+  ]);
+
+  sectionTitle(doc, analytics, 'Evolución estudiantil', 'Estudiantes que redujeron atrasos', 'Compara la primera y la segunda mitad del período seleccionado.');
+  drawTable(doc, analytics, [
+    { label: 'Estudiante', width: 290 }, { label: 'Primera mitad', width: 80, align: 'right' }, { label: 'Segunda mitad', width: 80, align: 'right' }, { label: 'Reducción', width: pageWidth(doc) - 450, align: 'right' }
+  ], (analytics.estudiantes_mejoraron || []).map((item) => [item.estudiante, number(item.antes), number(item.despues), number(item.reduccion)]), 'No se observaron reducciones entre mitades con los filtros aplicados.');
+
   sectionTitle(doc, analytics, 'Trazabilidad', 'Metodología y límites');
   Object.entries(analytics.metodologia || {}).forEach(([key, text]) => {
     ensureSpace(doc, analytics, 42);
@@ -294,4 +353,4 @@ const streamInstitutionalPdf = async (res, analytics) => {
   res.end(buffer);
 };
 
-module.exports = { buildInstitutionalWorkbook, buildInstitutionalPdf, streamInstitutionalPdf };
+module.exports = { buildInstitutionalWorkbookSheets, buildInstitutionalWorkbook, buildInstitutionalPdf, streamInstitutionalPdf };

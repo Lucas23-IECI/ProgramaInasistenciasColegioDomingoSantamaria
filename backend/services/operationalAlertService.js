@@ -81,7 +81,14 @@ const activateAlertCycle = async (pool, signal) => {
       actualizada_en = CURRENT_TIMESTAMP,
       datos = EXCLUDED.datos
     RETURNING ciclo
-  `, [signal.key, 'CONVIVENCIA', signal.type, 'convivencia_caso', String(signal.caseId), JSON.stringify(signal.data)]);
+  `, [
+    signal.key,
+    signal.module || 'CONVIVENCIA',
+    signal.type,
+    signal.entityType || 'convivencia_caso',
+    String(signal.entityId ?? signal.caseId),
+    JSON.stringify(signal.data)
+  ]);
   return Number(result.rows[0]?.ciclo || 1);
 };
 
@@ -143,6 +150,7 @@ const runCoexistenceAlerts = async (pool, { realtimeHub } = {}) => {
   const [cases, authorized] = await Promise.all([
     pool.query(`
       SELECT c.id_caso, c.codigo, c.prioridad, c.proxima_revision,
+             (c.proxima_revision IS NOT NULL AND c.proxima_revision <= CURRENT_DATE) AS revision_vencida,
              c.responsable_usuario_id,
              responsable.activo AS responsable_activo,
              responsable.eliminado_en AS responsable_eliminado_en
@@ -178,7 +186,7 @@ const runCoexistenceAlerts = async (pool, { realtimeHub } = {}) => {
   for (const item of cases.rows) {
     const caseId = Number(item.id_caso);
     const code = item.codigo || `Caso ${caseId}`;
-    if (item.proxima_revision) {
+    if (item.revision_vencida === true) {
       const dueDate = dateOnly(item.proxima_revision);
       const responsibleId = Number(item.responsable_usuario_id);
       signals.push({
@@ -233,15 +241,158 @@ const runCoexistenceAlerts = async (pool, { realtimeHub } = {}) => {
   return { notified, signals: signals.length };
 };
 
+const closeResolvedOperationAlerts = async (pool, activeKeys) => {
+  await pool.query(`
+    UPDATE alertas_operacionales_estado
+    SET activa = false, resuelta_en = CURRENT_TIMESTAMP, actualizada_en = CURRENT_TIMESTAMP
+    WHERE modulo = 'OPERACION' AND activa = true
+      AND tipo = ANY($1::varchar[])
+      AND NOT (clave_alerta = ANY($2::varchar[]))
+  `, [[
+    'RETIRO_PENDIENTE',
+    'VISITA_PERMANENCIA_EXCESIVA',
+    'CONFLICTO_IMPORTACION',
+    'ESTUDIANTE_MANUAL_SIN_ERP'
+  ], activeKeys]);
+};
+
+const runPendingOperationAlerts = async (pool, { realtimeHub } = {}) => {
+  const [authorized, withdrawals, visits, importConflicts, manualStudents] = await Promise.all([
+    pool.query(`
+      SELECT u.id
+      FROM usuarios u
+      WHERE u.activo = true AND u.eliminado_en IS NULL
+        AND COALESCE(
+          (SELECT pu.concedido FROM permisos_usuario pu
+            WHERE pu.usuario_id = u.id AND pu.permiso_codigo = 'operations.view'),
+          EXISTS (SELECT 1 FROM permisos_rol pr
+            WHERE pr.rol = u.rol AND pr.permiso_codigo = 'operations.view')
+        )
+      ORDER BY u.id
+    `),
+    pool.query(`
+      SELECT r.id, r.estado, r.solicitado_en, r.decidido_en
+      FROM retiros_alumno r
+      WHERE r.estado IN ('SOLICITADO', 'AUTORIZADO')
+        AND COALESCE(r.decidido_en, r.solicitado_en) <= CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+      ORDER BY COALESCE(r.decidido_en, r.solicitado_en), r.id
+    `),
+    pool.query(`
+      SELECT v.id, v.ingreso_en, cfg.max_horas_visita
+      FROM visitas v
+      CROSS JOIN LATERAL (
+        SELECT max_horas_visita FROM configuracion_visitas ORDER BY id LIMIT 1
+      ) cfg
+      WHERE v.estado = 'DENTRO'
+        AND v.ingreso_en <= CURRENT_TIMESTAMP - (cfg.max_horas_visita * INTERVAL '1 hour')
+      ORDER BY v.ingreso_en, v.id
+    `),
+    pool.query(`
+      SELECT e.id, e.ocurrido_en, e.detalle
+      FROM eventos_operacionales e
+      WHERE e.estado = 'PENDIENTE' AND e.tipo = 'IMPORTACION_RECHAZADA'
+      ORDER BY e.ocurrido_en, e.id
+    `),
+    pool.query(`
+      SELECT a.id_alumno, a.creado_manualmente_en
+      FROM alumno a
+      WHERE a.origen_alta = 'MANUAL'
+        AND a.erp_vinculado_en IS NULL
+        AND a.fusionado_en_id IS NULL
+        AND a.creado_manualmente_en <= CURRENT_TIMESTAMP - INTERVAL '1 day'
+      ORDER BY a.creado_manualmente_en, a.id_alumno
+    `)
+  ]);
+
+  const recipients = authorized.rows.map((row) => Number(row.id));
+  const signals = [
+    ...withdrawals.rows.map((item) => ({
+      key: `operacion:retiro:${item.id}`,
+      module: 'OPERACION',
+      type: 'RETIRO_PENDIENTE',
+      entityType: 'retiro',
+      entityId: item.id,
+      title: 'Retiro pendiente de completar',
+      detail: item.estado === 'AUTORIZADO'
+        ? `El retiro #${item.id} está autorizado y todavía no registra la entrega del estudiante.`
+        : `El retiro #${item.id} espera una decisión desde hace más de 15 minutos.`,
+      link: `/admin/visitas?tab=retiros&retiro_id=${item.id}`,
+      priority: item.estado === 'AUTORIZADO' ? 'URGENTE' : 'IMPORTANTE',
+      data: { estado: item.estado, solicitado_en: item.solicitado_en, decidido_en: item.decidido_en }
+    })),
+    ...visits.rows.map((item) => ({
+      key: `operacion:visita-permanencia:${item.id}`,
+      module: 'OPERACION',
+      type: 'VISITA_PERMANENCIA_EXCESIVA',
+      entityType: 'visita',
+      entityId: item.id,
+      title: 'Permanencia de visita por revisar',
+      detail: `La visita #${item.id} supera el máximo configurado de ${item.max_horas_visita} horas sin registrar salida.`,
+      link: `/admin/visitas?tab=historial&visita_id=${item.id}`,
+      priority: 'URGENTE',
+      data: { ingreso_en: item.ingreso_en, max_horas_visita: item.max_horas_visita }
+    })),
+    ...importConflicts.rows.map((item) => ({
+      key: `operacion:conflicto-importacion:${item.id}`,
+      module: 'OPERACION',
+      type: 'CONFLICTO_IMPORTACION',
+      entityType: 'evento_operacional',
+      entityId: item.id,
+      title: 'Importación pendiente de resolución',
+      detail: `El conflicto de importación #${item.id} continúa pendiente. Revisa la bandeja antes de volver a sincronizar.`,
+      link: '/admin/operacion',
+      priority: 'IMPORTANTE',
+      data: { ocurrido_en: item.ocurrido_en, resumen: item.detalle || {} }
+    })),
+    ...manualStudents.rows.map((item) => ({
+      key: `operacion:estudiante-manual-sin-erp:${item.id_alumno}`,
+      module: 'OPERACION',
+      type: 'ESTUDIANTE_MANUAL_SIN_ERP',
+      entityType: 'estudiante',
+      entityId: item.id_alumno,
+      title: 'Alta manual todavía sin vínculo ERP',
+      detail: `La ficha estudiantil #${item.id_alumno} lleva más de un día sin vincularse con el padrón ERP.`,
+      link: `/admin/estudiantes?estudiante_id=${item.id_alumno}`,
+      priority: 'IMPORTANTE',
+      data: { creado_manualmente_en: item.creado_manualmente_en }
+    }))
+  ];
+
+  let notified = 0;
+  const activeKeys = [];
+  for (const signal of signals) {
+    activeKeys.push(signal.key);
+    const cycle = await activateAlertCycle(pool, signal);
+    for (const userId of recipients) {
+      const created = await insertAutomaticNotification(pool, realtimeHub, {
+        userId,
+        module: signal.module,
+        type: signal.type,
+        title: signal.title,
+        detail: signal.detail,
+        link: signal.link,
+        priority: signal.priority,
+        dedupeKey: `${signal.key}:ciclo:${cycle}`
+      });
+      if (created) notified += 1;
+    }
+  }
+  await closeResolvedOperationAlerts(pool, activeKeys);
+  return { notified, signals: signals.length };
+};
+
 const runOperationalAlerts = async (pool, { readBackupStatus, realtimeHub } = {}) => {
   const backup = await runBackupAlerts(pool, { readBackupStatus, realtimeHub });
   const coexistence = await runCoexistenceAlerts(pool, { realtimeHub });
+  const operation = await runPendingOperationAlerts(pool, { realtimeHub });
   return {
     backupHealthy: backup.healthy,
-    notified: backup.notified + coexistence.notified,
+    notified: backup.notified + coexistence.notified + operation.notified,
     backupNotified: backup.notified,
     coexistenceNotified: coexistence.notified,
-    coexistenceSignals: coexistence.signals
+    coexistenceSignals: coexistence.signals,
+    operationNotified: operation.notified,
+    operationSignals: operation.signals
   };
 };
 
@@ -268,8 +419,10 @@ module.exports = {
   activateAlertCycle,
   closeResolvedCoexistenceAlerts,
   reconcileCoexistenceAlertState,
+  closeResolvedOperationAlerts,
   runBackupAlerts,
   runCoexistenceAlerts,
+  runPendingOperationAlerts,
   runOperationalAlerts,
   startOperationalAlertScheduler
 };

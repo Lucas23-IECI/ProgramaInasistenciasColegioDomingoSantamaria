@@ -34,11 +34,16 @@ const renderTemplate = (template, values = {}) => {
 };
 
 const createInstitutionalPdf = ({ template, values, student, generatedBy }) => new Promise((resolve, reject) => {
-  const doc = new PDFDocument({ size: 'A4', margin: 54, bufferPages: true, info: {
+  const doc = new PDFDocument({
+    size: 'A4',
+    margins: { top: 54, right: 54, bottom: 72, left: 54 },
+    bufferPages: true,
+    info: {
     Title: template.nombre,
     Author: 'Liceo Domingo Santa Maria',
     Subject: 'Documento institucional generado por el sistema escolar'
-  } });
+    }
+  });
   const chunks = [];
   doc.on('data', (chunk) => chunks.push(chunk));
   doc.on('error', reject);
@@ -46,6 +51,12 @@ const createInstitutionalPdf = ({ template, values, student, generatedBy }) => n
 
   const { content, unresolved } = renderTemplate(template, values);
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+  doc.on('pageAdded', () => {
+    doc.strokeColor(COLORS.border).lineWidth(1)
+      .moveTo(54, 44).lineTo(doc.page.width - 54, 44).stroke();
+    doc.y = 62;
+  });
 
   doc.rect(0, 0, doc.page.width, 92).fill(COLORS.navy);
   doc.fillColor(COLORS.white).font('Helvetica-Bold').fontSize(15)
@@ -91,16 +102,26 @@ const createInstitutionalPdf = ({ template, values, student, generatedBy }) => n
   const pageCount = doc.bufferedPageRange().count;
   for (let index = 0; index < pageCount; index += 1) {
     doc.switchToPage(index);
-    const footerY = doc.page.height - 42;
+    const footerY = doc.page.height - 37;
+    const reservedBottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    if (index > 0) {
+      doc.fillColor(COLORS.muted).font('Helvetica-Bold').fontSize(7.5)
+        .text('LICEO DOMINGO SANTA MARIA · CONTINUACION', 54, 28, {
+          width: pageWidth,
+          lineBreak: false
+        });
+    }
     doc.strokeColor(COLORS.border).moveTo(54, footerY - 10).lineTo(doc.page.width - 54, footerY - 10).stroke();
     doc.fillColor(COLORS.muted).font('Helvetica').fontSize(7.5)
       .text(
         `Generado por ${cleanValue(generatedBy, 120) || 'cuenta autorizada'} · Estudiante: ${cleanValue(student?.nombre, 120) || 'sin identificar'}`,
         54,
         footerY,
-        { width: pageWidth - 45 }
+        { width: pageWidth - 45, lineBreak: false }
       );
-    doc.text(`${index + 1}/${pageCount}`, doc.page.width - 90, footerY, { width: 36, align: 'right' });
+    doc.text(`${index + 1}/${pageCount}`, doc.page.width - 90, footerY, { width: 36, align: 'right', lineBreak: false });
+    doc.page.margins.bottom = reservedBottomMargin;
   }
 
   doc.end();

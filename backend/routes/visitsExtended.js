@@ -11,6 +11,11 @@ const positiveId = (value) => {
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const normalizeToken = (value) => clean(value, 300).replace(/^LDSM:VISITA:/i, '');
 const randomToken = () => crypto.randomBytes(32).toString('base64url');
+const blockingRestrictionType = (restrictions = []) => (
+  Array.isArray(restrictions)
+    ? restrictions.find((item) => item?.tipo === 'BLOQUEO' || item?.tipo === 'REQUIERE_AUTORIZACION')?.tipo || null
+    : null
+);
 const enumValue = (value, allowed, fallback = null) => {
   const normalized = clean(value, 40).toUpperCase();
   return allowed.includes(normalized) ? normalized : fallback;
@@ -177,9 +182,15 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
         ORDER BY CASE tipo WHEN 'BLOQUEO' THEN 0 WHEN 'REQUIERE_AUTORIZACION' THEN 1 ELSE 2 END
         LIMIT 1
       `, [visitor.id]);
-      if (restriction.rows[0]?.tipo === 'BLOQUEO') {
+      if (['BLOQUEO', 'REQUIERE_AUTORIZACION'].includes(restriction.rows[0]?.tipo)) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'La persona tiene una restricción de acceso activa. Inspectoría debe revisarla.' });
+        const blocked = restriction.rows[0].tipo === 'BLOQUEO';
+        return res.status(409).json({
+          code: blocked ? 'VISITOR_ACCESS_BLOCKED' : 'VISITOR_AUTHORIZATION_REQUIRED',
+          message: blocked
+            ? 'Esta persona tiene un bloqueo de acceso vigente. Inspectoría debe resolverlo antes de crear una credencial.'
+            : 'Esta persona requiere autorización de Inspectoría antes de crear una credencial temporal.'
+        });
       }
       const token = randomToken();
       const inserted = await client.query(`
@@ -210,13 +221,16 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
     try {
       const result = await pool.query(`
         SELECT p.id, p.estado, p.categoria, p.valida_desde, p.valida_hasta, p.usos_maximos,
-               p.usos_realizados, p.motivo_codigo, p.destino_codigo, p.persona_contactada,
+          p.usos_realizados, p.motivo_codigo, p.destino_codigo, p.persona_contactada,
+               vm.nombre AS motivo_nombre, vd.nombre AS destino_nombre,
                p.observaciones, v.id AS visitante_id, v.nombre_completo, v.tipo_documento,
                v.documento_numero,
                COALESCE(jsonb_agg(jsonb_build_object('tipo', r.tipo, 'motivo', r.motivo))
                  FILTER (WHERE r.id IS NOT NULL), '[]'::jsonb) AS restricciones
         FROM visita_preinscripciones p
         JOIN visitantes v ON v.id = p.visitante_id
+        JOIN visita_motivos vm ON vm.codigo = p.motivo_codigo
+        JOIN visita_destinos vd ON vd.codigo = p.destino_codigo
         LEFT JOIN visita_restricciones_acceso r ON r.visitante_id = v.id AND r.activo = true
           AND r.vigente_desde <= CURRENT_TIMESTAMP
           AND (r.vigente_hasta IS NULL OR r.vigente_hasta >= CURRENT_TIMESTAMP)
@@ -226,10 +240,13 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
       if (!result.rows.length) return res.status(404).json({ message: 'El código no existe o no pertenece a este sistema.' });
       const row = result.rows[0];
       const now = Date.now();
+      const accessRestriction = blockingRestrictionType(row.restricciones);
       const usable = row.estado === 'ESPERADA' && new Date(row.valida_desde).getTime() <= now
-        && new Date(row.valida_hasta).getTime() >= now && Number(row.usos_realizados) < Number(row.usos_maximos);
+        && new Date(row.valida_hasta).getTime() >= now && Number(row.usos_realizados) < Number(row.usos_maximos)
+        && !accessRestriction;
       res.json({ ...row, token_hash: undefined, documento_numero: undefined,
-        documento_mostrado: maskDocument(row.tipo_documento, row.documento_numero), utilizable: usable });
+        documento_mostrado: maskDocument(row.tipo_documento, row.documento_numero), utilizable: usable,
+        bloqueo_acceso: accessRestriction });
     } catch (error) {
       console.error('[visitas:preinscripciones:validar]', error.message);
       res.status(500).json({ message: 'No fue posible validar el código de visita.' });
@@ -255,12 +272,19 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
         await client.query('ROLLBACK');
         return res.status(409).json({ message: 'La preinscripción todavía no está vigente, venció o ya fue utilizada.' });
       }
-      const blocked = await client.query(`SELECT 1 FROM visita_restricciones_acceso
-        WHERE visitante_id = $1 AND tipo = 'BLOQUEO' AND activo = true
-          AND vigente_desde <= CURRENT_TIMESTAMP AND (vigente_hasta IS NULL OR vigente_hasta >= CURRENT_TIMESTAMP)`, [pre.visitante_id]);
-      if (blocked.rows.length) {
+      const restriction = await client.query(`SELECT tipo FROM visita_restricciones_acceso
+        WHERE visitante_id = $1 AND tipo IN ('BLOQUEO', 'REQUIERE_AUTORIZACION') AND activo = true
+          AND vigente_desde <= CURRENT_TIMESTAMP AND (vigente_hasta IS NULL OR vigente_hasta >= CURRENT_TIMESTAMP)
+        ORDER BY CASE tipo WHEN 'BLOQUEO' THEN 0 ELSE 1 END, creado_en DESC LIMIT 1`, [pre.visitante_id]);
+      if (restriction.rows.length) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'Existe una restricción de acceso. Inspectoría debe resolverla.' });
+        const blocked = restriction.rows[0].tipo === 'BLOQUEO';
+        return res.status(409).json({
+          code: blocked ? 'VISITOR_ACCESS_BLOCKED' : 'VISITOR_AUTHORIZATION_REQUIRED',
+          message: blocked
+            ? 'Esta persona tiene un bloqueo de acceso vigente. Inspectoría debe resolverlo.'
+            : 'Esta persona requiere autorización de Inspectoría antes de registrar su ingreso.'
+        });
       }
       const active = await client.query("SELECT id FROM visitas WHERE visitante_id = $1 AND estado = 'DENTRO' FOR UPDATE", [pre.visitante_id]);
       if (active.rows.length) {
@@ -525,16 +549,36 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
     const visitId = positiveId(req.params.id);
     const vehicleId = positiveId(req.params.vehiculoId);
     if (!visitId || !vehicleId) return res.status(400).json({ message: 'La visita o vehículo no es válido.' });
+    const client = await pool.connect();
     try {
-      const result = await pool.query(`INSERT INTO visita_vehiculo_movimientos (visita_id,vehiculo_id,registrado_por)
+      await client.query('BEGIN');
+      const visit = await client.query('SELECT id, estado FROM visitas WHERE id = $1 FOR UPDATE', [visitId]);
+      const vehicle = await client.query('SELECT id, activo FROM visita_vehiculos WHERE id = $1 FOR UPDATE', [vehicleId]);
+      if (!visit.rows.length || !vehicle.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'La visita o vehículo no existe.' });
+      }
+      if (visit.rows[0].estado !== 'DENTRO') {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'Solo puedes vincular vehículos a una visita que todavía está dentro del establecimiento.' });
+      }
+      if (!vehicle.rows[0].activo) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'El vehículo está inactivo y no puede vincularse a una visita.' });
+      }
+      const result = await client.query(`INSERT INTO visita_vehiculo_movimientos (visita_id,vehiculo_id,registrado_por)
         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING *`, [visitId,vehicleId,req.user.id]);
-      if (!result.rows.length) return res.status(409).json({ message: 'El vehículo ya está vinculado con esta visita.' });
-      await audit(insertarAudit, pool, req, { accion: 'VINCULAR_VEHICULO_VISITA', entidad: 'visita', entidad_id: visitId, detalle: { vehiculo_id: vehicleId } });
+      if (!result.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'El vehículo ya está vinculado con esta visita.' });
+      }
+      await audit(insertarAudit, client, req, { accion: 'VINCULAR_VEHICULO_VISITA', entidad: 'visita', entidad_id: visitId, detalle: { vehiculo_id: vehicleId } });
+      await client.query('COMMIT');
       res.status(201).json(result.rows[0]);
     } catch (error) {
-      if (error.code === '23503') return res.status(404).json({ message: 'La visita o vehículo no existe.' });
+      await client.query('ROLLBACK').catch(() => {});
       res.status(500).json({ message: 'No fue posible vincular el vehículo.' });
-    }
+    } finally { client.release(); }
   });
 
   router.get('/emergencias/actual', verifyPermission('visits.emergency.view'), async (req, res) => {
@@ -574,6 +618,7 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
       const result = await pool.query(`INSERT INTO visita_puntos_reunion (codigo,nombre,descripcion,creado_por)
         VALUES ($1,$2,$3,$4) ON CONFLICT (codigo) DO UPDATE SET nombre=EXCLUDED.nombre,
         descripcion=EXCLUDED.descripcion, activo=true RETURNING *`, [code, name, clean(req.body?.descripcion, 500) || null, req.user.id]);
+      await audit(insertarAudit, pool, req, { accion: 'GUARDAR_PUNTO_REUNION_VISITA', entidad: 'visita_punto_reunion', entidad_id: result.rows[0].id, detalle: { codigo: code, nombre: name } });
       res.status(201).json(result.rows[0]);
     } catch (error) {
       res.status(500).json({ message: 'No fue posible guardar el punto de reunión.' });
@@ -603,6 +648,7 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       console.error('[visitas:emergencias:crear]', error.message);
+      if (error.code === '23505') return res.status(409).json({ message: 'Ya existe una emergencia activa. Actualiza la pantalla para continuar con ese evento.' });
       res.status(500).json({ message: 'No fue posible iniciar la emergencia.' });
     } finally { client.release(); }
   });
@@ -612,17 +658,29 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
     const visitId = positiveId(req.params.visitaId);
     const state = enumValue(req.body?.estado, ['PENDIENTE', 'CONFIRMADO', 'NO_UBICADO', 'SALIO']);
     if (!id || !visitId || !state) return res.status(400).json({ message: 'La verificación indicada no es válida.' });
+    const client = await pool.connect();
     try {
-      const result = await pool.query(`UPDATE visita_emergencia_presentes SET estado=$3,
+      await client.query('BEGIN');
+      const event = await client.query("SELECT id FROM visita_emergencias WHERE id=$1 AND estado='ACTIVA' FOR UPDATE", [id]);
+      if (!event.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'La emergencia ya no está activa. Actualiza la pantalla para consultar su estado vigente.' });
+      }
+      const result = await client.query(`UPDATE visita_emergencia_presentes SET estado=$3,
         punto_reunion_id=COALESCE($4,punto_reunion_id),verificado_por=$5,verificado_en=CURRENT_TIMESTAMP,
         observaciones=$6 WHERE emergencia_id=$1 AND visita_id=$2 RETURNING *`,
       [id, visitId, state, positiveId(req.body?.punto_reunion_id), req.user.id, clean(req.body?.observaciones, 500) || null]);
-      if (!result.rows.length) return res.status(404).json({ message: 'La persona no forma parte del registro de emergencia.' });
-      await audit(insertarAudit, pool, req, { accion: 'VERIFICAR_PERSONA_EMERGENCIA', entidad: 'visita_emergencia', entidad_id: id, detalle: { visita_id: visitId, estado: state } });
+      if (!result.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'La persona no forma parte del registro de emergencia.' });
+      }
+      await audit(insertarAudit, client, req, { accion: 'VERIFICAR_PERSONA_EMERGENCIA', entidad: 'visita_emergencia', entidad_id: id, detalle: { visita_id: visitId, estado: state } });
+      await client.query('COMMIT');
       res.json(result.rows[0]);
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       res.status(500).json({ message: 'No fue posible actualizar la verificación.' });
-    }
+    } finally { client.release(); }
   });
 
   router.patch('/emergencias/:id/cerrar', verifyPermission('visits.emergency.manage'), async (req, res) => {
@@ -632,6 +690,11 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const active = await client.query("SELECT id FROM visita_emergencias WHERE id=$1 AND estado='ACTIVA' FOR UPDATE", [id]);
+      if (!active.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: 'La emergencia ya no está activa.' });
+      }
       const pending = await client.query(`SELECT COUNT(*)::int AS total FROM visita_emergencia_presentes
         WHERE emergencia_id=$1 AND estado IN ('PENDIENTE','NO_UBICADO')`, [id]);
       if (pending.rows[0].total > 0 && req.body?.confirmar_pendientes !== true) {
@@ -641,11 +704,7 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
       const result = await client.query(`UPDATE visita_emergencias SET estado='CERRADA',cerrada_por=$2,
         cerrada_en=CURRENT_TIMESTAMP,observaciones_cierre=$3 WHERE id=$1 AND estado='ACTIVA' RETURNING *`,
       [id, req.user.id, observations]);
-      if (!result.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ message: 'La emergencia ya no está activa.' });
-      }
-      await audit(insertarAudit, client, req, { accion: 'CERRAR_EMERGENCIA_VISITAS', entidad: 'visita_emergencia', entidad_id: id, detalle: { pendientes: pending.rows[0].total, observaciones } });
+      await audit(insertarAudit, client, req, { accion: 'CERRAR_EMERGENCIA_VISITAS', entidad: 'visita_emergencia', entidad_id: id, detalle: { pendientes: pending.rows[0].total, observaciones: observations } });
       await client.query('COMMIT');
       res.json(result.rows[0]);
     } catch (error) {
@@ -657,4 +716,4 @@ const createVisitsExtendedRouter = ({ pool, verifyToken, verifyPermission, verif
   return router;
 };
 
-module.exports = { createVisitsExtendedRouter, hashToken, normalizeToken };
+module.exports = { createVisitsExtendedRouter, hashToken, normalizeToken, blockingRestrictionType };

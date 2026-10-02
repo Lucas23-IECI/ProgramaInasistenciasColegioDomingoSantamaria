@@ -5,9 +5,10 @@ import { API_URL } from '../../config';
 import { useFeedback } from '../../context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from '../../permissions';
 import { getApiErrorMessage } from '../../utils/apiError';
+import { localDateInputValue } from '../../utils/dateInput';
 
-const today = () => new Date().toISOString().slice(0, 10);
-const daysAgo = (days) => { const value = new Date(); value.setDate(value.getDate() - days); return value.toISOString().slice(0, 10); };
+const today = () => localDateInputValue();
+const daysAgo = (days) => { const value = new Date(); value.setDate(value.getDate() - days); return localDateInputValue(value); };
 const studentLabel = (student) => `${student.nombres || ''} ${student.paterno || ''} ${student.materno || ''}`.replace(/\s+/g, ' ').trim();
 const blankShift = () => ({ codigo: '', nombre: '', tipo: 'MANANA', hora_inicio: '07:30', hora_fin: '14:00', dias_semana: [1, 2, 3, 4, 5], cursos_ids: [] });
 const blankCalendar = () => ({

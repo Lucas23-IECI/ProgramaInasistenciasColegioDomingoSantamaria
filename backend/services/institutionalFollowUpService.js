@@ -259,12 +259,14 @@ const collectSignals = async (queryable, rules) => {
   }));
   for (const row of expiredDocuments.rows) results.push(signal({
     rule: 'DOCUMENTO_VENCIDO', key: `documento:${row.id_documento_expediente}`, entityType: 'DOCUMENTO_ESTUDIANTE', entityId: row.id_documento_expediente,
+    dedupeKey: `DOCUMENTO:documento:${row.id_documento_expediente}`,
     studentId: row.id_alumno, title: `Documento vencido · ${row.estudiante}`,
     reason: `“${row.titulo}” venció el ${row.vence_en.toISOString?.().slice(0, 10) || row.vence_en}.`,
     data: { documento_titulo: row.titulo, vence_en: row.vence_en }
   }));
   for (const row of expiringDocuments.rows) results.push(signal({
     rule: 'DOCUMENTO_POR_VENCER', key: `documento:${row.id_documento_expediente}`, entityType: 'DOCUMENTO_ESTUDIANTE', entityId: row.id_documento_expediente,
+    dedupeKey: `DOCUMENTO:documento:${row.id_documento_expediente}`,
     studentId: row.id_alumno, title: `Documento próximo a vencer · ${row.estudiante}`,
     reason: `“${row.titulo}” vence en ${row.dias_restantes} ${Number(row.dias_restantes) === 1 ? 'día' : 'días'}.`,
     data: { documento_titulo: row.titulo, vence_en: row.vence_en, dias_restantes: Number(row.dias_restantes) }
@@ -325,11 +327,12 @@ const upsertSignalAndCase = async (client, item, rules, actorId = null) => {
     else if (linkedCase.rows[0].estado === 'RESUELTO') {
       await client.query(`
         UPDATE seguimiento_casos
-        SET estado = 'ABIERTO', resultado_final = NULL,
+        SET estado = CASE WHEN responsable_usuario_id IS NULL THEN 'ABIERTO' ELSE 'ASIGNADO' END,
+            prioridad = $4, resultado_final = NULL, escalado_automatico_en = NULL,
             fecha_limite = CURRENT_DATE + ($2::int * INTERVAL '1 day'),
             actualizado_en = CURRENT_TIMESTAMP, actualizado_por = $3, version = version + 1
         WHERE id_caso = $1
-      `, [caseId, rule.plazo_dias, actorId]);
+      `, [caseId, rule.plazo_dias, actorId, rule.prioridad]);
       await client.query(`
         INSERT INTO seguimiento_eventos (id_caso, tipo, titulo, detalle, metadatos, realizado_por)
         VALUES ($1, 'REACTIVACION_AUTOMATICA', 'La condición volvió a estar activa', $2, $3::jsonb, $4)
@@ -682,5 +685,6 @@ module.exports = {
   operateCases,
   previewInstitutionalFollowUp,
   runInstitutionalFollowUp,
-  startInstitutionalFollowUpScheduler
+  startInstitutionalFollowUpScheduler,
+  upsertSignalAndCase
 };

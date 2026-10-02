@@ -26,6 +26,7 @@ export default function useVisitsExtendedOperations({ permissions }) {
   const [section, setSection] = useState("resumen");
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(blankPreregistration());
   const [credential, setCredential] = useState(null);
@@ -37,12 +38,14 @@ export default function useVisitsExtendedOperations({ permissions }) {
   const [entity, setEntity] = useState({ tipo: "PROVEEDOR", nombre: "", identificador: "" });
   const [visitorQuery, setVisitorQuery] = useState("");
   const [visitorResults, setVisitorResults] = useState([]);
+  const [visitorSearchError, setVisitorSearchError] = useState("");
   const [restriction, setRestriction] = useState({ visitante: null, tipo: "REQUIERE_AUTORIZACION", motivo: "", vigente_hasta: "" });
   const [point, setPoint] = useState({ codigo: "", nombre: "", descripcion: "" });
   const [emergency, setEmergency] = useState({ tipo: "SIMULACRO", descripcion: "", punto_reunion_id: "" });
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const calls = [axios.get(`${API_URL}/visitas/operacion-ampliada/resumen`)];
       const keys = ["summary"];
@@ -59,20 +62,30 @@ export default function useVisitsExtendedOperations({ permissions }) {
       const results = await Promise.all(calls);
       setData((current) => results.reduce((next, response, index) => ({ ...next, [keys[index]]: response.data }), { ...current }));
     } catch (error) {
-      notify(getApiErrorMessage(error, "No fue posible cargar la operación ampliada."), "error");
+      const message = getApiErrorMessage(error, "No fue posible cargar la operación ampliada.");
+      setData(initialData);
+      setLoadError(message);
+      notify(message, "error");
     } finally { setLoading(false); }
   }, [notify, permissions]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (visitorQuery.trim().length < 2 || !permissions.restrictions) return setVisitorResults([]);
+      if (visitorQuery.trim().length < 2 || !permissions.restrictions) {
+        setVisitorResults([]);
+        setVisitorSearchError("");
+        return;
+      }
       try {
         const response = await axios.get(`${API_URL}/visitas/visitantes-operativos`, { params: { q: visitorQuery.trim() } });
         setVisitorResults(response.data || []);
+        setVisitorSearchError("");
       } catch (error) {
         setVisitorResults([]);
-        notify(getApiErrorMessage(error, "No fue posible buscar personas."), "error");
+        const message = getApiErrorMessage(error, "No fue posible buscar personas.");
+        setVisitorSearchError(message);
+        notify(message, "error");
       }
     }, 250);
     return () => clearTimeout(timer);
@@ -87,8 +100,7 @@ export default function useVisitsExtendedOperations({ permissions }) {
     } finally { setSaving(false); }
   };
   const createPreregistration = () => {
-    const dateFields = document.querySelectorAll('.extended-operations input[type="datetime-local"]');
-    const payload = { ...form, valida_desde: dateFields[0]?.value || form.valida_desde, valida_hasta: dateFields[1]?.value || form.valida_hasta };
+    const payload = { ...form };
     return run(() => axios.post(`${API_URL}/visitas/preinscripciones`, payload), "Credencial temporal creada con trazabilidad.", (result) => {
       setCredential({ ...result, nombre: payload.visitante.nombre_completo, anfitrion: payload.persona_contactada });
       setForm(blankPreregistration());
@@ -112,9 +124,9 @@ export default function useVisitsExtendedOperations({ permissions }) {
     if (accepted) run(() => axios.patch(`${API_URL}/visitas/preinscripciones/${item.id}/cancelar`), "Visita esperada cancelada.");
   };
 
-  return { section, setSection, data, loading, saving, form, setForm, credential, setCredential,
+  return { section, setSection, data, loading, loadError, saving, form, setForm, credential, setCredential,
     qrToken, setQrToken, qrResult, setQrResult, delivery, setDelivery, vehicle, setVehicle, vehicleLink, setVehicleLink,
-    entity, setEntity, visitorQuery, setVisitorQuery, visitorResults, setVisitorResults, restriction, setRestriction,
+    entity, setEntity, visitorQuery, setVisitorQuery, visitorResults, setVisitorResults, visitorSearchError, restriction, setRestriction,
     point, setPoint, emergency, setEmergency, load, run, createPreregistration, validateQr, useQr,
     saveDelivery, saveVehicle, linkVehicle, saveEntity, saveRestriction, updateVisitor, cancelPreregistration };
 }

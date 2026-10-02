@@ -1,7 +1,32 @@
-const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDate, validateDateRange }) => {
+const AUDIT_CATEGORIES = Object.freeze(['ACCESO', 'CONSULTA', 'CAMBIO', 'DESCARGA']);
+
+const auditCategorySql = (alias = 'a') => `CASE
+  WHEN ${alias}.accion ~ '(DESCARG|EXPORTAR|PDF_.+_GENERADO|GENERAR_.+_PDF)' THEN 'DESCARGA'
+  WHEN ${alias}.accion ~ '^(LOGIN|LOGOUT|CAMBIAR_PASSWORD|RECUPERAR_PASSWORD|CERRAR_SESION)' THEN 'ACCESO'
+  WHEN ${alias}.accion ~ '^(CONSULTAR|BUSCAR|VER_|LISTAR)' THEN 'CONSULTA'
+  ELSE 'CAMBIO'
+END`;
+
+const buildAuditSummary = (row = {}) => AUDIT_CATEGORIES.reduce((summary, category) => ({
+  ...summary,
+  [category.toLowerCase()]: Number(row[category.toLowerCase()]) || 0
+}), {});
+
+const registerAuditRoutes = ({
+  app,
+  pool,
+  verifyToken,
+  verifyPermission,
+  isIsoDate,
+  validateDateRange,
+  insertarAudit,
+  getClientIp
+}) => {
   app.get('/api/audit', verifyToken, verifyPermission('audit.view'), async (req, res) => {
     const {
       accion,
+      categoria,
+      entidad,
       usuario_correo,
       cuenta_id,
       perfil_codigo,
@@ -23,6 +48,9 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
     }
     if (!['todas', 'realizada', 'sobre_cuenta'].includes(relacion)) {
       return res.status(400).json({ message: 'El tipo de actividad solicitado no es válido.' });
+    }
+    if (categoria && !AUDIT_CATEGORIES.includes(String(categoria).toUpperCase())) {
+      return res.status(400).json({ message: 'La categoría de actividad seleccionada no es válida.' });
     }
     if (cuenta_id && perfil_codigo) {
       return res.status(400).json({ message: 'Selecciona una cuenta o un perfil, no ambos a la vez.' });
@@ -120,6 +148,8 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
       }
 
       if (accion) { conditions.push(`a.accion = $${idx++}`); params.push(String(accion).trim()); }
+      if (categoria) { conditions.push(`${auditCategorySql('a')} = $${idx++}`); params.push(String(categoria).toUpperCase()); }
+      if (entidad) { conditions.push(`a.entidad = $${idx++}`); params.push(String(entidad).trim()); }
       if (usuario_correo) { conditions.push(`a.usuario_correo ILIKE $${idx++}`); params.push(`%${String(usuario_correo).trim()}%`); }
       if (desde) { conditions.push(`a.fecha >= $${idx++}`); params.push(desde); }
       if (hasta) { conditions.push(`a.fecha < ($${idx++}::date + interval '1 day')`); params.push(hasta); }
@@ -132,6 +162,7 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
                COALESCE(u.nombre, a.usuario_correo) AS usuario_nombre,
                a.accion, a.entidad, a.entidad_id, a.detalle, a.ip, a.fecha,
                a.perfil_codigo_snapshot, a.perfil_nombre_snapshot,
+               ${auditCategorySql('a')} AS categoria,
                ${relationshipSelection} AS relacion_cuenta
         FROM audit_log a
         LEFT JOIN usuarios u ON u.id = a.usuario_id
@@ -139,6 +170,44 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
         ORDER BY a.fecha DESC, a.id DESC
         LIMIT $${idx++} OFFSET $${idx++}
       `, [...params, limitNum, offset]);
+
+      const [summaryRes, actionsRes, entitiesRes] = await Promise.all([
+        pool.query(`
+          SELECT
+            COUNT(*) FILTER (WHERE ${auditCategorySql('a')} = 'ACCESO')::int AS acceso,
+            COUNT(*) FILTER (WHERE ${auditCategorySql('a')} = 'CONSULTA')::int AS consulta,
+            COUNT(*) FILTER (WHERE ${auditCategorySql('a')} = 'CAMBIO')::int AS cambio,
+            COUNT(*) FILTER (WHERE ${auditCategorySql('a')} = 'DESCARGA')::int AS descarga
+          FROM audit_log a
+          ${whereClause}
+        `, params),
+        pool.query('SELECT DISTINCT accion FROM audit_log ORDER BY accion'),
+        pool.query("SELECT DISTINCT entidad FROM audit_log WHERE entidad IS NOT NULL AND trim(entidad) <> '' ORDER BY entidad")
+      ]);
+
+      if (typeof insertarAudit === 'function') {
+        await insertarAudit(pool, {
+          usuario_id: req.user.id,
+          usuario_correo: req.user.correo,
+          accion: isExport ? 'DESCARGAR_AUDITORIA' : 'CONSULTAR_AUDITORIA',
+          entidad: 'audit_log',
+          entidad_id: null,
+          detalle: {
+            alcance: cuenta_id ? 'CUENTA' : perfil_codigo ? 'PERFIL' : 'INSTITUCIONAL',
+            pagina: isExport ? null : pageNum,
+            cantidad_resultados: dataRes.rows.length,
+            total_resultados: total,
+            filtros: {
+              accion: Boolean(accion),
+              categoria: Boolean(categoria),
+              entidad: Boolean(entidad),
+              usuario: Boolean(usuario_correo),
+              periodo: Boolean(desde || hasta)
+            }
+          },
+          ip: typeof getClientIp === 'function' ? getClientIp(req) : ''
+        });
+      }
 
       res.json({
         total,
@@ -148,6 +217,12 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
         subject,
         profile: profileSubject,
         profile_accounts: profileAccounts,
+        summary: buildAuditSummary(summaryRes.rows[0]),
+        catalogs: {
+          actions: actionsRes.rows.map((row) => row.accion),
+          entities: entitiesRes.rows.map((row) => row.entidad),
+          categories: AUDIT_CATEGORIES
+        },
         truncated: isExport && total > limitNum
       });
     } catch (err) {
@@ -157,4 +232,4 @@ const registerAuditRoutes = ({ app, pool, verifyToken, verifyPermission, isIsoDa
   });
 };
 
-module.exports = { registerAuditRoutes };
+module.exports = { AUDIT_CATEGORIES, auditCategorySql, buildAuditSummary, registerAuditRoutes };

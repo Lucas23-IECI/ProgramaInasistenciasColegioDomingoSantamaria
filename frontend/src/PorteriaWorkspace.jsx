@@ -2,8 +2,8 @@ import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
 import {
-  ArrowRight, Check, CheckCircle2, ContactRound, DoorOpen, History, LogOut,
-  PackageCheck, Plus, Search, ShieldCheck, UserCheck, UserRound, UsersRound, X
+  AlertTriangle, ArrowRight, Check, CheckCircle2, ContactRound, DoorOpen, History, LogOut,
+  PackageCheck, Plus, RefreshCw, Search, ShieldCheck, UserCheck, UserRound, UsersRound, X
 } from 'lucide-react';
 import { API_URL } from './config';
 import { AuthContext } from './context/AuthContext';
@@ -60,6 +60,7 @@ const PorteriaWorkspace = () => {
   const [visits, setVisits] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [visitForm, setVisitForm] = useState({ visitante: emptyPerson, motivo_codigo: '', motivo_detalle: '', destino_codigo: '', persona_contactada: '', origen: 'LECTOR' });
   const [visitQuery, setVisitQuery] = useState('');
   const [visitMatches, setVisitMatches] = useState([]);
@@ -79,6 +80,7 @@ const PorteriaWorkspace = () => {
 
   const loadData = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setLoading(true);
+    setLoadError('');
     try {
       const [catalogResponse, summaryResponse, visitResponse, withdrawalResponse] = await Promise.all([
         axios.get(`${API_URL}/visitas/catalogos`, requestConfig),
@@ -90,8 +92,11 @@ const PorteriaWorkspace = () => {
       setSummary(summaryResponse.data || {});
       setVisits(visitResponse.data.rows || []);
       setWithdrawals(withdrawalResponse.data || []);
+      setLoadError('');
     } catch (error) {
-      notify(getApiErrorMessage(error, 'No fue posible actualizar Portería.'), 'error');
+      const message = getApiErrorMessage(error, 'No fue posible actualizar Portería.');
+      setLoadError(message);
+      notify(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -245,6 +250,7 @@ const PorteriaWorkspace = () => {
     <div className="visits-page porter-page">
       <main className="visits-shell">
         <ModuleHeader icon={ContactRound} title="Portería" description="Entradas, salidas, visitas y retiros desde un único puesto de trabajo." onBack={() => navigate('/admin')} onLogout={async () => { await logout(); navigate('/login'); }} />
+        {loadError ? <section className="porter-load-error" role="alert"><AlertTriangle size={30} /><div><h2>No pudimos confirmar el estado de Portería</h2><p>{loadError}</p><span>Las cifras, listas y formularios permanecen bloqueados hasta recuperar información vigente.</span></div><button type="button" onClick={() => loadData()}><RefreshCw size={17} /> Reintentar</button></section> : <>
         <section className="porter-status" data-tour="visits-summary">
           <div className="porter-status__heading"><div><span className="section-kicker">Situación actual</span><h2>Control de acceso del establecimiento</h2></div><span className="visits-live"><i /> Información en tiempo real</span></div>
           <div className="porter-metrics">
@@ -271,6 +277,7 @@ const PorteriaWorkspace = () => {
 
         {view === 'history' && <section className="porter-panel"><header><div><span className="section-kicker">Movimientos de hoy</span><h2>Entradas y salidas</h2><p>{todayVisits.length} visitas registradas durante la jornada.</p></div></header><div className="porter-list">{!todayVisits.length && <div className="visit-empty"><History size={38} /><strong>No hay movimientos hoy</strong></div>}{todayVisits.map((visit) => <article key={visit.id}><span className="visit-avatar">{visit.visitante.nombre_completo.slice(0, 2).toUpperCase()}</span><div><strong>{visit.visitante.nombre_completo}</strong><small>{visit.destino_nombre} · {visit.motivo_nombre}</small></div><span><small>Ingreso</small><strong>{formatDateTime(visit.ingreso_en)}</strong></span><span className="visit-status" data-state={visit.estado}>{stateLabel(visit.estado)}</span></article>)}</div></section>}
         {view === 'withdrawals' && <section className="porter-panel"><header><div><span className="section-kicker">Retiros registrados</span><h2>Movimientos de estudiantes</h2><p>Los retiros nuevos quedan completados desde Portería.</p></div><button type="button" className="primary-action" onClick={() => setView('withdrawal')}><Plus size={17} /> Registrar retiro</button></header><div className="porter-list">{!withdrawals.length && <div className="visit-empty"><UserCheck size={38} /><strong>No hay retiros registrados</strong></div>}{withdrawals.map((item) => <article key={item.id}><span className="visit-avatar">{studentName(item.estudiante).slice(0, 2).toUpperCase()}</span><div><strong>{studentName(item.estudiante)}</strong><small>Retira {item.visitante.nombre_completo} · {item.motivo_nombre}</small></div><span><small>Registro</small><strong>{formatDateTime(item.entregado_en || item.solicitado_en)}</strong></span><span className="visit-status" data-state={item.estado}>{stateLabel(item.estado)}</span></article>)}</div></section>}
+        </>}
       </main>
     </div>
   );

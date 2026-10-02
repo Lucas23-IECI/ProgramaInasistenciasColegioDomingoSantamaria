@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router';
 import {
@@ -87,36 +87,40 @@ const PunctualitySettings = () => {
   const [courses, setCourses] = useState([]);
   const [expandedId, setExpandedId] = useState('first');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [policies, setPolicies] = useState({ turnos: [], calendario: [], motivos: [] });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [configResponse, coursesResponse] = await Promise.all([
-          axios.get(`${API_URL}/puntualidad/config`),
-          axios.get(`${API_URL}/courses`)
-        ]);
-        const data = configResponse.data;
-        setGeneral({
-          nombre_jornada: data.nombre_jornada,
-          umbral_alerta: Number(data.umbral_alerta),
-          umbral_critico: Number(data.umbral_critico)
-        });
-        const normalized = (data.controles || []).filter((control) => control.activo).map(normalizeControl);
-        setControls(normalized);
-        setCourses(coursesResponse.data || []);
-        setExpandedId(normalized[0]?.id || 'new-0');
-        setSavedAt(data.actualizado_en || null);
-      } catch (error) {
-        notify(getApiErrorMessage(error, 'No fue posible cargar los controles horarios.'), 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+  const loadSettings = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const [configResponse, coursesResponse] = await Promise.all([
+        axios.get(`${API_URL}/puntualidad/config`),
+        axios.get(`${API_URL}/courses`)
+      ]);
+      const data = configResponse.data;
+      setGeneral({
+        nombre_jornada: data.nombre_jornada,
+        umbral_alerta: Number(data.umbral_alerta),
+        umbral_critico: Number(data.umbral_critico)
+      });
+      const normalized = (data.controles || []).filter((control) => control.activo).map(normalizeControl);
+      setControls(normalized);
+      setCourses(coursesResponse.data || []);
+      setExpandedId(normalized[0]?.id || 'new-0');
+      setSavedAt(data.actualizado_en || null);
+    } catch (error) {
+      const message = getApiErrorMessage(error, 'No fue posible cargar los controles horarios.');
+      setLoadError(message);
+      notify(message, 'error');
+    } finally {
+      setLoading(false);
+    }
   }, [notify]);
+
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const validation = useMemo(() => {
     if (general.nombre_jornada.trim().length < 3) return 'Escribe un nombre de jornada reconocible.';
@@ -236,7 +240,9 @@ const PunctualitySettings = () => {
           onLogout={handleLogout}
         />
 
-        {loading ? <div className="settings-loading">Cargando jornada institucional…</div> : (
+        {loading ? <div className="settings-loading">Cargando jornada institucional…</div> : loadError ? (
+          <div className="operation-load-error" role="alert"><AlertTriangle size={28} /><div><h2>No pudimos cargar la jornada configurada</h2><p>{loadError}</p><small>La edición permanece bloqueada para evitar guardar valores incompletos sobre la configuración vigente.</small></div><button type="button" onClick={loadSettings}>Reintentar</button></div>
+        ) : (
           <form className="settings-layout settings-layout--controls" onSubmit={handleSave} data-tour="punctuality-settings">
             <main className="settings-form-area">
               <section className="settings-section">

@@ -31,6 +31,7 @@ import { AuthContext } from './context/AuthContext';
 import { useFeedback } from './context/FeedbackContext';
 import { PERMISSIONS, hasPermission } from './permissions';
 import { buildContextChatUrl } from './utils/chatContext';
+import { localDateInputValue } from './utils/dateInput';
 
 const API = '/api/documentos-estudiantes';
 const CATEGORIES = [
@@ -43,11 +44,16 @@ const CATEGORIES = [
 const STATES = [['PENDIENTE', 'Pendiente'], ['VIGENTE', 'Vigente'], ['VENCIDO', 'Vencido'], ['ARCHIVADO', 'Archivado']];
 const ACCESS = [['INSTITUCIONAL', 'Institucional'], ['RESERVADO', 'Reservado'], ['MUY_RESERVADO', 'Muy reservado']];
 const SIGNATURES = [['REVISION', 'Revisión'], ['CONFORMIDAD', 'Conformidad'], ['APROBACION', 'Aprobación']];
+const DOCUMENTS_PER_PAGE = 20;
 const labelFrom = (items, value) => items.find(([key]) => key === value)?.[1] || value || 'Sin definir';
 const formatDate = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium' }).format(new Date(`${String(value).slice(0, 10)}T12:00:00`)) : 'Sin vencimiento';
 const formatDateTime = (value) => value ? new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Sin fecha';
 const errorMessage = getApiErrorMessage;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localDateInputValue();
+const updateField = (setter, field) => (event) => {
+  const value = event.currentTarget.value;
+  setter((current) => ({ ...current, [field]: value }));
+};
 
 const readFile = (file) => new Promise((resolve, reject) => {
   if (!file) return reject(new Error('Selecciona un archivo.'));
@@ -61,19 +67,28 @@ const readFile = (file) => new Promise((resolve, reject) => {
 
 const Modal = ({ title, eyebrow, onClose, children, actions, wide = false }) => {
   const closeRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
     const previous = document.activeElement;
     const oldOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     closeRef.current?.focus();
-    const onKey = (event) => event.key === 'Escape' && onClose();
+    const onKey = (event) => {
+      if (event.key === 'Escape') onCloseRef.current();
+      if (event.key !== 'Tab') return;
+      const controls = [...(closeRef.current?.closest('.docs-modal')?.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]') || [])].filter((element) => element.getClientRects().length);
+      const target = event.shiftKey && document.activeElement === controls[0] ? controls.at(-1)
+        : !event.shiftKey && document.activeElement === controls.at(-1) ? controls[0] : null;
+      if (target) { event.preventDefault(); target.focus(); }
+    };
     document.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = oldOverflow;
       document.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="docs-modal-backdrop" onMouseDown={onClose} role="presentation">
       <section className={`docs-modal${wide ? ' docs-modal--wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby="docs-modal-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -141,13 +156,13 @@ const StudentSearch = ({ onSelect, compact = false }) => {
 
 const DocumentFields = ({ form, setForm, includeFile = false, file, setFile }) => (
   <div className="docs-form-grid">
-    <label className="docs-field docs-field--span-2"><span>Título</span><input value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ej. Certificado médico de agosto" maxLength={180} /></label>
-    <label className="docs-field"><span>Categoría</span><select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    <label className="docs-field"><span>Estado</span><select value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    <label className="docs-field"><span>Nivel de acceso</span><select value={form.nivel_acceso} onChange={(e) => setForm({ ...form, nivel_acceso: e.target.value })}>{ACCESS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    <label className="docs-field"><span>Vigente desde</span><input type="date" value={form.vigente_desde} onChange={(e) => setForm({ ...form, vigente_desde: e.target.value })} /></label>
-    <label className="docs-field"><span>Vence el</span><input type="date" value={form.vence_en} min={form.vigente_desde || undefined} onChange={(e) => setForm({ ...form, vence_en: e.target.value })} /></label>
-    <label className="docs-field docs-field--span-2"><span>Descripción</span><textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Contexto breve y verificable" maxLength={600} /></label>
+    <label className="docs-field docs-field--span-2"><span>Título</span><input value={form.titulo} onChange={updateField(setForm, 'titulo')} placeholder="Ej. Certificado médico de agosto" maxLength={180} /></label>
+    <label className="docs-field"><span>Categoría</span><select value={form.categoria} onChange={updateField(setForm, 'categoria')}>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="docs-field"><span>Estado</span><select value={form.estado} onChange={updateField(setForm, 'estado')}>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="docs-field"><span>Nivel de acceso</span><select value={form.nivel_acceso} onChange={updateField(setForm, 'nivel_acceso')}>{ACCESS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="docs-field"><span>Vigente desde</span><input type="date" value={form.vigente_desde} onChange={updateField(setForm, 'vigente_desde')} /></label>
+    <label className="docs-field"><span>Vence el</span><input type="date" value={form.vence_en} min={form.vigente_desde || undefined} onChange={updateField(setForm, 'vence_en')} /></label>
+    <label className="docs-field docs-field--span-2"><span>Descripción</span><textarea value={form.descripcion} onChange={updateField(setForm, 'descripcion')} placeholder="Contexto breve y verificable" maxLength={600} /></label>
     {includeFile && <label className="docs-upload docs-field--span-2"><Upload size={23} /><span><strong>{file?.name || 'Seleccionar archivo protegido'}</strong><small>PDF, PNG o JPG · máximo 8 MB</small></span><input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label>}
   </div>
 );
@@ -159,32 +174,54 @@ const Dashboard = ({ permissions }) => {
   const [summary, setSummary] = useState({});
   const [documents, setDocuments] = useState([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [filters, setFilters] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return { q: '', categoria: '', estado: params.get('estado') || '', vencimiento: params.get('vencimiento') === '30' };
   });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [templates, setTemplates] = useState([]);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateForm, setTemplateForm] = useState({ nombre: '', categoria: 'CERTIFICADO', descripcion: '', contenido: '', campos: '' });
   const { notify } = useFeedback();
+  const loadSequenceRef = useRef(0);
+
+  const updateFilters = useCallback((next) => {
+    setPage(1);
+    setFilters((current) => ({ ...current, ...(typeof next === 'function' ? next(current) : next) }));
+  }, []);
 
   const load = useCallback(async () => {
+    const sequence = loadSequenceRef.current + 1;
+    loadSequenceRef.current = sequence;
     setLoading(true);
+    setLoadError('');
     try {
       const [summaryResponse, docsResponse, templatesResponse] = await Promise.all([
         axios.get(`${API}/resumen`),
-        axios.get(`${API}/documentos`, { params: { ...filters, vencimiento: filters.vencimiento || undefined } }),
+        axios.get(`${API}/documentos`, { params: { ...filters, vencimiento: filters.vencimiento || undefined, pagina: page, limite: DOCUMENTS_PER_PAGE } }),
         axios.get(`${API}/plantillas`),
       ]);
+      if (sequence !== loadSequenceRef.current) return;
       setSummary(summaryResponse.data || {});
       setDocuments(docsResponse.data?.items || []);
       setTotal(docsResponse.data?.total || 0);
       setTemplates(templatesResponse.data || []);
-    } catch (error) { notify(errorMessage(error, 'No fue posible cargar la gestión documental.'), 'error'); }
-    finally { setLoading(false); }
-  }, [filters, notify]);
+    } catch (error) {
+      if (sequence !== loadSequenceRef.current) return;
+      const message = errorMessage(error, 'No fue posible cargar la gestión documental.');
+      setDocuments([]);
+      setTotal(0);
+      setLoadError(message);
+      notify(message, 'error');
+    } finally {
+      if (sequence === loadSequenceRef.current) setLoading(false);
+    }
+  }, [filters, notify, page]);
   useEffect(() => { const timer = setTimeout(load, 180); return () => clearTimeout(timer); }, [load]);
+
+  const totalPages = Math.max(1, Math.ceil(total / DOCUMENTS_PER_PAGE));
 
   const createTemplate = async () => {
     try {
@@ -206,8 +243,8 @@ const Dashboard = ({ permissions }) => {
     <>
       <section className="docs-overview" data-tour="documents-summary">
         <Metric icon={FolderArchive} value={summary.documentos_activos} label="documentos activos" tone="blue" />
-        <Metric icon={AlertTriangle} value={summary.vencidos} label="documentos vencidos" tone="red" onClick={() => setFilters({ ...filters, estado: 'VENCIDO' })} />
-        <Metric icon={CalendarClock} value={summary.vencen_pronto} label="vencen en 30 días" tone="ochre" onClick={() => setFilters({ ...filters, estado: '', vencimiento: true })} />
+        <Metric icon={AlertTriangle} value={summary.vencidos} label="documentos vencidos" tone="red" onClick={() => updateFilters({ estado: 'VENCIDO', vencimiento: false })} />
+        <Metric icon={CalendarClock} value={summary.vencen_pronto} label="vencen en 30 días" tone="ochre" onClick={() => updateFilters({ estado: '', vencimiento: true })} />
         <Metric icon={ScanText} value={summary.ocr_pendientes} label="OCR por revisar" tone="purple" />
         <Metric icon={FileCheck2} value={summary.sin_firma} label="versiones sin firma" tone="slate" />
       </section>
@@ -228,25 +265,25 @@ const Dashboard = ({ permissions }) => {
       <section className="docs-list-section" data-tour="documents-list">
         <div className="docs-section-heading"><div><span className="section-kicker">Consulta transversal</span><h2>Documentos registrados</h2><p>{total} resultados según los filtros activos.</p></div><button type="button" className="docs-secondary-button" onClick={load}><RefreshCw size={17} /> Actualizar</button></div>
         <div className="docs-filters">
-          <label className="docs-filter-search"><Search size={18} /><input value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} placeholder="Buscar por estudiante o título" /></label>
-          <select value={filters.categoria} onChange={(e) => setFilters({ ...filters, categoria: e.target.value })}><option value="">Todas las categorías</option>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-          <select value={filters.estado} onChange={(e) => setFilters({ ...filters, estado: e.target.value, vencimiento: false })}><option value="">Todos los estados</option>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-          <button type="button" className={filters.vencimiento ? 'is-active' : ''} onClick={() => setFilters({ ...filters, vencimiento: !filters.vencimiento, estado: '' })}>Próximos a vencer</button>
+          <label className="docs-filter-search"><Search size={18} /><input value={filters.q} onChange={(e) => updateFilters({ q: e.target.value })} placeholder="Buscar por estudiante o título" aria-label="Buscar documentos por estudiante o título" /></label>
+          <select value={filters.categoria} onChange={(e) => updateFilters({ categoria: e.target.value })} aria-label="Filtrar documentos por categoría"><option value="">Todas las categorías</option>{CATEGORIES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+          <select value={filters.estado} onChange={(e) => updateFilters({ estado: e.target.value, vencimiento: false })} aria-label="Filtrar documentos por estado"><option value="">Todos los estados</option>{STATES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+          <button type="button" className={filters.vencimiento ? 'is-active' : ''} onClick={() => updateFilters((current) => ({ vencimiento: !current.vencimiento, estado: '' }))}>Próximos a vencer</button>
         </div>
-        {loading ? <div className="docs-empty">Cargando expedientes…</div> : documents.length === 0 ? <div className="docs-empty"><FolderArchive size={34} /><strong>No hay documentos con estos filtros</strong><span>Busca otro término o abre la ficha de un estudiante para incorporar el primero.</span></div> : (
-          <div className="docs-table-wrap"><table className="docs-table"><thead><tr><th>Estudiante</th><th>Documento</th><th>Vigencia</th><th>Responsable</th><th></th></tr></thead><tbody>{documents.map((doc) => (
-            <tr key={doc.id_documento_expediente}><td><strong>{doc.estudiante_nombre}</strong><small>{doc.curso}</small></td><td><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><strong>{doc.titulo}</strong><small>{doc.versiones} versión(es) · OCR {doc.ocr_estado || 'no solicitado'}</small></td><td><StatusBadge value={doc.estado_efectivo} /><small>{formatDate(doc.vence_en)}</small></td><td>{doc.responsable_nombre}</td><td><button type="button" className="docs-row-button" onClick={() => navigate(`/admin/documentos/ficha/${doc.id_documento_expediente}`)}>Abrir <ChevronRight size={16} /></button></td></tr>
-          ))}</tbody></table></div>
+        {loading ? <div className="docs-empty" role="status">Cargando expedientes…</div> : loadError ? <div className="docs-empty docs-empty--error" role="alert"><AlertTriangle size={34} /><h3>No pudimos cargar los documentos</h3><span>{loadError}</span><button type="button" className="docs-secondary-button" onClick={load}><RefreshCw size={17} /> Reintentar</button></div> : documents.length === 0 ? <div className="docs-empty"><FolderArchive size={34} /><strong>No hay documentos con estos filtros</strong><span>Busca otro término o abre la ficha de un estudiante para incorporar el primero.</span></div> : (
+          <><div className="docs-table-wrap students-table-wrap"><table className="docs-table students-table--cards"><thead><tr><th>Estudiante</th><th>Documento</th><th>Vigencia</th><th>Responsable</th><th><span className="sr-only">Acciones</span></th></tr></thead><tbody>{documents.map((doc) => (
+            <tr key={doc.id_documento_expediente}><td className="students-cell-name" data-label="Estudiante"><strong>{doc.estudiante_nombre}</strong><small>{doc.curso}</small></td><td className="students-cell-name" data-label="Documento"><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><strong>{doc.titulo}</strong><small>{doc.versiones} versión(es) · OCR {doc.ocr_estado || 'no solicitado'}</small></td><td data-label="Vigencia"><StatusBadge value={doc.estado_efectivo} /><small>{formatDate(doc.vence_en)}</small></td><td data-label="Responsable">{doc.responsable_nombre}</td><td data-label="Acción"><button type="button" className="docs-row-button students-ficha-btn" onClick={() => navigate(`/admin/documentos/ficha/${doc.id_documento_expediente}`)}>Abrir <ChevronRight size={16} /></button></td></tr>
+          ))}</tbody></table></div>{totalPages > 1 && <nav className="docs-pagination" aria-label="Paginación de documentos"><p>Página <strong>{page}</strong> de <strong>{totalPages}</strong> · {total} documentos</p><div><button type="button" className="docs-secondary-button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>Anterior</button><button type="button" className="docs-secondary-button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page >= totalPages}>Siguiente</button></div></nav>}</>
         )}
       </section>
 
       {templateModal && <Modal title="Nueva plantilla institucional" eyebrow="Generación controlada de PDF" wide onClose={() => setTemplateModal(false)} actions={<><button className="docs-secondary-button" onClick={() => setTemplateModal(false)}>Cancelar</button><button className="docs-primary-button" onClick={createTemplate} disabled={templateForm.nombre.trim().length < 3 || templateForm.contenido.trim().length < 20}><Plus size={17} /> Crear plantilla</button></>}>
         <div className="docs-form-grid">
-          <label className="docs-field"><span>Nombre</span><input value={templateForm.nombre} onChange={(e) => setTemplateForm({ ...templateForm, nombre: e.target.value })} /></label>
-          <label className="docs-field"><span>Categoría</span><select value={templateForm.categoria} onChange={(e) => setTemplateForm({ ...templateForm, categoria: e.target.value })}>{CATEGORIES.filter(([key]) => key !== 'IDENTIDAD' && key !== 'CONVIVENCIA').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <label className="docs-field docs-field--span-2"><span>Descripción</span><input value={templateForm.descripcion} onChange={(e) => setTemplateForm({ ...templateForm, descripcion: e.target.value })} /></label>
-          <label className="docs-field docs-field--span-2"><span>Contenido</span><textarea className="docs-template-text" value={templateForm.contenido} onChange={(e) => setTemplateForm({ ...templateForm, contenido: e.target.value })} placeholder="Use campos como {{estudiante_nombre}} y {{fecha_emision}}." /></label>
-          <label className="docs-field docs-field--span-2"><span>Campos permitidos, separados por coma</span><input value={templateForm.campos} onChange={(e) => setTemplateForm({ ...templateForm, campos: e.target.value })} placeholder="observacion, responsable_nombre, detalle" /></label>
+          <label className="docs-field"><span>Nombre</span><input value={templateForm.nombre} onChange={updateField(setTemplateForm, 'nombre')} /></label>
+          <label className="docs-field"><span>Categoría</span><select value={templateForm.categoria} onChange={updateField(setTemplateForm, 'categoria')}>{CATEGORIES.filter(([key]) => key !== 'IDENTIDAD' && key !== 'CONVIVENCIA').map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <label className="docs-field docs-field--span-2"><span>Descripción</span><input value={templateForm.descripcion} onChange={updateField(setTemplateForm, 'descripcion')} /></label>
+          <label className="docs-field docs-field--span-2"><span>Contenido</span><textarea className="docs-template-text" value={templateForm.contenido} onChange={updateField(setTemplateForm, 'contenido')} placeholder="Use campos como {{estudiante_nombre}} y {{fecha_emision}}." /></label>
+          <label className="docs-field docs-field--span-2"><span>Campos permitidos, separados por coma</span><input value={templateForm.campos} onChange={updateField(setTemplateForm, 'campos')} placeholder="observacion, responsable_nombre, detalle" /></label>
         </div>
       </Modal>}
     </>
@@ -259,6 +296,7 @@ const StudentFile = ({ studentId, permissions }) => {
   const [data, setData] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [uploadModal, setUploadModal] = useState(false);
   const [generateModal, setGenerateModal] = useState(false);
   const [form, setForm] = useState(defaultForm());
@@ -268,12 +306,18 @@ const StudentFile = ({ studentId, permissions }) => {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const [fileResponse, templatesResponse] = await Promise.all([axios.get(`${API}/estudiantes/${studentId}/expediente`), axios.get(`${API}/plantillas`)]);
       setData(fileResponse.data); setTemplates(templatesResponse.data || []);
-    } catch (error) { notify(errorMessage(error, 'No fue posible abrir el expediente.'), 'error'); navigate('/admin/documentos'); }
+    } catch (error) {
+      const message = errorMessage(error, 'No fue posible abrir el expediente.');
+      setData(null);
+      setLoadError(message);
+      notify(message, 'error');
+    }
     finally { setLoading(false); }
-  }, [navigate, notify, studentId]);
+  }, [notify, studentId]);
   useEffect(() => { load(); }, [load]);
 
   const uploadDocument = async () => {
@@ -299,7 +343,8 @@ const StudentFile = ({ studentId, permissions }) => {
     finally { setSaving(false); }
   };
 
-  if (loading || !data) return <div className="docs-empty">Cargando expediente…</div>;
+  if (loading) return <div className="docs-empty" role="status">Cargando expediente…</div>;
+  if (loadError || !data) return <div className="docs-empty docs-empty--error" role="alert"><AlertTriangle size={34} /><h3>No pudimos abrir el expediente</h3><span>{loadError || 'El expediente no está disponible.'}</span><div><button type="button" className="docs-secondary-button" onClick={() => navigate('/admin/documentos')}><ArrowLeft size={17} /> Volver</button><button type="button" className="docs-primary-button" onClick={load}><RefreshCw size={17} /> Reintentar</button></div></div>;
   return (
     <>
       <section className="docs-student-hero" data-tour="documents-student-file">
@@ -320,7 +365,7 @@ const StudentFile = ({ studentId, permissions }) => {
 
       {uploadModal && <Modal title="Incorporar documento" eyebrow="Nueva ficha y versión protegida" wide onClose={() => !saving && setUploadModal(false)} actions={<><button className="docs-secondary-button" onClick={() => setUploadModal(false)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={uploadDocument} disabled={saving || !file || form.titulo.trim().length < 3}>{saving ? 'Guardando…' : <><Upload size={17} /> Guardar documento</>}</button></>}><DocumentFields form={form} setForm={setForm} includeFile file={file} setFile={setFile} /><div className="docs-notice"><ShieldCheck size={20} /><span>El archivo se guarda fuera de la carpeta pública. Al reemplazarlo se crea una versión nueva; el original no se sobrescribe.</span></div></Modal>}
       {generateModal && <Modal title="Generar documento PDF" eyebrow="Plantilla institucional" wide onClose={() => !saving && setGenerateModal(false)} actions={<><button className="docs-secondary-button" onClick={() => setGenerateModal(false)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={generatePdf} disabled={saving || !generate.id_plantilla}>{saving ? 'Generando…' : <><Sparkles size={17} /> Generar para revisión</>}</button></>}>
-        <div className="docs-form-grid"><label className="docs-field docs-field--span-2"><span>Plantilla</span><select value={generate.id_plantilla} onChange={(e) => setGenerate({ id_plantilla: e.target.value, titulo: '', vence_en: '', valores: {} })}><option value="">Seleccionar plantilla</option>{templates.filter((item) => item.activa).map((item) => <option key={item.id_plantilla} value={item.id_plantilla}>{item.nombre}</option>)}</select></label><label className="docs-field"><span>Título opcional</span><input value={generate.titulo} onChange={(e) => setGenerate({ ...generate, titulo: e.target.value })} placeholder={selectedTemplate?.nombre || 'Título del documento'} /></label><label className="docs-field"><span>Vencimiento opcional</span><input type="date" min={today()} value={generate.vence_en} onChange={(e) => setGenerate({ ...generate, vence_en: e.target.value })} /></label>{allowedFields.map((field) => <label key={field} className="docs-field docs-field--span-2"><span>{field.replaceAll('_', ' ')}</span><textarea value={generate.valores[field] || ''} onChange={(e) => setGenerate({ ...generate, valores: { ...generate.valores, [field]: e.target.value } })} /></label>)}</div><div className="docs-notice"><Eye size={20} /><span>El PDF se crea en estado Pendiente. Debe revisarse antes de marcarlo vigente o firmarlo.</span></div>
+        <div className="docs-form-grid"><label className="docs-field docs-field--span-2"><span>Plantilla</span><select value={generate.id_plantilla} onChange={(event) => { const id_plantilla = event.currentTarget.value; setGenerate({ id_plantilla, titulo: '', vence_en: '', valores: {} }); }}><option value="">Seleccionar plantilla</option>{templates.filter((item) => item.activa).map((item) => <option key={item.id_plantilla} value={item.id_plantilla}>{item.nombre}</option>)}</select></label><label className="docs-field"><span>Título opcional</span><input value={generate.titulo} onChange={updateField(setGenerate, 'titulo')} placeholder={selectedTemplate?.nombre || 'Título del documento'} /></label><label className="docs-field"><span>Vencimiento opcional</span><input type="date" min={today()} value={generate.vence_en} onChange={updateField(setGenerate, 'vence_en')} /></label>{allowedFields.map((field) => <label key={field} className="docs-field docs-field--span-2"><span>{field.replaceAll('_', ' ')}</span><textarea value={generate.valores[field] || ''} onChange={(event) => { const value = event.currentTarget.value; setGenerate((current) => ({ ...current, valores: { ...current.valores, [field]: value } })); }} /></label>)}</div><div className="docs-notice"><Eye size={20} /><span>El PDF se crea en estado Pendiente. Debe revisarse antes de marcarlo vigente o firmarlo.</span></div>
       </Modal>}
     </>
   );
@@ -331,6 +376,7 @@ const DocumentDetail = ({ documentId, permissions }) => {
   const { notify, confirm } = useFeedback();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(defaultForm());
   const [file, setFile] = useState(null);
@@ -341,10 +387,16 @@ const DocumentDetail = ({ documentId, permissions }) => {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try { const response = await axios.get(`${API}/documentos/${documentId}`); setData(response.data); }
-    catch (error) { notify(errorMessage(error, 'No fue posible abrir el documento.'), 'error'); navigate('/admin/documentos'); }
+    catch (error) {
+      const message = errorMessage(error, 'No fue posible abrir el documento.');
+      setData(null);
+      setLoadError(message);
+      notify(message, 'error');
+    }
     finally { setLoading(false); }
-  }, [documentId, navigate, notify]);
+  }, [documentId, notify]);
   useEffect(() => { load(); }, [load]);
 
   const openEdit = () => { const doc = data.document; setForm({ titulo: doc.titulo, categoria: doc.categoria, estado: doc.estado, nivel_acceso: doc.nivel_acceso, vigente_desde: doc.vigente_desde?.slice(0, 10) || '', vence_en: doc.vence_en?.slice(0, 10) || '', descripcion: doc.descripcion || '', version_registro: doc.version_registro }); setModal('edit'); };
@@ -356,11 +408,12 @@ const DocumentDetail = ({ documentId, permissions }) => {
   const openSign = (version) => { setSignature({ tipo: 'REVISION', declaracion: 'Declaro haber revisado esta versión y sus antecedentes asociados.' }); setModal({ type: 'sign', version }); };
   const sign = async () => { setSaving(true); try { await axios.post(`${API}/versiones/${modal.version.id_version}/firmar`, signature); setModal(null); notify('Firma interna registrada sobre la huella digital de esta versión.', 'success'); await load(); } catch (error) { notify(errorMessage(error, 'No fue posible registrar la firma.'), 'error'); } finally { setSaving(false); } };
 
-  if (loading || !data) return <div className="docs-empty">Cargando ficha documental…</div>;
+  if (loading) return <div className="docs-empty" role="status">Cargando ficha documental…</div>;
+  if (loadError || !data) return <div className="docs-empty docs-empty--error" role="alert"><AlertTriangle size={34} /><h3>No pudimos abrir el documento</h3><span>{loadError || 'La ficha documental no está disponible.'}</span><div><button type="button" className="docs-secondary-button" onClick={() => navigate('/admin/documentos')}><ArrowLeft size={17} /> Volver</button><button type="button" className="docs-primary-button" onClick={load}><RefreshCw size={17} /> Reintentar</button></div></div>;
   const doc = data.document;
   return (
     <>
-      <section className="docs-detail-header" data-tour="documents-detail"><button type="button" className="docs-back" onClick={() => navigate(`/admin/documentos/estudiante/${data.student.id_alumno}`)}><ArrowLeft size={18} /> Expediente de {data.student.nombre}</button><div className="docs-detail-header__title"><span className="docs-detail-icon"><FileText size={28} /></span><div><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><h2>{doc.titulo}</h2><p>{data.student.curso} · {doc.nivel_acceso.replace('_', ' ')}</p></div><StatusBadge value={doc.estado} /></div><div className="docs-detail-actions"><button className="docs-secondary-button" onClick={() => navigate(buildContextChatUrl({ type: 'DOCUMENTO', id: documentId, name: doc.titulo, origin: `/admin/documentos/ficha/${documentId}`, originLabel: 'Volver al documento' }))}><MessageSquareText size={17} /> Coordinar</button>{permissions.manage && <button className="docs-secondary-button" onClick={openEdit}><PenLine size={17} /> Editar ficha</button>}{permissions.upload && <button className="docs-primary-button" onClick={() => setModal('version')}><Plus size={17} /> Nueva versión</button>}</div></section>
+      <section className="docs-detail-header" data-tour="documents-detail"><button type="button" className="docs-back" onClick={() => navigate(`/admin/documentos/estudiante/${data.student.id_alumno}`)}><ArrowLeft size={18} /> Expediente de {data.student.nombre}</button><div className="docs-detail-header__title"><span className="docs-detail-icon"><FileText size={28} /></span><div><span className="docs-category">{labelFrom(CATEGORIES, doc.categoria)}</span><h2>{doc.titulo}</h2><p>{data.student.curso} · {doc.nivel_acceso.replace('_', ' ')}</p></div><StatusBadge value={doc.estado_efectivo || doc.estado} /></div><div className="docs-detail-actions"><button className="docs-secondary-button" onClick={() => navigate(buildContextChatUrl({ type: 'DOCUMENTO', id: documentId, name: doc.titulo, origin: `/admin/documentos/ficha/${documentId}`, originLabel: 'Volver al documento' }))}><MessageSquareText size={17} /> Coordinar</button>{permissions.manage && <button className="docs-secondary-button" onClick={openEdit}><PenLine size={17} /> Editar ficha</button>}{permissions.upload && <button className="docs-primary-button" onClick={() => setModal('version')}><Plus size={17} /> Nueva versión</button>}</div></section>
       <section className="docs-metadata"><div><span>Vigente desde</span><strong>{formatDate(doc.vigente_desde)}</strong></div><div><span>Vence</span><strong>{formatDate(doc.vence_en)}</strong></div><div><span>Creado</span><strong>{formatDateTime(doc.creado_en)}</strong></div><div><span>Registro de ficha</span><strong>v{doc.version_registro}</strong></div></section>
       {doc.descripcion && <p className="docs-description">{doc.descripcion}</p>}
       <section className="docs-timeline-section" data-tour="documents-versions"><div className="docs-section-heading"><div><span className="section-kicker">Archivo inmutable</span><h2>Historial de versiones</h2><p>Cada versión conserva su archivo, huella SHA-256, OCR y firmas.</p></div></div><div className="docs-version-list">{data.versions.map((version) => (
@@ -376,7 +429,7 @@ const DocumentDetail = ({ documentId, permissions }) => {
       {modal === 'edit' && <Modal title="Editar ficha documental" eyebrow="Metadatos y vigencia" wide onClose={() => !saving && setModal(null)} actions={<><button className="docs-secondary-button" onClick={() => setModal(null)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={saveEdit} disabled={saving || form.titulo.trim().length < 3}>{saving ? 'Guardando…' : 'Guardar cambios'}</button></>}><DocumentFields form={form} setForm={setForm} /></Modal>}
       {modal === 'version' && <Modal title="Incorporar nueva versión" eyebrow="El archivo anterior se conserva" onClose={() => !saving && setModal(null)} actions={<><button className="docs-secondary-button" onClick={() => setModal(null)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={addVersion} disabled={saving || !file}>{saving ? 'Guardando…' : 'Crear versión'}</button></>}><label className="docs-upload"><Upload size={23} /><span><strong>{file?.name || 'Seleccionar archivo'}</strong><small>PDF, PNG o JPG · máximo 8 MB</small></span><input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} /></label><label className="docs-field"><span>Notas de esta versión</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Qué cambió y por qué" /></label></Modal>}
       {modal?.type === 'ocr' && <Modal title={`Revisar OCR · versión ${modal.version.numero_version}`} eyebrow="Revisión humana obligatoria" wide onClose={() => !saving && setModal(null)} actions={<><button className="docs-danger-button" onClick={() => reviewOcr('RECHAZAR')} disabled={saving}>Rechazar propuesta</button><button className="docs-primary-button" onClick={() => reviewOcr('APROBAR')} disabled={saving || ocrText.trim().length < 2}>Aprobar texto revisado</button></>}><div className="docs-ocr-summary"><span>Confianza estimada <strong>{modal.version.ocr_confianza ?? 0}%</strong></span><span>Motor <strong>{modal.version.ocr_motor || 'OCR local'}</strong></span></div><label className="docs-field"><span>Texto propuesto</span><textarea className="docs-ocr-text" value={ocrText} onChange={(e) => setOcrText(e.target.value)} /></label><div className="docs-notice"><AlertTriangle size={20} /><span>Comprueba el texto con el archivo original. Aprobar OCR no modifica automáticamente la ficha del estudiante ni prueba la autenticidad del documento.</span></div></Modal>}
-      {modal?.type === 'sign' && <Modal title={`Firmar versión ${modal.version.numero_version}`} eyebrow="Firma electrónica interna" onClose={() => !saving && setModal(null)} actions={<><button className="docs-secondary-button" onClick={() => setModal(null)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={sign} disabled={saving || signature.declaracion.trim().length < 12}>Registrar firma</button></>}><label className="docs-field"><span>Tipo</span><select value={signature.tipo} onChange={(e) => setSignature({ ...signature, tipo: e.target.value })}>{SIGNATURES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="docs-field"><span>Declaración</span><textarea value={signature.declaracion} onChange={(e) => setSignature({ ...signature, declaracion: e.target.value })} /></label><div className="docs-notice"><ShieldCheck size={20} /><span>Esta constancia autentica al usuario dentro del sistema y se vincula a la huella SHA-256 del archivo. No reemplaza una firma electrónica avanzada.</span></div></Modal>}
+      {modal?.type === 'sign' && <Modal title={`Firmar versión ${modal.version.numero_version}`} eyebrow="Firma electrónica interna" onClose={() => !saving && setModal(null)} actions={<><button className="docs-secondary-button" onClick={() => setModal(null)} disabled={saving}>Cancelar</button><button className="docs-primary-button" onClick={sign} disabled={saving || signature.declaracion.trim().length < 12}>Registrar firma</button></>}><label className="docs-field"><span>Tipo</span><select value={signature.tipo} onChange={updateField(setSignature, 'tipo')}>{SIGNATURES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="docs-field"><span>Declaración</span><textarea value={signature.declaracion} onChange={updateField(setSignature, 'declaracion')} /></label><div className="docs-notice"><ShieldCheck size={20} /><span>Esta constancia autentica al usuario dentro del sistema y se vincula a la huella SHA-256 del archivo. No reemplaza una firma electrónica avanzada.</span></div></Modal>}
     </>
   );
 };

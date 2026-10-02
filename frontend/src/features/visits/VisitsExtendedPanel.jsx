@@ -72,10 +72,10 @@ export default function VisitsExtendedPanel({
 }) {
   const { confirm } = useFeedback();
   const {
-    section, setSection, data, loading, saving, form, setForm, credential,
+    section, setSection, data, loading, loadError, saving, form, setForm, credential,
     setCredential, qrToken, setQrToken, qrResult, setQrResult, delivery, setDelivery,
     vehicle, setVehicle, vehicleLink, setVehicleLink, entity, setEntity,
-    visitorQuery, setVisitorQuery, visitorResults, setVisitorResults, restriction, setRestriction,
+    visitorQuery, setVisitorQuery, visitorResults, setVisitorResults, visitorSearchError, restriction, setRestriction,
     point, setPoint, emergency, setEmergency, load, run, createPreregistration,
     validateQr, useQr, saveDelivery, saveVehicle, linkVehicle, saveEntity,
     saveRestriction, updateVisitor, cancelPreregistration,
@@ -131,6 +131,18 @@ export default function VisitsExtendedPanel({
       </nav>
       {loading ? (
         <div className="visit-empty">Cargando operación…</div>
+      ) : loadError ? (
+        <div className="extended-load-error" role="alert">
+          <AlertTriangle size={32} />
+          <div>
+            <h3>No pudimos confirmar la operación ampliada</h3>
+            <p>{loadError}</p>
+            <span>Las cifras, listas y formularios permanecen bloqueados hasta recuperar información vigente.</span>
+          </div>
+          <button type="button" className="secondary-action" onClick={load}>
+            <RefreshCw size={17} /> Reintentar
+          </button>
+        </div>
       ) : (
         <>
           {section === "resumen" && (
@@ -235,6 +247,7 @@ export default function VisitsExtendedPanel({
                 <h3>Preinscribir visita</h3>
                 <div className="extended-form-grid">
                   <input
+                    aria-label="Nombre completo de la persona visitante"
                     placeholder="Nombre completo"
                     value={form.visitante.nombre_completo}
                     onChange={(event) =>
@@ -249,6 +262,7 @@ export default function VisitsExtendedPanel({
                     required
                   />
                   <input
+                    aria-label="Documento de la persona visitante"
                     placeholder="RUT o documento"
                     value={form.visitante.documento}
                     onChange={(event) =>
@@ -263,6 +277,7 @@ export default function VisitsExtendedPanel({
                     required
                   />
                   <select
+                    aria-label="Tipo de documento de la persona visitante"
                     value={form.visitante.tipo_documento}
                     onChange={(event) =>
                       setForm({
@@ -279,6 +294,7 @@ export default function VisitsExtendedPanel({
                     <option value="OTRO">Otro documento</option>
                   </select>
                   <input
+                    aria-label="Teléfono de la persona visitante"
                     placeholder="Teléfono opcional"
                     value={form.visitante.telefono}
                     onChange={(event) =>
@@ -292,6 +308,7 @@ export default function VisitsExtendedPanel({
                     }
                   />
                   <select
+                    aria-label="Motivo de la visita esperada"
                     value={form.motivo_codigo}
                     onChange={(event) =>
                       setForm({ ...form, motivo_codigo: event.target.value })
@@ -306,6 +323,7 @@ export default function VisitsExtendedPanel({
                     ))}
                   </select>
                   <select
+                    aria-label="Destino de la visita esperada"
                     value={form.destino_codigo}
                     onChange={(event) =>
                       setForm({ ...form, destino_codigo: event.target.value })
@@ -320,6 +338,7 @@ export default function VisitsExtendedPanel({
                     ))}
                   </select>
                   <input
+                    aria-label="Persona anfitriona"
                     placeholder="Persona anfitriona"
                     value={form.persona_contactada}
                     onChange={(event) =>
@@ -331,6 +350,7 @@ export default function VisitsExtendedPanel({
                     required
                   />
                   <select
+                    aria-label="Categoría de la visita esperada"
                     value={form.categoria}
                     onChange={(event) =>
                       setForm({ ...form, categoria: event.target.value })
@@ -343,6 +363,7 @@ export default function VisitsExtendedPanel({
                   {(form.categoria === "PROVEEDOR" ||
                     form.categoria === "CONTRATISTA") && (
                     <select
+                      aria-label="Entidad externa vinculada"
                       value={form.entidad_externa_id}
                       onChange={(event) =>
                         setForm({
@@ -364,6 +385,7 @@ export default function VisitsExtendedPanel({
                   <label>
                     Válida desde
                     <input
+                      aria-label="Inicio de vigencia de la credencial"
                       type="datetime-local"
                       value={form.valida_desde}
                       onChange={(event) =>
@@ -375,6 +397,7 @@ export default function VisitsExtendedPanel({
                   <label>
                     Válida hasta
                     <input
+                      aria-label="Fin de vigencia de la credencial"
                       type="datetime-local"
                       value={form.valida_hasta}
                       onChange={(event) =>
@@ -391,6 +414,7 @@ export default function VisitsExtendedPanel({
               <div>
                 <h3>Validar ingreso con QR</h3>
                 <input
+                  aria-label="Código de la credencial temporal"
                   placeholder="Escanear o pegar código de la credencial"
                   value={qrToken}
                   onChange={(event) => {
@@ -417,7 +441,11 @@ export default function VisitsExtendedPanel({
                     <p>
                       {qrResult.utilizable
                         ? "Credencial vigente y disponible."
-                        : "La credencial no puede utilizarse."}
+                        : qrResult.bloqueo_acceso === "BLOQUEO"
+                          ? "Ingreso bloqueado: Inspectoría debe resolver la restricción vigente."
+                          : qrResult.bloqueo_acceso === "REQUIERE_AUTORIZACION"
+                            ? "Ingreso pendiente: Inspectoría debe autorizarlo antes de continuar."
+                            : "La credencial no está vigente, venció o ya alcanzó su límite de uso."}
                     </p>
                     {qrResult.restricciones?.length > 0 && (
                       <p>
@@ -475,10 +503,14 @@ export default function VisitsExtendedPanel({
               >
                 <h3>Nueva restricción</h3>
                 <input
+                  aria-label="Buscar persona para restringir acceso"
                   placeholder="Buscar persona por nombre o documento"
                   value={visitorQuery}
                   onChange={(event) => setVisitorQuery(event.target.value)}
                 />
+                {visitorSearchError && (
+                  <p className="extended-search-error" role="alert">{visitorSearchError}</p>
+                )}
                 {visitorResults.length > 0 && !restriction.visitante && (
                   <div className="extended-search-results">
                     {visitorResults.map((item) => (
@@ -515,6 +547,7 @@ export default function VisitsExtendedPanel({
                   </div>
                 )}
                 <select
+                  aria-label="Tipo de restricción de acceso"
                   value={restriction.tipo}
                   onChange={(event) =>
                     setRestriction({ ...restriction, tipo: event.target.value })
@@ -527,6 +560,7 @@ export default function VisitsExtendedPanel({
                   <option value="BLOQUEO">Bloqueo de acceso</option>
                 </select>
                 <textarea
+                  aria-label="Motivo institucional de la restricción"
                   placeholder="Motivo institucional de la restricción"
                   value={restriction.motivo}
                   onChange={(event) =>
@@ -540,6 +574,7 @@ export default function VisitsExtendedPanel({
                 <label>
                   Vigente hasta (opcional)
                   <input
+                    aria-label="Fin de vigencia de la restricción"
                     type="datetime-local"
                     value={restriction.vigente_hasta}
                     onChange={(event) =>
@@ -626,6 +661,7 @@ export default function VisitsExtendedPanel({
                 {["remitente", "destinatario", "descripcion"].map((key) => (
                   <input
                     key={key}
+                    aria-label={key === "remitente" ? "Remitente de la encomienda" : key === "destinatario" ? "Destinatario de la encomienda" : "Descripción de la encomienda"}
                     placeholder={key[0].toUpperCase() + key.slice(1)}
                     value={delivery[key]}
                     onChange={(event) =>
@@ -680,6 +716,7 @@ export default function VisitsExtendedPanel({
               >
                 <h3>Registrar vehículo</h3>
                 <select
+                  aria-label="Tipo de vehículo"
                   value={vehicle.tipo}
                   onChange={(event) =>
                     setVehicle({ ...vehicle, tipo: event.target.value })
@@ -694,6 +731,7 @@ export default function VisitsExtendedPanel({
                 {["patente", "marca", "modelo", "color"].map((key) => (
                   <input
                     key={key}
+                    aria-label={key === "patente" ? "Patente del vehículo" : key === "marca" ? "Marca del vehículo" : key === "modelo" ? "Modelo del vehículo" : "Color del vehículo"}
                     placeholder={key[0].toUpperCase() + key.slice(1)}
                     value={vehicle[key]}
                     onChange={(event) =>
@@ -730,6 +768,7 @@ export default function VisitsExtendedPanel({
               >
                 <h3>Vincular a una visita activa</h3>
                 <select
+                  aria-label="Visita activa para vincular vehículo"
                   value={vehicleLink.visita_id}
                   onChange={(event) =>
                     setVehicleLink({ ...vehicleLink, visita_id: event.target.value })
@@ -744,6 +783,7 @@ export default function VisitsExtendedPanel({
                   ))}
                 </select>
                 <select
+                  aria-label="Vehículo que se vinculará"
                   value={vehicleLink.vehiculo_id}
                   onChange={(event) =>
                     setVehicleLink({ ...vehicleLink, vehiculo_id: event.target.value })
@@ -778,6 +818,7 @@ export default function VisitsExtendedPanel({
                 >
                   <h3>Proveedor o contratista</h3>
                   <select
+                    aria-label="Tipo de entidad externa"
                     value={entity.tipo}
                     onChange={(event) =>
                       setEntity({ ...entity, tipo: event.target.value })
@@ -788,6 +829,7 @@ export default function VisitsExtendedPanel({
                     <option value="OTRA">Otra entidad</option>
                   </select>
                   <input
+                    aria-label="Nombre de la entidad externa"
                     placeholder="Nombre de la entidad"
                     value={entity.nombre}
                     onChange={(event) =>
@@ -796,6 +838,7 @@ export default function VisitsExtendedPanel({
                     required
                   />
                   <input
+                    aria-label="Identificador de la entidad externa"
                     placeholder="RUT o referencia"
                     value={entity.identificador}
                     onChange={(event) =>
@@ -874,6 +917,7 @@ export default function VisitsExtendedPanel({
                       }}
                     >
                       <select
+                        aria-label="Tipo de emergencia"
                         value={emergency.tipo}
                         onChange={(event) =>
                           setEmergency({
@@ -887,6 +931,7 @@ export default function VisitsExtendedPanel({
                         <option value="OTRA">Otra emergencia</option>
                       </select>
                       <select
+                        aria-label="Punto de reunión predeterminado"
                         value={emergency.punto_reunion_id}
                         onChange={(event) =>
                           setEmergency({
@@ -903,6 +948,7 @@ export default function VisitsExtendedPanel({
                         ))}
                       </select>
                       <textarea
+                        aria-label="Descripción de la emergencia"
                         placeholder="Descripción del evento"
                         value={emergency.descripcion}
                         onChange={(event) =>
@@ -962,6 +1008,7 @@ export default function VisitsExtendedPanel({
                   >
                     <h3>Agregar punto de reunión</h3>
                     <input
+                      aria-label="Código del punto de reunión"
                       placeholder="Código"
                       value={point.codigo}
                       onChange={(event) =>
@@ -969,6 +1016,7 @@ export default function VisitsExtendedPanel({
                       }
                     />
                     <input
+                      aria-label="Nombre del punto de reunión"
                       placeholder="Nombre"
                       value={point.nombre}
                       onChange={(event) =>

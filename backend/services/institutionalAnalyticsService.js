@@ -1,16 +1,9 @@
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const { validateDateRange } = require('../utils/validation');
 
 const validatePeriod = (from, to) => {
-  if (!ISO_DATE.test(String(from || '')) || !ISO_DATE.test(String(to || ''))) {
-    throw Object.assign(new Error('El período debe indicar fechas válidas.'), { status: 400 });
-  }
-  const start = new Date(`${from}T12:00:00Z`);
-  const end = new Date(`${to}T12:00:00Z`);
-  const days = Math.round((end - start) / 86400000);
-  if (days < 0 || days > 366) {
-    throw Object.assign(new Error('El período debe abarcar entre 1 y 366 días.'), { status: 400 });
-  }
-  return { from, to, days: days + 1 };
+  const period = validateDateRange(from, to, { maxDays: 366 });
+  if (period.error) throw Object.assign(new Error(period.error), { status: 400 });
+  return period;
 };
 
 const queryRows = async (pool, text, params) => (await pool.query(text, params)).rows;
