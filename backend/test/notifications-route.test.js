@@ -2,7 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 
-const { createNotificationsRouter, reconcileStaleShipments } = require('../routes/notifications');
+const {
+  createNotificationsRouter,
+  reconcileStaleShipments,
+  resolveAudienceRecipients
+} = require('../routes/notifications');
 
 test('el historial enviado incluye un resumen agregado para Dirección', () => {
   const source = createNotificationsRouter.toString();
@@ -10,6 +14,49 @@ test('el historial enviado incluye un resumen agregado para Dirección', () => {
   assert.match(source, /AS entregadas/u);
   assert.match(source, /AS leidas/u);
   assert.match(source, /summary: summary\.rows\[0\]/u);
+});
+
+test('los avisos pueden resolver personas, perfiles y equipos sin duplicar destinatarios', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, params) => {
+      calls.push({ sql: String(sql), params });
+      if (String(sql).includes('FROM perfiles_acceso p')) {
+        return { rows: [{ codigo: 'inspector', destinatarios: [2, 3] }], rowCount: 1 };
+      }
+      if (String(sql).includes('FROM seguimiento_grupos_notificacion g')) {
+        return { rows: [{ codigo: 'EQUIPO_GESTION', destinatarios: [3, 4] }], rowCount: 1 };
+      }
+      throw new Error('Consulta inesperada');
+    }
+  };
+
+  const recipients = await resolveAudienceRecipients(pool, {
+    directRecipients: [2, 5, 5],
+    profileCodes: ['inspector'],
+    groupCodes: ['EQUIPO_GESTION'],
+    senderId: 1
+  });
+
+  assert.deepEqual(recipients.sort((a, b) => a - b), [2, 3, 4, 5]);
+  assert.equal(calls.length, 2);
+});
+
+test('un perfil o equipo retirado se informa antes de crear el envío', async () => {
+  await assert.rejects(
+    resolveAudienceRecipients({ query: async () => ({ rows: [], rowCount: 0 }) }, {
+      profileCodes: ['perfil_inexistente'],
+      senderId: 1
+    }),
+    (error) => error.statusCode === 409 && /ya no está disponible/u.test(error.message)
+  );
+});
+
+test('la API expone audiencias agrupadas con conteos de cuentas activas', () => {
+  const source = createNotificationsRouter.toString();
+  assert.match(source, /router\.get\('\/audiencias'/u);
+  assert.match(source, /personas: people\.rows, perfiles: profiles\.rows, grupos: groups\.rows/u);
+  assert.match(source, /COUNT\(DISTINCT u\.id\)::int AS cuentas_activas/u);
 });
 
 test('los envíos interrumpidos dejan de aparecer eternamente como procesando', async () => {

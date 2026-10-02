@@ -9,12 +9,13 @@ const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@ldsm.local';
 const readerEmail = process.env.E2E_READER_EMAIL || (process.env.CI ? '' : 'lector@ldsm.local');
 const password = process.env.DEFAULT_USER_PASSWORD;
 
-const login = async (page, email = adminEmail) => {
+const login = async (page, email = adminEmail, destination = '/') => {
   test.skip(!password, 'DEFAULT_USER_PASSWORD no está configurada para la prueba local.');
-  await page.goto('/login');
-  await page.getByLabel('Correo electrónico').fill(email);
-  await page.locator('input[type="password"]').fill(password);
-  await page.getByRole('button', { name: 'Ingresar al sistema' }).click();
+  const response = await page.context().request.post('/api/auth/login', {
+    data: { correo: email, password },
+  });
+  expect(response.ok(), `El acceso de prueba respondió ${response.status()}.`).toBe(true);
+  await page.goto(destination);
   await expect(page).not.toHaveURL(/\/login$/);
   await dismissReleaseNotes(page);
 };
@@ -45,11 +46,72 @@ test('el acceso es usable y no presenta barreras críticas', async ({ page }) =>
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(results.violations.filter((violation) => ['critical', 'serious'].includes(violation.impact))).toEqual([]);
   await expectNoHorizontalOverflow(page);
+  await expect(page.getByLabel('Correo electrónico', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('Contraseña', { exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Mostrar contraseña', exact: true })).toHaveCount(1);
+  test.skip(!password, 'DEFAULT_USER_PASSWORD no está configurada para la prueba local.');
+  await page.getByLabel('Correo electrónico').fill(adminEmail);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Ingresar al sistema' }).click();
+  await expect(page).not.toHaveURL(/\/login$/);
+});
+
+test('el acceso vuelve a la sección solicitada y sincroniza la sesión entre pestañas', async ({ page }) => {
+  test.skip(!password, 'DEFAULT_USER_PASSWORD no está configurada para la prueba local.');
+
+  const documentsTab = await page.context().newPage();
+  await documentsTab.goto('/admin/documentos?estado=VENCIDO');
+  await expect(documentsTab).toHaveURL(/\/login$/u);
+
+  await page.goto('/admin/documentos?estado=VENCIDO');
+  await expect(page).toHaveURL(/\/login$/u);
+  await page.getByLabel('Correo electrónico').fill(adminEmail);
+  await page.getByLabel('Contraseña', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Ingresar al sistema' }).click();
+  await expect(page).toHaveURL(/\/admin\/documentos\?estado=VENCIDO$/u);
+  const sessionResponse = await page.context().request.get('/api/auth/me');
+  expect(sessionResponse.ok()).toBe(true);
+  expect(sessionResponse.headers()['cache-control']).toContain('no-store');
+
+  await page.goBack();
+  await expect(page).not.toHaveURL(/\/login$/u);
+
+  await documentsTab.bringToFront();
+  await expect(documentsTab).toHaveURL(/\/admin\/documentos\?estado=VENCIDO$/u);
+  await expect(documentsTab.getByRole('heading', { name: 'Gestión documental' })).toBeVisible();
+
+  await page.goto('/login');
+  await expect(page).not.toHaveURL(/\/login$/u);
+  await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toHaveCount(0);
+  await documentsTab.close();
+});
+
+test('un fallo temporal al verificar la sesión no expulsa a la persona', async ({ page }) => {
+  test.skip(!password, 'DEFAULT_USER_PASSWORD no está configurada para la prueba local.');
+  const loginResponse = await page.context().request.post('/api/auth/login', {
+    data: { correo: adminEmail, password },
+  });
+  expect(loginResponse.ok()).toBe(true);
+
+  let failedOnce = false;
+  await page.route('**/api/auth/me', async (route) => {
+    if (!failedOnce) {
+      failedOnce = true;
+      await route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ message: 'Límite temporal' }) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole('heading', { name: 'No pudimos verificar tu sesión' })).toBeVisible();
+  await page.getByRole('button', { name: 'Reintentar conexión' }).click();
+  await expect(page.getByRole('heading', { name: 'Gestión institucional' })).toBeVisible();
 });
 
 test('administración abre padrón, alta manual y lectura MRZ restringida', async ({ page }) => {
-  await login(page);
-  await page.goto('/admin/estudiantes');
+  await login(page, adminEmail, '/admin/estudiantes');
   await expect(page.getByRole('heading', { name: 'Personas y cursos' })).toBeVisible();
   await page.getByRole('button', { name: /Agregar estudiante/ }).click();
   await expect(page.getByRole('dialog', { name: 'Agregar estudiante manualmente' })).toBeVisible();
@@ -62,8 +124,7 @@ test('administración abre padrón, alta manual y lectura MRZ restringida', asyn
 });
 
 test('gestión documental abre expedientes y se adapta a escritorio y móvil', async ({ page }) => {
-  await login(page);
-  await page.goto('/admin');
+  await login(page, adminEmail, '/admin');
   await expect(page.getByRole('heading', { name: 'Gestión documental', exact: true })).toBeVisible();
   await expect(page.getByText('Documentación estudiantil', { exact: true })).toBeVisible();
   await expect(page.getByText('En desarrollo', { exact: true })).toHaveCount(0);
@@ -153,8 +214,7 @@ test('el changelog conserva controles visibles y contenido adaptable', async ({ 
 
 test('el terminal conserva regreso al panel y métodos operativos', async ({ page }) => {
   test.setTimeout(60_000);
-  await login(page);
-  await page.goto('/scanner');
+  await login(page, adminEmail, '/scanner');
   await expect(page.getByRole('heading', { name: 'Terminal de ingresos' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: /Panel principal/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Pistola de códigos/ })).toBeVisible();
@@ -163,8 +223,7 @@ test('el terminal conserva regreso al panel y métodos operativos', async ({ pag
 });
 
 test('seguimiento institucional conserva filtros, ayuda y adaptación responsive', async ({ page }) => {
-  await login(page);
-  await page.goto('/admin/seguimiento');
+  await login(page, adminEmail, '/admin/seguimiento');
   await expect(page.getByRole('heading', { name: 'Seguimiento institucional' })).toBeVisible();
   await page.getByRole('button', { name: 'Recorrido de seguimiento institucional' }).click();
   const helpTour = page.locator('.driver-popover');
@@ -209,8 +268,7 @@ test('seguimiento institucional conserva filtros, ayuda y adaptación responsive
 });
 
 test('chat interno abre como espacio institucional en escritorio y móvil', async ({ page }) => {
-  await login(page);
-  await page.goto('/chat');
+  await login(page, adminEmail, '/chat');
   await expect(page.getByRole('heading', { name: 'Chat interno' })).toBeVisible();
   await expect(page.getByPlaceholder('Buscar conversaciones o mensajes')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Nueva conversación' })).toBeVisible();
@@ -228,8 +286,7 @@ test('chat interno abre como espacio institucional en escritorio y móvil', asyn
 });
 
 test('la configuración de visitas es legible, accesible y conserva sus catálogos', async ({ page }) => {
-  await login(page);
-  await page.goto('/admin/visitas/configuracion');
+  await login(page, adminEmail, '/admin/visitas/configuracion');
   await expect(page.getByRole('heading', { name: 'Configuración de visitas y retiros' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Motivos de visita' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: 'Guardar reglas' })).toBeVisible();
@@ -243,8 +300,7 @@ test('la configuración de visitas es legible, accesible y conserva sus catálog
 
 test('perfil propio y directorio mantienen separación, accesibilidad y navegación', async ({ page }) => {
   test.setTimeout(120_000);
-  await login(page);
-  await page.goto('/mi-perfil');
+  await login(page, adminEmail, '/mi-perfil');
   await expect(page.getByRole('heading', { name: 'Mi perfil' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Presentación' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Perfil guardado' })).toBeDisabled();
@@ -320,7 +376,7 @@ test('perfil propio y directorio mantienen separación, accesibilidad y navegaci
 
 test('los perfiles reutilizables cumplen su ciclo de vida y Administrador permanece protegido', async ({ page }, testInfo) => {
   test.setTimeout(90_000);
-  await login(page);
+  await login(page, adminEmail, '/admin/usuarios');
   const profileName = `Perfil QA ${testInfo.project.name} ${Date.now()}`;
   let profileCode = '';
   try {
@@ -392,8 +448,7 @@ test('los perfiles reutilizables cumplen su ciclo de vida y Administrador perman
 
 test('el perfil propio persiste los cambios y permite restaurar el valor original', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'escritorio', 'La escritura controlada se ejecuta una sola vez para evitar carreras entre proyectos.');
-  await login(page);
-  await page.goto('/mi-perfil');
+  await login(page, adminEmail, '/mi-perfil');
   const biography = page.getByLabel('Descripción');
   const originalBiography = await biography.inputValue();
   const temporaryBiography = `Verificación temporal de persistencia ${Date.now()}`;
@@ -443,14 +498,19 @@ test('recupera automáticamente una sección cuando su archivo versionado quedó
 });
 
 test('la analítica institucional es explicable, exportable y adaptable', async ({ page }, testInfo) => {
-  await login(page);
-  await page.goto('/admin/analiticas');
+  await login(page, adminEmail, '/admin/analiticas');
   await expect(page.getByRole('heading', { name: 'Estadísticas de puntualidad' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('heading', { name: 'Analítica explicable' })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('heading', { name: 'Alertas con explicación' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Reportes automáticos' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'PDF' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excel' })).toBeVisible();
+
+  // El día actual puede no tener ingresos todavía. El smoke usa una ventana
+  // operativa con datos sin asumir que el colegio ya registró actividad hoy.
+  const periodResponse = page.waitForResponse((response) => response.url().includes('/api/puntualidad/analitica'));
+  await page.getByRole('button', { name: 'Últimos 30 días' }).click();
+  await periodResponse;
 
   const courseBreakdownPanel = page.locator('[data-tour="analytics-breakdowns"] article').filter({
     has: page.getByRole('heading', { name: 'Atrasos por curso', exact: true }),
@@ -504,6 +564,23 @@ test('la analítica institucional es explicable, exportable y adaptable', async 
   const pdf = Buffer.from(fs.readFileSync(pdfPath));
   expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   expect(pdf.length).toBeGreaterThan(5_000);
+
+  const excelDownloadPromise = page.waitForEvent('download');
+  const excelRequestPromise = page.waitForRequest((request) => request.url().includes('/api/analitica/institucional/exportar'));
+  await page.getByRole('button', { name: 'Excel' }).click();
+  const excelRequest = await excelRequestPromise;
+  const excelUrl = new URL(excelRequest.url());
+  expect(excelUrl.searchParams.get('formato')).toBe('xlsx');
+  expect(excelUrl.searchParams.get('id_curso')).toBe(exportUrl.searchParams.get('id_curso'));
+  expect(excelUrl.searchParams.get('desde')).toBe(exportUrl.searchParams.get('desde'));
+  expect(excelUrl.searchParams.get('hasta')).toBe(exportUrl.searchParams.get('hasta'));
+  const excelDownload = await excelDownloadPromise;
+  expect(excelDownload.suggestedFilename()).toMatch(/^analitica-institucional-.*\.xlsx$/u);
+  const excelPath = testInfo.outputPath('analitica-filtrada.xlsx');
+  await excelDownload.saveAs(excelPath);
+  const workbook = Buffer.from(fs.readFileSync(excelPath));
+  expect(workbook.subarray(0, 2).toString('ascii')).toBe('PK');
+  expect(workbook.length).toBeGreaterThan(10_000);
 
   await expectNoHorizontalOverflow(page);
   await expectSpanishTextIsWellEncoded(page);

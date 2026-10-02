@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { buildContextChatUrl, safeInternalPath } from '../src/utils/chatContext.js';
+import { buildContextChatUrl, contextQueryFromConversation, safeInternalPath } from '../src/utils/chatContext.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -18,7 +18,7 @@ test('seguimiento institucional ofrece operación completa y coordinación', () 
   assert.match(source, /vencidos/u);
   assert.match(source, /sin_responsable/u);
   assert.match(source, /Configurar reglas/u);
-  assert.match(source, /Revisar ahora/u);
+  assert.match(source, /Previsualizar reglas/u);
   assert.match(source, /automatizaciones\/previsualizar/u);
   assert.match(source, /Confirmar creación de seguimientos/u);
   assert.match(source, /No pudimos cargar los seguimientos/u);
@@ -90,10 +90,21 @@ test('el chat contextual conserva un retorno interno seguro y cubre los módulos
   assert.equal(safeInternalPath('https://sitio-externo.example'), '/admin');
   assert.equal(safeInternalPath('//sitio-externo.example'), '/admin');
   assert.equal(safeInternalPath('/admin/convivencia/8'), '/admin/convivencia/8');
+  const persistedContext = contextQueryFromConversation({
+    contexto_tipo: 'DOCUMENTO',
+    contexto_id: 51,
+    titulo: 'Autorización anual'
+  });
+  assert.match(persistedContext, /^\?contexto_tipo=DOCUMENTO/u);
+  assert.match(persistedContext, /origen=%2Fadmin%2Fdocumentos%2Fficha%2F51/u);
 
   const chat = read('src/InternalChat.jsx');
   assert.match(chat, /chat-context-banner/u);
+  assert.match(chat, /aria-labelledby="chat-create-title"/u);
+  assert.match(chat, /aria-modal="true"/u);
   assert.match(chat, /contextualQuery/u);
+  assert.match(chat, /contextQueryFromConversation\(conversation\)/u);
+  assert.match(chat, /contextQueryFromConversation\(result\)/u);
   assert.match(chat, /onReturnToOrigin/u);
   assert.match(chat, /searchParams\.get\('contexto_id'\) && !conversationId/u);
   assert.match(read('src/SchoolCoexistence.jsx'), /type: 'CONVIVENCIA'/u);
@@ -196,4 +207,13 @@ test('Convivencia explica sus avisos automáticos y mantiene ayuda completa en l
   assert.match(tours, /evita repetir el mismo aviso mientras el problema siga abierto/u);
   assert.match(tours, /Responsabilidad y próxima revisión/u);
   assert.match(tours, /Personas y documentos protegidos/u);
+});
+
+test('Convivencia conserva campos relacionados durante una edición rápida', () => {
+  const coexistenceSource = read('src/SchoolCoexistence.jsx');
+  assert.match(coexistenceSource, /const updateFormValue = \(setter, field\)/u);
+  assert.match(coexistenceSource, /setter\(\(current\) => \(\{ \.\.\.current, \[field\]: value \}\)\)/u);
+  assert.doesNotMatch(coexistenceSource, /setForm\(\{ \.\.\.form,/u);
+  assert.doesNotMatch(coexistenceSource, /setEventForm\(\{ \.\.\.eventForm,/u);
+  assert.doesNotMatch(coexistenceSource, /setCaseForm\(\{ \.\.\.caseForm,/u);
 });

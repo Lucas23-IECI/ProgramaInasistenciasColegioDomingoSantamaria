@@ -13,10 +13,23 @@ const operationsSource = fs.readFileSync(
 );
 
 test('la preinscripción captura ambas fechas visibles antes de enviar la credencial', () => {
-  assert.match(operationsSource, /querySelectorAll\([\s\S]{0,80}\.extended-operations input\[type="datetime-local"\]/u);
-  assert.match(operationsSource, /valida_desde: dateFields\[0\]\?\.value \|\| form\.valida_desde/u);
-  assert.match(operationsSource, /valida_hasta: dateFields\[1\]\?\.value \|\| form\.valida_hasta/u);
+  assert.match(operationsSource, /const payload = \{ \.\.\.form \}/u);
+  assert.doesNotMatch(operationsSource, /document\.querySelectorAll/u);
   assert.match(operationsSource, /axios\.post\(`\$\{API_URL\}\/visitas\/preinscripciones`, payload\)/u);
+});
+
+test('la operación ampliada no convierte una caída del servidor en listas vacías', () => {
+  assert.match(operationsSource, /const \[loadError, setLoadError\] = useState\(""\)/u);
+  assert.match(operationsSource, /setData\(initialData\)/u);
+  assert.match(source, /No pudimos confirmar la operación ampliada/u);
+  assert.match(source, /formularios permanecen bloqueados/u);
+  assert.match(source, /visitorSearchError/u);
+});
+
+test('la validación QR explica por qué una credencial no puede utilizarse', () => {
+  assert.match(source, /qrResult\.bloqueo_acceso === "BLOQUEO"/u);
+  assert.match(source, /Inspectoría debe autorizarlo antes de continuar/u);
+  assert.match(source, /alcanzó su límite de uso/u);
 });
 
 test('la credencial temporal ofrece QR e impresión sin exponer el token en listados', () => {

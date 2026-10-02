@@ -52,6 +52,23 @@ test('la ayuda de estadísticas explica los controles, el gráfico, el alcance y
   assert.match(tours, /Evolución diaria interactiva/u);
   assert.match(tours, /PDF y Excel conservan el período, curso, justificación y severidad visibles/u);
   assert.match(tours, /No reutiliza filtros temporales/u);
+  assert.match(tours, /sin confundirla con cero resultados/u);
+});
+
+test('la analítica diferencia errores recuperables de resultados vacíos y descarta respuestas antiguas', () => {
+  assert.match(source, /const \[analyticsError, setAnalyticsError\]/u);
+  assert.match(source, /const \[institutionalError, setInstitutionalError\]/u);
+  assert.match(source, /const \[schedulesError, setSchedulesError\]/u);
+  assert.match(source, /const \[executionsError, setExecutionsError\]/u);
+  assert.match(source, /analyticsRequestRef/u);
+  assert.match(source, /institutionalRequestRef/u);
+  assert.match(source, /executionsRequestRef/u);
+  assert.match(source, /No pudimos calcular las estadísticas/u);
+  assert.match(source, /No pudimos cargar la visión institucional/u);
+  assert.match(source, /No pudimos cargar los reportes programados/u);
+  assert.match(source, /No pudimos cargar el historial/u);
+  assert.match(source, /role="alert"/u);
+  assert.match(source, /Reintentar/u);
 });
 
 test('cada indicador enlaza su conjunto real y conserva los filtros del análisis', () => {

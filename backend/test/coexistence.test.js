@@ -5,6 +5,7 @@ const path = require('path');
 
 const {
   createCoexistenceRouter,
+  isDate,
   validateParticipant
 } = require('../routes/coexistence');
 
@@ -107,6 +108,15 @@ test('los casos no se eliminan y los cerrados bloquean nuevas modificaciones', (
   assert.doesNotMatch(router, /router\.delete|DELETE FROM convivencia_/i);
   assert.match(router, /no admite cambios mientras se encuentre cerrado o anulado/i);
   assert.match(router, /SELECT id_caso, codigo, estado, version FROM convivencia_casos[\s\S]*FOR UPDATE/);
+});
+
+test('rechaza fechas de calendario inexistentes antes de consultar PostgreSQL', () => {
+  assert.equal(isDate('2026-08-29'), true);
+  assert.equal(isDate('2028-02-29'), true);
+  assert.equal(isDate('2026-02-29'), false);
+  assert.equal(isDate('2026-00-10'), false);
+  assert.equal(isDate('29/08/2026'), false);
+  assert.equal(isDate(null), true);
 });
 
 test('el listado protegido acepta desgloses explicables provenientes de Analítica', () => {

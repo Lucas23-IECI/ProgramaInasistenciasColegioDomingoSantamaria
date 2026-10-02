@@ -8,6 +8,7 @@ const { readBackupStatus } = require('../routes/operations');
 const {
   reconcileCoexistenceAlertState,
   runCoexistenceAlerts,
+  runPendingOperationAlerts,
   runOperationalAlerts
 } = require('../services/operationalAlertService');
 
@@ -57,6 +58,11 @@ test('un respaldo vencido genera un solo aviso urgente por destinatario y día',
       if (/SELECT id FROM usuarios/u.test(sql)) return { rows: [{ id: 2 }, { id: 4 }] };
       if (/SELECT c\.id_caso/u.test(sql)) return { rows: [] };
       if (/SELECT u\.id/u.test(sql) && /convivencia\.view/u.test(sql)) return { rows: [] };
+      if (/SELECT u\.id/u.test(sql) && /operations\.view/u.test(sql)) return { rows: [] };
+      if (/FROM retiros_alumno/u.test(sql)) return { rows: [] };
+      if (/FROM visitas v/u.test(sql)) return { rows: [] };
+      if (/FROM eventos_operacionales/u.test(sql)) return { rows: [] };
+      if (/FROM alumno a/u.test(sql)) return { rows: [] };
       if (/UPDATE alertas_operacionales_estado/u.test(sql)) return { rowCount: 0, rows: [] };
       if (/INSERT INTO notificaciones_internas/u.test(sql)) {
         inserts.push(params);
@@ -74,11 +80,76 @@ test('un respaldo vencido genera un solo aviso urgente por destinatario y día',
     notified: 2,
     backupNotified: 2,
     coexistenceNotified: 0,
-    coexistenceSignals: 0
+    coexistenceSignals: 0,
+    operationNotified: 0,
+    operationSignals: 0
   });
   assert.equal(inserts.length, 2);
   assert.equal(inserts.every((params) => /operacion:respaldo:2026-08-24:/u.test(params[6])), true);
   assert.equal(realtime.every((entry) => entry.event === 'institutional-notification' && entry.payload.priority === 'URGENTE'), true);
+});
+
+test('las pendientes operacionales avisan una vez por ciclo y enlazan el registro exacto', async () => {
+  let snapshot = {
+    withdrawals: [{ id: 21, estado: 'AUTORIZADO', solicitado_en: '2026-08-27T10:00:00Z', decidido_en: '2026-08-27T10:10:00Z' }],
+    visits: [{ id: 31, ingreso_en: '2026-08-27T07:00:00Z', max_horas_visita: 8 }],
+    conflicts: [{ id: 41, ocurrido_en: '2026-08-27T09:00:00Z', detalle: { filas_pendientes: 3 } }],
+    students: [{ id_alumno: 51, creado_manualmente_en: '2026-08-25T09:00:00Z' }]
+  };
+  const cycles = new Map();
+  const deliveredKeys = new Set();
+  const delivered = [];
+  const pool = {
+    query: async (sql, params = []) => {
+      const query = String(sql);
+      if (/operations\.view/u.test(query)) return { rows: [{ id: 8 }] };
+      if (/FROM retiros_alumno/u.test(query)) return { rows: snapshot.withdrawals };
+      if (/FROM visitas v/u.test(query)) return { rows: snapshot.visits };
+      if (/FROM eventos_operacionales/u.test(query)) return { rows: snapshot.conflicts };
+      if (/FROM alumno a/u.test(query)) return { rows: snapshot.students };
+      if (/INSERT INTO alertas_operacionales_estado/u.test(query)) {
+        const previous = cycles.get(params[0]);
+        const next = previous?.active ? previous.cycle : (previous?.cycle || 0) + 1;
+        cycles.set(params[0], { cycle: next, active: true });
+        return { rowCount: 1, rows: [{ ciclo: next }] };
+      }
+      if (/INSERT INTO notificaciones_internas/u.test(query)) {
+        const key = `${params[0]}:${params[6]}`;
+        if (deliveredKeys.has(key)) return { rowCount: 0, rows: [] };
+        deliveredKeys.add(key);
+        delivered.push({ type: params[2], link: params[5], key: params[6] });
+        return { rowCount: 1, rows: [{ id_notificacion: delivered.length, creada_en: '2026-08-27T12:00:00Z' }] };
+      }
+      if (/UPDATE alertas_operacionales_estado/u.test(query)) {
+        const activeKeys = new Set(params[1]);
+        for (const [key, value] of cycles.entries()) {
+          if (!activeKeys.has(key)) cycles.set(key, { ...value, active: false });
+        }
+        return { rowCount: 1, rows: [] };
+      }
+      throw new Error(`Consulta inesperada: ${query.replace(/\s+/g, ' ').slice(0, 100)}`);
+    }
+  };
+
+  const first = await runPendingOperationAlerts(pool);
+  const repeated = await runPendingOperationAlerts(pool);
+  assert.deepEqual(first, { notified: 4, signals: 4 });
+  assert.deepEqual(repeated, { notified: 0, signals: 4 });
+  assert.deepEqual(new Set(delivered.map((item) => item.type)), new Set([
+    'RETIRO_PENDIENTE',
+    'VISITA_PERMANENCIA_EXCESIVA',
+    'CONFLICTO_IMPORTACION',
+    'ESTUDIANTE_MANUAL_SIN_ERP'
+  ]));
+  assert.equal(delivered.some((item) => item.link === '/admin/visitas?tab=retiros&retiro_id=21'), true);
+  assert.equal(delivered.some((item) => item.link === '/admin/visitas?tab=historial&visita_id=31'), true);
+
+  snapshot = { withdrawals: [], visits: [], conflicts: [], students: [] };
+  await runPendingOperationAlerts(pool);
+  snapshot.withdrawals = [{ id: 21, estado: 'SOLICITADO', solicitado_en: '2026-08-28T10:00:00Z', decidido_en: null }];
+  const recurrence = await runPendingOperationAlerts(pool);
+  assert.deepEqual(recurrence, { notified: 1, signals: 1 });
+  assert.equal(delivered.at(-1).key.endsWith(':ciclo:2'), true);
 });
 
 test('Convivencia avisa una vez por ciclo y vuelve a avisar solo después de resolver y reaparecer', async () => {
@@ -87,6 +158,7 @@ test('Convivencia avisa una vez por ciclo y vuelve a avisar solo después de res
     codigo: 'CE-2026-000009',
     prioridad: 'ALTA',
     proxima_revision: '2026-08-20',
+    revision_vencida: true,
     responsable_usuario_id: 5,
     responsable_activo: true,
     responsable_eliminado_en: null
@@ -95,6 +167,7 @@ test('Convivencia avisa una vez por ciclo y vuelve a avisar solo después de res
     codigo: 'CE-2026-000012',
     prioridad: 'URGENTE',
     proxima_revision: null,
+    revision_vencida: false,
     responsable_usuario_id: null,
     responsable_activo: null,
     responsable_eliminado_en: null
@@ -142,6 +215,20 @@ test('Convivencia avisa una vez por ciclo y vuelve a avisar solo después de res
   assert.equal(delivered.every((item) => !/relato|descripci[oó]n inicial/iu.test(item.detail)), true);
   assert.equal(realtime.length, 3);
 
+  cases = [{
+    id_caso: 14,
+    codigo: 'CE-2026-000014',
+    prioridad: 'URGENTE',
+    proxima_revision: '2026-09-30',
+    revision_vencida: false,
+    responsable_usuario_id: null,
+    responsable_activo: null,
+    responsable_eliminado_en: null
+  }];
+  const futureReview = await runCoexistenceAlerts(pool, options);
+  assert.deepEqual(futureReview, { notified: 2, signals: 1 });
+  assert.equal(delivered.slice(-2).every((item) => item.type === 'CONVIVENCIA_URGENTE_SIN_RESPONSABLE'), true);
+
   cases = [];
   await runCoexistenceAlerts(pool, options);
   cases = [{
@@ -149,6 +236,7 @@ test('Convivencia avisa una vez por ciclo y vuelve a avisar solo después de res
     codigo: 'CE-2026-000012',
     prioridad: 'URGENTE',
     proxima_revision: null,
+    revision_vencida: false,
     responsable_usuario_id: null,
     responsable_activo: null,
     responsable_eliminado_en: null

@@ -8,7 +8,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const roots = ['frontend', 'backend', 'docs', 'scripts', 'questionnaires', '.github'];
 const excludedDirectories = new Set([
   '.git', 'node_modules', 'dist', 'test-results', 'playwright-report',
-  'backups', 'uploads', 'certs', 'coverage',
+  'backups', 'uploads', 'certs', 'coverage', 'output',
 ]);
 const extensions = new Set([
   '.css', '.html', '.js', '.jsx', '.json', '.md', '.mjs', '.ps1', '.sh',

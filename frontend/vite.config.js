@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  // Mantiene el mismo root cuando Windows abre el proyecto mediante una junction.
+  root: fileURLToPath(new URL('.', import.meta.url)),
   plugins: [react()],
   cssMinify: 'lightningcss',
   build: {

@@ -50,13 +50,20 @@ const metrics = {
 // iniciales representan lo que el navegador solicita antes de abrir un módulo.
 const budgets = {
   largestScript: 550 * 1024,
-  totalScripts: 2120 * 1024,
+  // Recursos internos agrega un módulo diferido propio (aprox. 28 KB), sin
+  // cargar su interfaz ni sus estilos en el arranque de la aplicación.
+  // +3 KiB para el anuncio accionable del chat, permisos y foco por teclado.
+  // No se amplían los límites de descarga comprimida ni de carga inicial.
+  totalScripts: 2188 * 1024,
   totalScriptsGzip: 650 * 1024,
-  productScripts: 1250 * 1024,
+  // Incluye las barreras de sesión concurrente y los mismos 3 KiB del anuncio.
+  productScripts: 1255 * 1024,
   productScriptsGzip: 380 * 1024,
   deferredTools: 970 * 1024,
   deferredToolsGzip: 300 * 1024,
-  totalStyles: 460 * 1024,
+  // Incluye los tokens y estados accesibles para ambos temas en los módulos
+  // operativos; el CSS inicial continúa controlado por su presupuesto propio.
+  totalStyles: 495 * 1024,
   initialScripts: 520 * 1024,
   initialStyles: 380 * 1024,
   initialScriptsGzip: 175 * 1024,

@@ -60,3 +60,16 @@ test('los límites configurables rechazan valores inseguros o inválidos', () =>
   assert.equal(parsePositiveInteger('0', 1800), 1800);
   assert.equal(parsePositiveInteger('texto', 300), 300);
 });
+
+test('el valor predeterminado tolera paneles autenticados sin relajar el tráfico anónimo', () => {
+  const options = createApiRateLimitOptions({ jwtSecret: JWT_SECRET });
+  const authenticated = {
+    cookies: { token: jwt.sign({ id: 21 }, JWT_SECRET) },
+    ip: '10.10.0.21',
+    path: '/operaciones/bandeja'
+  };
+  const anonymous = { cookies: {}, ip: '10.10.0.22', path: '/operaciones/bandeja' };
+
+  assert.equal(options.limit(authenticated), 6000);
+  assert.equal(options.limit(anonymous), 300);
+});

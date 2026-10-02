@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - test
+      - testing
 
 permissions:
   contents: read
@@ -34,8 +35,8 @@ jobs:
         run: npm ci
       - name: Revisar sintaxis
         run: npm run check
-      - name: Ejecutar pruebas
-        run: npm test
+      - name: Ejecutar pruebas con umbrales de cobertura
+        run: npm run test:coverage
       - name: Auditar dependencias de produccion
         run: npm audit --omit=dev --audit-level=moderate
 
@@ -107,6 +108,10 @@ jobs:
   e2e:
     name: Flujos críticos en escritorio y móvil
     runs-on: ubuntu-latest
+    env:
+      FRONTEND_PORT: 8082
+      CORS_ORIGIN: http://127.0.0.1:8082
+      E2E_BASE_URL: http://127.0.0.1:8082
     steps:
       - name: Descargar repositorio
         uses: actions/checkout@v4
@@ -123,7 +128,7 @@ jobs:
       - name: Esperar servicios saludables
         run: |
           for intento in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1/api/health >/dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:8082/api/health >/dev/null; then exit 0; fi
             sleep 3
           done
           docker compose ps
@@ -134,13 +139,18 @@ jobs:
       - name: Instalar dependencias E2E
         working-directory: frontend
         run: npm ci
+      - name: Instalar navegador y dependencias de Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
       - name: Ejecutar regresión E2E
         working-directory: frontend
         env:
           E2E_ADMIN_EMAIL: qa.visitas@ldsm.local
-        run: npm run test:e2e
-      - name: Publicar evidencia de fallos
-        if: failure()
+          E2E_BROWSER_CHANNEL: chromium
+          E2E_ISOLATED_IMPORT: '1'
+        run: npm run test:e2e -- --workers=1
+      - name: Publicar evidencia de la regresión
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: evidencia-playwright

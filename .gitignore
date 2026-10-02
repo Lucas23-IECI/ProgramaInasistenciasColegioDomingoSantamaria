@@ -12,6 +12,7 @@ build/
 coverage/
 frontend/test-results/
 frontend/playwright-report/
+frontend/output/
 .playwright-cli/
 /tmp/
 /output/
@@ -51,3 +52,7 @@ docs/NUEVAS_FUNCIONALIDADES_MAYO.md
 # Certificados privados para HTTPS en la red interna
 /certs/*
 !/certs/.gitkeep
+
+# Instalacion HTTPS local: claves, rollback con secretos y override persistente.
+/.https-lan/
+/docker-compose.override.yml

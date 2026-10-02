@@ -53,11 +53,15 @@ const { createAnalyticsRouter } = require('./routes/analytics');
 const { createFollowUpRouter } = require('./routes/followUp');
 const { createInternalChatRouter } = require('./routes/internalChat');
 const { createNotificationsRouter } = require('./routes/notifications');
+const { createGlobalSearchRouter } = require('./routes/globalSearch');
+const { createAgendaRouter } = require('./routes/agenda');
+const { createResourcesRouter } = require('./routes/resources');
 const { startInstitutionalReportScheduler } = require('./services/institutionalReportScheduler');
 const { startInstitutionalFollowUpScheduler } = require('./services/institutionalFollowUpService');
 const { createChatRealtimeHub } = require('./services/chatRealtimeHub');
 const { startChatRetentionScheduler } = require('./services/chatRetentionService');
 const { startOperationalAlertScheduler } = require('./services/operationalAlertService');
+const { startAgendaReminderScheduler } = require('./services/agendaReminderService');
 const {
   syncInstitutionalChannels,
   startInstitutionalChannelSyncScheduler
@@ -841,6 +845,31 @@ app.use('/api/chat', createInternalChatRouter({
   realtimeHub: chatRealtimeHub
 }));
 
+app.use('/api/busqueda-global', createGlobalSearchRouter({
+  pool,
+  verifyToken,
+  insertarAudit,
+  getClientIp
+}));
+
+app.use('/api/agenda', createAgendaRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp,
+  realtimeHub: chatRealtimeHub
+}));
+
+app.use('/api/recursos', createResourcesRouter({
+  pool,
+  verifyToken,
+  verifyPermission,
+  insertarAudit,
+  getClientIp,
+  realtimeHub: chatRealtimeHub
+}));
+
 const bootstrapBaseSchema = async () => {
   const tableExists = await pool.query("SELECT to_regclass('alumno') AS exists");
   if (tableExists.rows[0]?.exists) return false;
@@ -1044,6 +1073,7 @@ const startServer = async () => {
     startChatRetentionScheduler(pool);
     startInstitutionalChannelSyncScheduler(pool);
     startOperationalAlertScheduler(pool, { readBackupStatus, realtimeHub: chatRealtimeHub });
+    startAgendaReminderScheduler(pool, { realtimeHub: chatRealtimeHub });
   });
 };
 

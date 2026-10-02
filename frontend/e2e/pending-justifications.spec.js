@@ -5,6 +5,17 @@ import { dismissReleaseNotes } from './helpers.js';
 const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@ldsm.local';
 const password = process.env.DEFAULT_USER_PASSWORD;
 
+// Es una prueba de presentación: no depende de que queden atrasos sin justificar
+// en el período móvil de la base local, ni crea registros institucionales.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/puntualidad/justificaciones-pendientes**', (route) => route.fulfill({ json: {
+    registros: [{ id_registro: 880001, alumno_id: 880001, nombres: 'Estudiante', paterno: 'de prueba',
+      curso: '1° Medio', fecha: new Date().toISOString().slice(0, 10), hora: '08:15:00',
+      estado: 'Atrasado', severidad: 'LEVE', minutos_atraso: 15, justificado: false, control_nombre: 'Ingreso' }],
+    total: 1, paginas: 1, pagina: 1
+  } }));
+});
+
 const login = async (page) => {
   test.skip(!password, 'DEFAULT_USER_PASSWORD no está configurada para la prueba local.');
   await page.goto('/login');

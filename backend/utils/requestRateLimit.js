@@ -36,7 +36,9 @@ const createApiRateLimitOptions = ({
   if (!jwtSecret) throw new Error('jwtSecret es obligatorio para configurar el limitador de API.');
 
   const resolveIdentity = createIdentityResolver(jwtSecret);
-  const maxAuthenticated = parsePositiveInteger(authenticatedLimit, 1800);
+  // Notificaciones, chat y paneles consultan en paralelo. El límite sigue
+  // siendo individual por usuario, pero tolera una jornada intensiva normal.
+  const maxAuthenticated = parsePositiveInteger(authenticatedLimit, 6000);
   const maxAnonymous = parsePositiveInteger(anonymousLimit, 300);
 
   return {

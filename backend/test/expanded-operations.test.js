@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { blockingRestrictionType } = require('../routes/visitsExtended');
 
 const root = path.resolve(__dirname, '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -23,6 +24,17 @@ test('la credencial temporal almacena un hash y controla vigencia y cantidad de 
   assert.doesNotMatch(route, /INSERT INTO visita_preinscripciones[\s\S]{0,300}\btoken\b\s*,/u);
 });
 
+test('la credencial temporal nunca elude una autorización o bloqueo vigente', () => {
+  const route = read('routes/visitsExtended.js');
+  assert.equal(blockingRestrictionType([{ tipo: 'ALERTA' }]), null);
+  assert.equal(blockingRestrictionType([{ tipo: 'REQUIERE_AUTORIZACION' }]), 'REQUIERE_AUTORIZACION');
+  assert.equal(blockingRestrictionType([{ tipo: 'ALERTA' }, { tipo: 'BLOQUEO' }]), 'BLOQUEO');
+  assert.match(route, /tipo IN \('BLOQUEO', 'REQUIERE_AUTORIZACION'\)/u);
+  assert.match(route, /VISITOR_AUTHORIZATION_REQUIRED/u);
+  assert.match(route, /bloqueo_acceso: accessRestriction/u);
+  assert.match(route, /vm\.nombre AS motivo_nombre, vd\.nombre AS destino_nombre/u);
+});
+
 test('Portería ampliada protege restricciones, vehículos y emergencias con permisos específicos', () => {
   const route = read('routes/visitsExtended.js');
   assert.match(route, /verifyPermission\('visits\.restrictions\.manage'\)/u);
@@ -30,6 +42,11 @@ test('Portería ampliada protege restricciones, vehículos y emergencias con per
   assert.match(route, /verifyPermission\('visits\.emergency\.manage'\)/u);
   assert.match(route, /CREAR_RESTRICCION_VISITA/u);
   assert.match(route, /INICIAR_EMERGENCIA_VISITA/u);
+  assert.match(route, /SELECT id, estado FROM visitas WHERE id = \$1 FOR UPDATE/u);
+  assert.match(route, /Solo puedes vincular vehículos a una visita que todavía está dentro/u);
+  assert.match(route, /SELECT id FROM visita_emergencias WHERE id=\$1 AND estado='ACTIVA' FOR UPDATE/u);
+  assert.match(route, /La emergencia ya no está activa/u);
+  assert.match(route, /GUARDAR_PUNTO_REUNION_VISITA/u);
 });
 
 test('el registro manual no permite eludir restricciones vigentes', () => {
