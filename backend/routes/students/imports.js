@@ -2,6 +2,7 @@ const {
   shouldPreserveRegularizedRun,
   syncStudentIdentifiers
 } = require('../../services/studentIdentifierService');
+const { studentImportErrorMessage } = require('../../utils/studentImportErrors');
 
 const registerStudentImportRoutes = (context) => {
   const {
@@ -72,6 +73,7 @@ const registerStudentImportRoutes = (context) => {
 app.post('/api/students/import-preview', verifyToken, verifyPermission('students.import'), async (req, res) => {
   const rows = Array.isArray(req.body?.students) ? req.body.students : [];
   const importMode = validateImportMode(req.body?.import_mode);
+  const fileHash = sanitizeStudentText(req.body?.file_hash, 128);
   if (!rows.length || rows.length > 5000) {
     return res.status(400).json({ message: 'La previsualización requiere entre 1 y 5.000 filas.' });
   }
@@ -87,7 +89,7 @@ app.post('/api/students/import-preview', verifyToken, verifyPermission('students
     const importedErpIds = preview.rows.map((row) => row.uuid_erp).filter(Boolean);
     const missingStudents = importMode === 'COMPLETA'
       ? (await pool.query(
-        `SELECT a.id_alumno, a.rut, a.dv,
+        `SELECT a.id_alumno, a.rut, a.dv, m.id_curso,
                 CONCAT_WS(' ', a.nombres, a.paterno, a.materno) AS nombre,
                 c.nombre_curso AS curso, a.origen_alta
          FROM alumno a
@@ -105,12 +107,20 @@ app.post('/api/students/import-preview', verifyToken, verifyPermission('students
         [importedErpIds, importedRuts]
       )).rows
       : [];
+    const previousImport = fileHash ? await pool.query(
+      `SELECT id, nombre_archivo, estado, importado_en
+       FROM importaciones_estudiantes
+       WHERE hash_archivo = $1 AND estado <> 'REVERTIDA'
+       ORDER BY importado_en DESC LIMIT 1`,
+      [fileHash]
+    ) : { rows: [] };
     res.json({
       ...preview,
       import_mode: importMode,
       missing_students: missingStudents,
       manual_students_preserved: importMode === 'COMPLETA',
       courses: courses.rows,
+      previous_import: previousImport.rows[0] || null,
       requires_resolution: preview.summary.suggested
         + preview.summary.unknown
         + preview.summary.conflicts > 0,
@@ -140,12 +150,28 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
   const confirmNewCourses = req.body?.confirm_new_courses === true;
   const importMode = validateImportMode(req.body?.import_mode);
   const confirmMissingDeactivation = req.body?.confirm_missing_deactivation === true;
+  const confirmRepeatImport = req.body?.confirm_repeat_import === true;
   const fileName = sanitizeStudentText(req.body?.file_name || 'Planilla ERP sin nombre', 255);
   const fileHash = sanitizeStudentText(
     req.body?.file_hash
       || createHash('sha256').update(JSON.stringify(rows)).digest('hex'),
     128
   );
+
+  const previousImport = await pool.query(
+    `SELECT id, nombre_archivo, estado, importado_en
+     FROM importaciones_estudiantes
+     WHERE hash_archivo = $1 AND estado <> 'REVERTIDA'
+     ORDER BY importado_en DESC LIMIT 1`,
+    [fileHash]
+  );
+  if (previousImport.rowCount && !confirmRepeatImport) {
+    return res.status(409).json({
+      code: 'DUPLICATE_IMPORT_FILE',
+      message: 'Esta misma planilla ya fue importada. Revise el historial antes de confirmar una repetición.',
+      previous_import: previousImport.rows[0]
+    });
+  }
 
   const coursesResult = await pool.query(
     'SELECT id_curso, nombre_curso FROM curso ORDER BY nombre_curso'
@@ -204,7 +230,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
   const importedErpIds = preview.rows.map((row) => row.uuid_erp).filter(Boolean);
   const missingStudents = importMode === 'COMPLETA'
     ? (await pool.query(
-      `SELECT a.id_alumno, a.rut, a.dv,
+      `SELECT a.id_alumno, a.rut, a.dv, m.id_curso,
               CONCAT_WS(' ', a.nombres, a.paterno, a.materno) AS nombre,
               c.nombre_curso AS curso
        FROM alumno a
@@ -236,6 +262,25 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
   try {
     await client.query('BEGIN');
 
+    // Serializa cargas del mismo archivo para que dos solicitudes simultáneas
+    // no puedan superar a la vez la verificación de duplicado.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [fileHash]);
+    const duplicateInsideTransaction = await client.query(
+      `SELECT id, nombre_archivo, estado, importado_en
+       FROM importaciones_estudiantes
+       WHERE hash_archivo = $1 AND estado <> 'REVERTIDA'
+       ORDER BY importado_en DESC LIMIT 1`,
+      [fileHash]
+    );
+    if (duplicateInsideTransaction.rowCount && !confirmRepeatImport) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        code: 'DUPLICATE_IMPORT_FILE',
+        message: 'Esta misma planilla acaba de ser importada por otra solicitud. Revisa el historial antes de repetirla.',
+        previous_import: duplicateInsideTransaction.rows[0]
+      });
+    }
+
     const summary = {
       total: rows.length,
       inserted: 0,
@@ -249,8 +294,9 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
     };
     const importRecord = await client.query(
       `INSERT INTO importaciones_estudiantes (
-         nombre_archivo, hash_archivo, modo, estado, total_filas, importado_por
-       ) VALUES ($1, $2, $3, 'COMPLETADA', $4, $5)
+         nombre_archivo, hash_archivo, modo, estado, total_filas, importado_por,
+         version_reversion
+       ) VALUES ($1, $2, $3, 'COMPLETADA', $4, $5, 1)
        RETURNING id`,
       [fileName, fileHash, importMode, rows.length, req.user.id]
     );
@@ -260,6 +306,8 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
     for (let index = 0; index < rows.length; index++) {
       const excelRowNumber = index + 2;
       const rowSavepoint = `students_sync_row_${index}`;
+      const countsBeforeRow = Object.fromEntries(Object.entries(summary).filter(([, value]) => typeof value === 'number'));
+      const warningsBeforeRow = summary.warnings.length;
       await client.query(`SAVEPOINT ${rowSavepoint}`);
 
       try {
@@ -339,7 +387,9 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
         const seccion = seccionInput || null;
         const genero = generoInput || null;
         const fechaNacimiento = normalizeDateInput(nacimientoInput);
-        const username = userUsername || (nombresInput.charAt(0) + paterno).toLowerCase().replace(/\s+/g, '');
+        // El usuario ERP es opcional. Inventarlo a partir del nombre produce
+        // colisiones entre personas distintas y sobrescribe valores existentes.
+        const username = sanitizeStudentText(userUsername, 100) || null;
         // 3. RESOLVE COURSE
         let courseId = null;
         if (cursoInput) {
@@ -379,7 +429,8 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
         const matchedStudentId = previewRow?.existing_student?.id_alumno || null;
         const studentLookup = matchedStudentId
           ? await client.query(
-            `SELECT a.*, c.nombre_curso AS grade,
+            `SELECT a.*, c.nombre_curso AS grade, m.id_curso AS grade_id,
+                    s.raw_payload AS previous_excel_snapshot,
                     primary_identifier.tipo AS primary_identifier_type,
                     COALESCE(s.raw_payload = $2::jsonb, false) AS sin_cambios
              FROM alumno a
@@ -419,6 +470,17 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
           email: existing.email,
           telefono: existing.telefono,
           grade: existing.grade,
+          grade_id: existing.grade_id,
+          rol: existing.rol,
+          seccion: existing.seccion,
+          genero: existing.genero,
+          fecha_nacimiento: existing.fecha_nacimiento,
+          nombre_usuario: existing.nombre_usuario,
+          rut_apoderado: existing.rut_apoderado,
+          codigo_barra: existing.codigo_barra,
+          origen_alta: existing.origen_alta,
+          erp_vinculado_en: existing.erp_vinculado_en,
+          excel_snapshot: existing.previous_excel_snapshot,
           activo: existing.activo
         } : null;
 
@@ -511,12 +573,13 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
 
         // La tabla de identificadores es aditiva: conserva las columnas
         // heredadas y permite buscar por RUN, IPE, documento, ERP o carnet.
-        await syncStudentIdentifiers(client, {
+        const identifierChanges = await syncStudentIdentifiers(client, {
           studentId: idAlumno,
           identity,
           barcode: codigoBarra,
           source: 'ERP',
-          userId: req.user.id
+          userId: req.user.id,
+          captureChanges: true
         });
 
         // 5. UPDATE MATRICULA / CURSO LINK
@@ -541,15 +604,60 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
         const afterSnapshot = await client.query(
           `SELECT a.id_alumno, a.uuid_erp, a.rut, a.dv, a.documento_erp,
                   a.tipo_identificador, a.tipo_documento_extranjero, a.pais_emisor_documento,
-                  a.nombres, a.paterno,
-                  a.materno, a.email, a.telefono, a.activo,
-                  c.nombre_curso AS grade
+                  a.nombres, a.paterno, a.materno, a.email, a.telefono, a.rol,
+                  a.seccion, a.genero, a.fecha_nacimiento::text AS fecha_nacimiento,
+                  a.nombre_usuario, a.rut_apoderado, a.codigo_barra, a.origen_alta,
+                  a.erp_vinculado_en, a.activo, m.id_curso AS grade_id,
+                  c.nombre_curso AS grade, s.raw_payload AS excel_snapshot
            FROM alumno a
            LEFT JOIN matricula_actual m ON m.id_alumno = a.id_alumno
            LEFT JOIN curso c ON c.id_curso = m.id_curso
+           LEFT JOIN alumno_excel_snapshot s ON s.id_alumno = a.id_alumno
            WHERE a.id_alumno = $1`,
           [idAlumno]
         );
+        const afterRow = afterSnapshot.rows[0] || {};
+        const beforePayload = {
+          ...(beforeSnapshot || {}),
+          reversion: {
+            student: beforeSnapshot ? {
+              uuid_erp: beforeSnapshot.uuid_erp,
+              rut: beforeSnapshot.rut,
+              dv: beforeSnapshot.dv,
+              documento_erp: beforeSnapshot.documento_erp,
+              tipo_identificador: beforeSnapshot.tipo_identificador,
+              tipo_documento_extranjero: beforeSnapshot.tipo_documento_extranjero,
+              pais_emisor_documento: beforeSnapshot.pais_emisor_documento,
+              nombres: beforeSnapshot.nombres,
+              paterno: beforeSnapshot.paterno,
+              materno: beforeSnapshot.materno,
+              email: beforeSnapshot.email,
+              telefono: beforeSnapshot.telefono,
+              rol: beforeSnapshot.rol,
+              seccion: beforeSnapshot.seccion,
+              genero: beforeSnapshot.genero,
+              fecha_nacimiento: beforeSnapshot.fecha_nacimiento,
+              nombre_usuario: beforeSnapshot.nombre_usuario,
+              rut_apoderado: beforeSnapshot.rut_apoderado,
+              codigo_barra: beforeSnapshot.codigo_barra,
+              origen_alta: beforeSnapshot.origen_alta,
+              erp_vinculado_en: beforeSnapshot.erp_vinculado_en,
+              activo: beforeSnapshot.activo
+            } : null,
+            enrollment: beforeSnapshot?.grade_id ? { id_curso: beforeSnapshot.grade_id } : null,
+            excel_snapshot: beforeSnapshot?.excel_snapshot ?? null,
+            identifiers: identifierChanges.map((change) => change.before).filter(Boolean)
+          }
+        };
+        const afterPayload = {
+          ...afterRow,
+          reversion: {
+            student: Object.fromEntries(Object.entries(afterRow).filter(([key]) => !['grade', 'grade_id', 'excel_snapshot'].includes(key))),
+            enrollment: afterRow.grade_id ? { id_curso: afterRow.grade_id } : null,
+            excel_snapshot: afterRow.excel_snapshot ?? null,
+            identifiers: identifierChanges.map((change) => change.after)
+          }
+        };
         await client.query(
           `INSERT INTO importacion_estudiante_cambios (
              importacion_id, numero_fila, id_alumno, accion, rut_referencia,
@@ -562,8 +670,8 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
             rowAction,
             rut || documentoErp,
             JSON.stringify(previewRow?.field_comparison || []),
-            beforeSnapshot ? JSON.stringify(beforeSnapshot) : null,
-            JSON.stringify(afterSnapshot.rows[0] || {}),
+            JSON.stringify(beforePayload),
+            JSON.stringify(afterPayload),
             rowAction === 'VINCULADO_MANUAL'
               ? 'La ficha manual fue reconocida y vinculada al ERP sin duplicarla.'
               : rowAction === 'REACTIVADO_DESDE_ERP'
@@ -577,7 +685,10 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
         await client.query(`ROLLBACK TO SAVEPOINT ${rowSavepoint}`);
         await client.query(`RELEASE SAVEPOINT ${rowSavepoint}`);
         console.error(`[bulk-sync] Row error at row ${excelRowNumber}:`, rowError.message);
-        summary.errors.push({ row: excelRowNumber, message: rowError.message });
+        Object.assign(summary, countsBeforeRow);
+        summary.warnings.length = warningsBeforeRow;
+        const publicMessage = studentImportErrorMessage(rowError);
+        summary.errors.push({ row: excelRowNumber, message: publicMessage });
         await client.query(
           `INSERT INTO importacion_estudiante_cambios (
              importacion_id, numero_fila, accion, rut_referencia, mensaje
@@ -586,7 +697,7 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
             importId,
             excelRowNumber,
             previewByRow.get(excelRowNumber)?.rut_normalizado || null,
-            String(rowError.message || 'Error de procesamiento').slice(0, 1000)
+            publicMessage
           ]
         );
       }
@@ -612,8 +723,26 @@ app.post('/api/students/bulk-sync', verifyToken, verifyPermission('students.impo
           importId,
           missing.id_alumno,
           missing.rut,
-          JSON.stringify({ activo: true, curso: missing.curso }),
-          JSON.stringify({ activo: false, curso: null }),
+          JSON.stringify({
+            activo: true,
+            curso: missing.curso,
+            reversion: {
+              student: { activo: true },
+              enrollment: missing.id_curso ? { id_curso: missing.id_curso } : null,
+              excel_snapshot: null,
+              identifiers: []
+            }
+          }),
+          JSON.stringify({
+            activo: false,
+            curso: null,
+            reversion: {
+              student: { activo: false },
+              enrollment: null,
+              excel_snapshot: null,
+              identifiers: []
+            }
+          }),
           'Retiro confirmado porque el estudiante no figura en la nómina oficial completa.'
         ]
       );

@@ -149,6 +149,60 @@ const buildSheet = (headers, rows, widths, mapRow) => ({
   zoomScale: 0.85
 });
 
+const instructionSheet = (title, notes) => ({
+  data: [
+    [{ value: INSTITUTION_NAME, columnSpan: 2, fontWeight: 'bold', fontSize: 11, textColor: '#15384c', height: 24 }, null],
+    [{ value: title, columnSpan: 2, fontWeight: 'bold', fontSize: 18, textColor: '#15384c', height: 32 }, null],
+    [{ value: 'Antes de importar', columnSpan: 2, fontWeight: 'bold', textColor: '#ffffff', backgroundColor: '#17698f', height: 26 }, null],
+    ...notes.map((note, index) => [
+      { value: index + 1, fontWeight: 'bold', textColor: '#17698f', align: 'center', height: 31 },
+      { value: note, wrap: true, textColor: '#405662', height: 31 }
+    ])
+  ],
+  sheet: 'Instrucciones',
+  columns: [{ width: 8 }, { width: 92 }],
+  showGridLines: false
+});
+
+const templateSheet = (sheet, headers, widths) => ({
+  data: [headers.map(excelHeaderCell)],
+  sheet,
+  columns: widths.map((width) => ({ width })),
+  stickyRowsCount: 1,
+  showGridLines: false
+});
+
+const buildStudentImportTemplate = async () => writeExcelFile([
+  templateSheet('Usuarios', [
+    'ID de Usuario (no modificar)', 'RUT', 'DV', 'Tipo de documento', 'País emisor',
+    'Nombres', 'Apellidos', 'Email', 'Teléfono', 'Rol', 'Curso', 'Sección',
+    'Género', 'Fecha Nacimiento', 'Nombre Usuario', 'RUT Apoderado', 'Código Barra'
+  ], [30, 16, 8, 22, 15, 24, 28, 30, 18, 16, 20, 12, 14, 20, 24, 18, 20]),
+  instructionSheet('Plantilla de importación de estudiantes', [
+    'Complete la hoja Usuarios sin cambiar sus encabezados. La previsualización no guarda datos.',
+    'Use actualización parcial salvo que el archivo sea la nómina oficial completa del establecimiento.',
+    'No agregue contraseñas. La importación nunca crea ni modifica cuentas de acceso.',
+    'Para estudiantes sin RUN chileno, indique el tipo de documento y el país emisor.',
+    'Revise y confirme cursos, identidades y retiros propuestos antes de sincronizar.'
+  ])
+], { fontFamily: 'Arial', fontSize: 10 }).toBuffer();
+
+const buildGuardianImportTemplate = async () => writeExcelFile([
+  templateSheet('Apoderados', [
+    'RUT Estudiante', 'RUT Apoderado', 'Nombre Apoderado', 'Teléfono Apoderado',
+    'Email Apoderado', 'Parentesco', 'RUT Apoderado 2', 'Nombre Apoderado 2',
+    'Teléfono Apoderado 2', 'Email Apoderado 2', 'Parentesco 2',
+    'Vigente Desde', 'Vigente Hasta'
+  ], [18, 18, 32, 22, 30, 22, 18, 32, 22, 30, 22, 18, 18]),
+  instructionSheet('Plantilla de apoderados y personas autorizadas', [
+    'Complete la hoja Apoderados sin cambiar sus encabezados.',
+    'El RUT Estudiante debe corresponder a una ficha activa existente.',
+    'Puede informar una persona principal y una segunda persona autorizada en la misma fila.',
+    'Parentescos sugeridos: madre, padre, apoderado principal, apoderado suplente, hermano, abuelo, tío o familiar autorizado.',
+    'Las fechas son opcionales y deben usar el formato AAAA-MM-DD.'
+  ])
+], { fontFamily: 'Arial', fontSize: 10 }).toBuffer();
+
 const buildSummarySheet = (scope, students, qualityRows) => {
   const active = students.filter((student) => student.activo).length;
   const pendingStudents = new Set(qualityRows.map((row) => row.id_alumno)).size;
@@ -275,7 +329,9 @@ const buildStudentWorkbook = async ({ scope, students }) => {
 };
 
 module.exports = {
+  buildGuardianImportTemplate,
   buildQualityRows,
+  buildStudentImportTemplate,
   buildStudentWorkbook,
   fetchStudentExportDataset,
   getPrimaryIdentifier,

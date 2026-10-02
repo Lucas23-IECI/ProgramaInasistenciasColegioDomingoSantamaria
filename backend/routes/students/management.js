@@ -167,6 +167,20 @@ app.get('/api/students/:id/details', verifyToken, verifyAnyPermission(['students
     ]);
     if (resA.rows.length === 0) return res.status(404).json({ message: 'El estudiante no existe o ya no está disponible. Recarga el listado.' });
 
+    await registrarAudit({
+      usuario_id: req.user.id,
+      usuario_correo: req.user.correo,
+      accion: 'CONSULTAR_FICHA_ESTUDIANTE',
+      entidad: 'alumno',
+      entidad_id: Number(id),
+      detalle: {
+        matriculas: enrollmentHistory.rows.length,
+        identificadores: identifiers.length,
+        regularizaciones_identidad: identityRegularizations.rows.length
+      },
+      ip: getClientIp(req)
+    });
+
     res.setHeader('Cache-Control', 'no-store, private');
     res.json({
       alumno: protectStudentRecord(resA.rows[0]),
@@ -317,6 +331,15 @@ app.get(
       if (!documentPath || !fs.existsSync(documentPath)) {
         return res.status(404).json({ message: 'El archivo de respaldo no está disponible.' });
       }
+      await insertarAudit(pool, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: 'DESCARGAR_RESPALDO_IDENTIDAD_ESTUDIANTE',
+        entidad: 'alumno',
+        entidad_id: studentId,
+        detalle: { regularizacion_id: regularizationId },
+        ip: getClientIp(req)
+      });
       res.type(document.mime_type);
       return res.download(documentPath, document.nombre_original);
     } catch (error) {

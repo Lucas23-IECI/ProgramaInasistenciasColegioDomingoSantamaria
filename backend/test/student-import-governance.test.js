@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const {
   compareStudentFields,
@@ -69,4 +71,12 @@ test('el modo de importación usa parcial como opción segura por defecto', () =
   assert.equal(validateImportMode('completa'), 'COMPLETA');
   assert.equal(validateImportMode('cualquier-cosa'), 'PARCIAL');
   assert.equal(validateImportMode(undefined), 'PARCIAL');
+});
+
+test('la sincronización serializa archivos idénticos antes de escribir cambios', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'routes', 'students', 'imports.js'), 'utf8');
+  assert.match(source, /pg_advisory_xact_lock\(hashtext\(\$1\)\)/u);
+  assert.match(source, /duplicateInsideTransaction/u);
+  assert.match(source, /DUPLICATE_IMPORT_FILE/u);
+  assert.match(source, /confirm_repeat_import/u);
 });

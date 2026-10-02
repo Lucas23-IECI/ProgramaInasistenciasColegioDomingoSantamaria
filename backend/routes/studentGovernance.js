@@ -2,9 +2,15 @@ const express = require('express');
 const { validateStudentRut } = require('../utils/students');
 const { protectStudentRecord } = require('../utils/studentPrivacy');
 const {
+  buildGuardianImportTemplate,
+  buildStudentImportTemplate,
   buildStudentWorkbook,
   fetchStudentExportDataset
 } = require('../services/studentExportService');
+const {
+  previewStudentImportRollback,
+  rollbackStudentImport
+} = require('../services/studentImportRollbackService');
 
 const parsePositiveId = (value) => {
   const parsed = Number(value);
@@ -225,10 +231,109 @@ const createStudentGovernanceRouter = ({
         )
       ]);
       if (!record.rowCount) return res.status(404).json({ message: 'Importación no encontrada.' });
-      res.json({ import: record.rows[0], changes: changes.rows });
+      const reversions = await pool.query(
+        `SELECT r.*, u.nombre AS revertido_por_nombre
+         FROM importacion_estudiante_reversiones r
+         LEFT JOIN usuarios u ON u.id = r.revertido_por
+         WHERE r.importacion_id = $1
+         ORDER BY r.revertido_en, r.id`,
+        [id]
+      );
+      res.json({ import: record.rows[0], changes: changes.rows, reversions: reversions.rows });
     } catch (error) {
       console.error('[padron:import-detail]', error.message);
       res.status(500).json({ message: 'No fue posible consultar el detalle de la importación.' });
+    }
+  });
+
+  router.get('/import-template', verifyAnyPermission([
+    'students.import',
+    'withdrawals.import_guardians'
+  ]), async (req, res) => {
+    const type = String(req.query.type || '').toLowerCase();
+    if (!['students', 'guardians'].includes(type)) {
+      return res.status(400).json({ message: 'Selecciona una plantilla de estudiantes o de apoderados.' });
+    }
+    try {
+      const isStudents = type === 'students';
+      const buffer = isStudents
+        ? await buildStudentImportTemplate()
+        : await buildGuardianImportTemplate();
+      await insertarAudit(pool, {
+        usuario_id: req.user.id,
+        usuario_correo: req.user.correo,
+        accion: isStudents ? 'DESCARGAR_PLANTILLA_ALUMNOS' : 'DESCARGAR_PLANTILLA_APODERADOS',
+        entidad: 'plantilla_importacion',
+        entidad_id: null,
+        detalle: { tipo: type, formato: 'xlsx', sin_datos_personales: true },
+        ip: getClientIp(req)
+      });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="plantilla-${isStudents ? 'estudiantes-erp' : 'apoderados'}.xlsx"`);
+      res.setHeader('Cache-Control', 'no-store, private');
+      res.send(buffer);
+    } catch (error) {
+      console.error('[padron:import-template]', error.message);
+      res.status(500).json({ message: 'No fue posible generar la plantilla de importación.' });
+    }
+  });
+
+  router.post('/imports/:id/reversion-preview', verifyPermission('students.import'), async (req, res) => {
+    const id = parsePositiveId(req.params.id);
+    if (!id) return res.status(400).json({ message: 'La importación seleccionada no es válida.' });
+    try {
+      const preview = await previewStudentImportRollback(pool, id);
+      if (!preview.found) return res.status(404).json({ message: 'La importación ya no está disponible.' });
+      const { _context, ...publicPreview } = preview;
+      res.json(publicPreview);
+    } catch (error) {
+      console.error('[padron:import-rollback-preview]', error.message);
+      res.status(500).json({ message: 'No fue posible comprobar si la importación puede revertirse con seguridad.' });
+    }
+  });
+
+  router.post('/imports/:id/revertir', verifyPermission('students.import'), async (req, res) => {
+    const id = parsePositiveId(req.params.id);
+    const reason = String(req.body?.motivo || '').trim().slice(0, 500);
+    if (!id || reason.length < 10 || req.body?.confirmar !== true) {
+      return res.status(400).json({
+        message: 'Confirma la reversión e indica un motivo de al menos 10 caracteres.'
+      });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      const result = await rollbackStudentImport(client, id, {
+        userId: req.user.id,
+        userEmail: req.user.correo,
+        reason,
+        ip: getClientIp(req),
+        insertarAudit
+      });
+      if (!result.found) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'La importación ya no está disponible.' });
+      }
+      if (result.conflict) {
+        await client.query('ROLLBACK');
+        const { _context, ...preview } = result.preview;
+        return res.status(409).json({
+          code: 'IMPORT_ROLLBACK_BLOCKED',
+          message: 'La importación no puede revertirse porque existen cambios posteriores que deben conservarse.',
+          preview
+        });
+      }
+      await client.query('COMMIT');
+      res.json({
+        message: 'La importación fue revertida sin borrar fichas ni actividad institucional.',
+        ...result.summary
+      });
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[padron:import-rollback]', error.message);
+      res.status(500).json({ message: 'No fue posible revertir la importación de forma segura.' });
+    } finally {
+      client.release();
     }
   });
 

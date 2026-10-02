@@ -155,9 +155,11 @@ const syncStudentIdentifiers = async (client, {
   identity,
   barcode = null,
   source = 'LEGACY',
-  userId = null
+  userId = null,
+  captureChanges = false
 }) => {
   const candidates = buildStudentIdentifierCandidates({ identity, barcode, source });
+  const changes = [];
   const currentPrimary = await client.query(
     `SELECT id_identificador
      FROM alumno_identificador
@@ -172,7 +174,10 @@ const syncStudentIdentifiers = async (client, {
 
   for (const candidate of candidates) {
     const existing = await client.query(
-      `SELECT id_identificador, id_alumno, es_principal
+      `SELECT id_identificador, id_alumno, tipo, valor_original, valor_normalizado,
+              pais_emisor, fuente, estado, es_principal, nivel_validacion,
+              validador_id, validador_version, resultado_validacion, validado_en,
+              vigente_desde, vigente_hasta, metadatos
        FROM alumno_identificador
        WHERE tipo = $1
          AND valor_normalizado = $2
@@ -194,7 +199,7 @@ const syncStudentIdentifiers = async (client, {
     const state = shouldBePrincipal ? 'PRINCIPAL' : 'VIGENTE';
 
     if (existing.rows.length) {
-      await client.query(
+      const updated = await client.query(
         `UPDATE alumno_identificador
          SET valor_original = $1,
              fuente = $2,
@@ -204,7 +209,11 @@ const syncStudentIdentifiers = async (client, {
              resultado_validacion = COALESCE($6, resultado_validacion),
              validado_en = CASE WHEN $4 IS NULL THEN validado_en ELSE CURRENT_TIMESTAMP END,
              actualizado_en = CURRENT_TIMESTAMP
-         WHERE id_identificador = $7`,
+         WHERE id_identificador = $7
+         RETURNING id_identificador, id_alumno, tipo, valor_original, valor_normalizado,
+                   pais_emisor, fuente, estado, es_principal, nivel_validacion,
+                   validador_id, validador_version, resultado_validacion, validado_en,
+                   vigente_desde, vigente_hasta, metadatos`,
         [
           candidate.originalValue,
           candidate.source,
@@ -215,17 +224,22 @@ const syncStudentIdentifiers = async (client, {
           existing.rows[0].id_identificador
         ]
       );
+      if (captureChanges) changes.push({ before: existing.rows[0], after: updated.rows[0] });
       if (existing.rows[0].es_principal) hasPrimary = true;
       continue;
     }
 
-    await client.query(
+    const inserted = await client.query(
       `INSERT INTO alumno_identificador (
          id_alumno, tipo, valor_original, valor_normalizado, pais_emisor,
          fuente, estado, es_principal, nivel_validacion, creado_por,
          validador_id, validador_version, resultado_validacion, validado_en
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                 CASE WHEN $11::varchar IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)`,
+                 CASE WHEN $11::varchar IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END)
+       RETURNING id_identificador, id_alumno, tipo, valor_original, valor_normalizado,
+                 pais_emisor, fuente, estado, es_principal, nivel_validacion,
+                 validador_id, validador_version, resultado_validacion, validado_en,
+                 vigente_desde, vigente_hasta, metadatos`,
       [
         studentId,
         candidate.type,
@@ -242,10 +256,11 @@ const syncStudentIdentifiers = async (client, {
         candidate.validationResult
       ]
     );
+    if (captureChanges) changes.push({ before: null, after: inserted.rows[0] });
     if (shouldBePrincipal) hasPrimary = true;
   }
 
-  return candidates.length;
+  return captureChanges ? changes : candidates.length;
 };
 
 const getStudentIdentifiers = async (queryable, studentId) => {

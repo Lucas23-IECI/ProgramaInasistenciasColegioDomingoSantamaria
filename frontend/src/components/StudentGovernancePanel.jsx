@@ -46,7 +46,8 @@ const studentName = (student) => (
 const StudentGovernancePanel = ({
   onOpenStudent,
   canManage = false,
-  canExport = false
+  canExport = false,
+  canImport = false
 }) => {
   const [view, setView] = useState('quality');
   const [quality, setQuality] = useState(null);
@@ -65,6 +66,10 @@ const StudentGovernancePanel = ({
   const [merging, setMerging] = useState(false);
   const [exporting, setExporting] = useState('');
   const [exportNotice, setExportNotice] = useState('');
+  const [rollbackPreview, setRollbackPreview] = useState(null);
+  const [rollbackReason, setRollbackReason] = useState('');
+  const [rollbackConfirmed, setRollbackConfirmed] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -127,11 +132,55 @@ const StudentGovernancePanel = ({
 
   const showImport = async (id) => {
     setError('');
+    setRollbackPreview(null);
+    setRollbackReason('');
+    setRollbackConfirmed(false);
     try {
       const response = await axios.get(`${API_URL}/padron/imports/${id}`, { withCredentials: true });
       setImportDetail(response.data);
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible abrir la importación.'));
+    }
+  };
+
+  const previewRollback = async () => {
+    if (!importDetail?.import?.id || rollingBack) return;
+    setRollingBack(true);
+    setError('');
+    try {
+      const response = await axios.post(
+        `${API_URL}/padron/imports/${importDetail.import.id}/reversion-preview`,
+        {},
+        { withCredentials: true }
+      );
+      setRollbackPreview(response.data);
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'No fue posible comprobar la reversión.'));
+    } finally {
+      setRollingBack(false);
+    }
+  };
+
+  const revertImport = async () => {
+    if (!rollbackPreview?.can_revert || !rollbackConfirmed || rollbackReason.trim().length < 10 || rollingBack) return;
+    setRollingBack(true);
+    setError('');
+    try {
+      const importId = importDetail.import.id;
+      const response = await axios.post(
+        `${API_URL}/padron/imports/${importId}/revertir`,
+        { motivo: rollbackReason, confirmar: true },
+        { withCredentials: true }
+      );
+      setExportNotice(response.data.message);
+      await load();
+      await showImport(importId);
+    } catch (requestError) {
+      const preview = requestError.response?.data?.preview;
+      if (preview) setRollbackPreview(preview);
+      setError(getApiErrorMessage(requestError, 'No fue posible revertir la importación.'));
+    } finally {
+      setRollingBack(false);
     }
   };
 
@@ -360,14 +409,14 @@ const StudentGovernancePanel = ({
               <button type="button" key={item.id} data-selected={importDetail?.import?.id === item.id || undefined} onClick={() => showImport(item.id)}>
                 <span><strong>{item.nombre_archivo}</strong><small>{new Date(item.importado_en).toLocaleString('es-CL')} · {item.modo}</small></span>
                 <span><strong>{item.total_filas} filas</strong><small>{item.importado_por_nombre || 'Usuario no disponible'}</small></span>
-                <em>{item.estado.replaceAll('_', ' ').toLowerCase()}</em>
+                <em>{item.estado === 'REVERTIDA' ? 'revertida' : item.estado.replaceAll('_', ' ').toLowerCase()}</em>
               </button>
             ))}
           </div>
           {importDetail && (
             <aside className="student-import-detail">
               <h3>{importDetail.import.nombre_archivo}</h3>
-              <p>Hash: <code>{importDetail.import.hash_archivo}</code></p>
+              <p>Importada el {new Date(importDetail.import.importado_en).toLocaleString('es-CL')} por {importDetail.import.importado_por_nombre || 'usuario no disponible'}.</p>
               <div>
                 <span>Creados <strong>{importDetail.import.filas_creadas}</strong></span>
                 <span>Actualizados <strong>{importDetail.import.filas_actualizadas}</strong></span>
@@ -387,6 +436,65 @@ const StudentGovernancePanel = ({
                   ))}
                 </ul>
               </details>
+              {importDetail.import.estado === 'REVERTIDA' ? (
+                <section className="student-merge-preview" data-safe>
+                  <h3>Importación revertida</h3>
+                  <p>La compensación se realizó el {new Date(importDetail.import.revertida_en).toLocaleString('es-CL')}. Las fichas y su trazabilidad se conservaron.</p>
+                  <div>
+                    <span>Restaurados <strong>{importDetail.import.resumen_reversion?.revertidos || 0}</strong></span>
+                    <span>Sin cambios que revertir <strong>{importDetail.import.resumen_reversion?.omitidos || 0}</strong></span>
+                  </div>
+                </section>
+              ) : canImport && Number(importDetail.import.version_reversion || 0) > 0 ? (
+                <section className="student-merge-preview" data-safe={rollbackPreview?.can_revert || undefined}>
+                  <h3>Reversión segura</h3>
+                  {!rollbackPreview && <p>Comprueba primero que ninguna ficha, matrícula o identificación haya cambiado después de esta carga.</p>}
+                  {!rollbackPreview && (
+                    <button type="button" onClick={previewRollback} disabled={rollingBack}>
+                      <RefreshCw size={17} className={rollingBack ? 'spin' : undefined} />
+                      {rollingBack ? 'Comprobando…' : 'Comprobar si puede revertirse'}
+                    </button>
+                  )}
+                  {rollbackPreview && (
+                    <>
+                      <h4>{rollbackPreview.can_revert ? 'La importación puede revertirse' : 'La reversión está bloqueada'}</h4>
+                      <div>
+                        <span>Reversibles <strong>{rollbackPreview.summary.reversible}</strong></span>
+                        <span>Bloqueados <strong>{rollbackPreview.summary.bloqueado}</strong></span>
+                        <span>Sin cambios <strong>{rollbackPreview.summary.omitido}</strong></span>
+                      </div>
+                      {(rollbackPreview.global_reasons?.length > 0 || rollbackPreview.rows?.some((row) => row.reasons?.length)) && (
+                        <ul>
+                          {[...new Set([
+                            ...(rollbackPreview.global_reasons || []),
+                            ...(rollbackPreview.rows || []).flatMap((row) => row.reasons || [])
+                          ])].map((reason) => <li key={reason}>{reason}</li>)}
+                        </ul>
+                      )}
+                      {rollbackPreview.can_revert && (
+                        <>
+                          <label>
+                            <span>Motivo institucional</span>
+                            <textarea value={rollbackReason} maxLength={500} onChange={(event) => setRollbackReason(event.target.value)} placeholder="Explica por qué debe deshacerse esta importación (mínimo 10 caracteres)." />
+                          </label>
+                          <label className="student-import-confirm">
+                            <input type="checkbox" checked={rollbackConfirmed} onChange={(event) => setRollbackConfirmed(event.target.checked)} />
+                            <span><strong>Confirmo que revisé esta compensación</strong><small>Se restaurará el estado anterior verificable. No se borrarán fichas ni actividad.</small></span>
+                          </label>
+                          <button type="button" onClick={revertImport} disabled={rollingBack || !rollbackConfirmed || rollbackReason.trim().length < 10}>
+                            <ArrowRightLeft size={17} /> {rollingBack ? 'Revirtiendo…' : 'Revertir esta importación'}
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </section>
+              ) : canImport ? (
+                <section className="student-merge-preview">
+                  <h3>Sin reversión automática</h3>
+                  <p>Esta carga es anterior al punto de restauración verificable. Sus cambios deben corregirse desde las fichas, sin borrar el historial.</p>
+                </section>
+              ) : null}
             </aside>
           )}
         </div>
