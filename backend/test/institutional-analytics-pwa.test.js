@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const { normalizeAttendanceFilters, validatePeriod } = require('../services/institutionalAnalyticsService');
 const { previousPeriod } = require('../services/institutionalReportScheduler');
-const { buildInstitutionalPdf, buildInstitutionalWorkbook, buildInstitutionalWorkbookSheets } = require('../services/institutionalReportService');
+const { buildTrendScale, buildInstitutionalPdf, buildInstitutionalWorkbook, buildInstitutionalWorkbookSheets } = require('../services/institutionalReportService');
 const { buildReportArtifact, publicReportError } = require('../services/institutionalReportExecutionService');
 const { normalizeReportScheduleInput, parsePositiveId } = require('../routes/analytics');
 
@@ -110,6 +110,20 @@ test('los desgloses institucionales conservan identificadores para abrir el orig
   assert.match(service, /ar\.control_puntualidad_id AS control_id/u);
   assert.match(service, /SELECT r\.motivo_codigo, COALESCE\(rm\.nombre/u);
   assert.match(service, /SELECT v\.motivo_codigo, COALESCE\(vm\.nombre/u);
+});
+
+test('el gráfico del PDF usa cantidades enteras únicas incluso con cero o un atraso', () => {
+  assert.deepEqual(buildTrendScale([]), { max: 1, ticks: [0, 1] });
+  assert.deepEqual(buildTrendScale([{ atrasos: 0 }, { atrasos: 1 }]), { max: 1, ticks: [0, 1] });
+  for (const count of [0, 1, 2, 3, 4, 5, 8, 13, 997]) {
+    const { max, ticks } = buildTrendScale([{ atrasos: count }]);
+    assert.ok(max >= Math.max(1, count));
+    assert.equal(ticks[0], 0);
+    assert.equal(ticks.at(-1), max);
+    assert.ok(ticks.length >= 2 && ticks.length <= 5);
+    assert.equal(new Set(ticks).size, ticks.length);
+    assert.ok(ticks.every(Number.isInteger));
+  }
 });
 
 test('el PDF institucional contiene informe paginado, gráfico, tablas y metadatos', async () => {

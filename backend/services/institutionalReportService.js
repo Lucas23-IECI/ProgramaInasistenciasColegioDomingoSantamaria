@@ -156,6 +156,16 @@ const drawKpis = (doc, analytics) => {
   doc.y = startY + cardHeight * 2 + gap + 13;
 };
 
+const buildTrendScale = (rows) => {
+  const maximum = Math.max(1, ...rows.map((item) => Math.max(0, Number(item.atrasos) || 0)));
+  const step = Math.max(1, Math.ceil(maximum / 4));
+  const max = Math.ceil(maximum / step) * step;
+  // Attendance is a count: fractional grid lines rounded to integers would
+  // repeat 0 and 1 when a period has very few late arrivals.
+  const ticks = Array.from({ length: max / step + 1 }, (_, index) => index * step);
+  return { max, ticks };
+};
+
 const drawTrendChart = (doc, analytics) => {
   const rows = analytics.tendencia_diaria || [];
   if (!rows.length) {
@@ -165,14 +175,14 @@ const drawTrendChart = (doc, analytics) => {
   }
   ensureSpace(doc, analytics, 205);
   const x = PAGE.left + 28;
-  const y = doc.y + 8;
+  const y = doc.y + 22;
   const width = pageWidth(doc) - 42;
   const height = 145;
-  const max = Math.max(1, ...rows.map((item) => Number(item.atrasos)));
-  [0, 0.25, 0.5, 0.75, 1].forEach((ratio) => {
-    const lineY = y + height * ratio;
+  const { max, ticks } = buildTrendScale(rows);
+  ticks.forEach((value) => {
+    const lineY = y + height * (1 - value / max);
     doc.moveTo(x, lineY).lineTo(x + width, lineY).strokeColor(COLORS.line).lineWidth(0.6).stroke();
-    doc.fillColor(COLORS.muted).font('Helvetica').fontSize(7).text(String(Math.round(max * (1 - ratio))), PAGE.left, lineY - 4, { width: 22, align: 'right' });
+    doc.fillColor(COLORS.muted).font('Helvetica').fontSize(7).text(String(value), PAGE.left, lineY - 4, { width: 22, align: 'right' });
   });
   const points = rows.map((item, index) => ({
     x: x + (rows.length === 1 ? width / 2 : index * width / (rows.length - 1)),
@@ -185,7 +195,7 @@ const drawTrendChart = (doc, analytics) => {
   const labelStep = Math.max(1, Math.ceil(rows.length / 7));
   points.forEach((point, index) => {
     doc.circle(point.x, point.y, 3.2).fillAndStroke(COLORS.white, COLORS.blue);
-    if (Number(point.item.atrasos) > 0) doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(7).text(String(point.item.atrasos), point.x - 10, Math.max(y - 2, point.y - 15), { width: 20, align: 'center' });
+    if (Number(point.item.atrasos) > 0) doc.fillColor(COLORS.navy).font('Helvetica-Bold').fontSize(7).text(String(point.item.atrasos), point.x - 10, point.y - 15, { width: 20, align: 'center' });
     const distanceToEnd = points.length - 1 - index;
     const showDate = index === 0 || index === points.length - 1 || (index % labelStep === 0 && distanceToEnd >= labelStep);
     if (showDate) doc.fillColor(COLORS.muted).font('Helvetica').fontSize(6.8).text(chartDate(point.item.fecha), point.x - 24, y + height + 8, { width: 48, align: 'center' });
@@ -309,17 +319,22 @@ const buildInstitutionalPdf = (analytics) => new Promise((resolve, reject) => {
     { label: 'Área', width: 260 }, { label: 'Casos', width: 78, align: 'right' }, { label: 'Abiertos', width: 78, align: 'right' }, { label: 'Resueltos', width: pageWidth(doc) - 416, align: 'right' }
   ], (analytics.carga_trabajo || []).map((item) => [item.area, number(item.casos), number(item.abiertos), number(item.resueltos)]));
 
-  sectionTitle(doc, analytics, 'Seguimiento', 'Cambios e intervención', 'Comparaciones descriptivas construidas desde los registros del período. No atribuyen causalidad.');
-  drawTable(doc, analytics, [
+  const interventionColumns = [
     { label: 'Indicador', width: 260 }, { label: 'Resultado', width: pageWidth(doc) - 260, align: 'right' }
-  ], [
+  ];
+  const interventionRows = [
     ['Estudiantes que redujeron atrasos entre mitades', number((analytics.estudiantes_mejoraron || []).length)],
     ['Estudiantes evaluados después de una intervención', number(analytics.reincidencia_post_intervencion?.estudiantes_evaluados)],
     ['Mejoraron después de una intervención', number(analytics.reincidencia_post_intervencion?.mejoraron)],
     ['Casos con contacto de apoderado', number(analytics.contactos_apoderados?.casos_con_contacto)],
     ['Casos con contacto que están cerrados', number(analytics.contactos_apoderados?.cerrados)],
     ['Porcentaje descriptivo de cierre con contacto', percent(analytics.contactos_apoderados?.porcentaje_cierre)]
-  ]);
+  ];
+  // This is a small, fixed-size summary. Keep its heading and all six rows
+  // together instead of leaving a lone continuation row on the next page.
+  ensureSpace(doc, analytics, 124 + interventionRows.reduce((height, row) => height + rowHeight(doc, row, interventionColumns), 0));
+  sectionTitle(doc, analytics, 'Seguimiento', 'Cambios e intervención', 'Comparaciones descriptivas construidas desde los registros del período. No atribuyen causalidad.');
+  drawTable(doc, analytics, interventionColumns, interventionRows);
 
   sectionTitle(doc, analytics, 'Evolución estudiantil', 'Estudiantes que redujeron atrasos', 'Compara la primera y la segunda mitad del período seleccionado.');
   drawTable(doc, analytics, [
@@ -353,4 +368,4 @@ const streamInstitutionalPdf = async (res, analytics) => {
   res.end(buffer);
 };
 
-module.exports = { buildInstitutionalWorkbookSheets, buildInstitutionalWorkbook, buildInstitutionalPdf, streamInstitutionalPdf };
+module.exports = { buildTrendScale, buildInstitutionalWorkbookSheets, buildInstitutionalWorkbook, buildInstitutionalPdf, streamInstitutionalPdf };

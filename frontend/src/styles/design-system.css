@@ -11,6 +11,7 @@
   --ds-muted: #5e6b75;
   --ds-primary: #175f8a;
   --ds-primary-strong: #10496b;
+  --ds-on-primary: #ffffff;
   --ds-danger: #b7353b;
   --ds-radius: 10px;
   --ds-shadow: 0 12px 32px rgba(19, 36, 49, 0.12);
@@ -271,6 +272,7 @@ body:not(.light-mode) {
   --ds-muted: #b5c1ca;
   --ds-primary: #8dc5e7;
   --ds-primary-strong: #b9def3;
+  --ds-on-primary: #15212b;
   --ds-danger: #ef8a8e;
   --ds-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
 }
@@ -371,14 +373,14 @@ body:has(.access-modal-backdrop) .global-tools {
   position: relative;
 }
 
-.global-user-trigger span {
+.global-user-trigger > span:not(.staff-avatar) {
   display: grid;
   width: 30px;
   height: 30px;
   place-items: center;
   border-radius: 7px;
   background: var(--ds-primary-strong);
-  color: #fff;
+  color: var(--ds-on-primary);
   font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.04em;
@@ -512,7 +514,7 @@ body:has(.access-modal-backdrop) .global-tools {
     flex-basis: 40px;
   }
 
-  .global-user-trigger span {
+  .global-user-trigger > span:not(.staff-avatar) {
     width: 28px;
     height: 28px;
   }

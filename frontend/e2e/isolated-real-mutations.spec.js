@@ -392,13 +392,17 @@ test('Recursos permite crear y prestar desde la interfaz real y devolver sin per
   await page.reload();
   await page.getByRole('textbox', { name: /Buscar/ }).fill(code);
   await page.getByRole('textbox', { name: /Buscar/ }).press('Enter');
-  await expect(page.getByText('2 de 2', { exact: true })).toBeVisible();
+  const returnedResource = page.locator('.resource-card').filter({ hasText: code });
+  await expect(returnedResource).toHaveCount(1);
+  await expect(returnedResource.getByText('2 de 2', { exact: true })).toBeVisible();
 });
 
 test('búsqueda institucional consulta dominios reales sin exponer identificadores en resultados', async ({ request }) => {
   await login(request);
   const students = await expectOk(await request.get('/api/students'), 'leer estudiante para búsqueda');
-  const student = students[0];
+  // Las importaciones revertidas conservan filas inactivas para trazabilidad.
+  // La búsqueda global solo ofrece registros activos: usar el mismo universo.
+  const student = students.find((item) => item.activo === true);
   test.skip(!student, 'La copia aislada no contiene estudiantes para comprobar la búsqueda real.');
 
   const fullName = [student.nombres, student.paterno, student.materno].filter(Boolean).join(' ').trim();

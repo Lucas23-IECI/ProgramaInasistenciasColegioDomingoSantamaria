@@ -270,7 +270,7 @@ test('seguimiento institucional conserva filtros, ayuda y adaptación responsive
 test('chat interno abre como espacio institucional en escritorio y móvil', async ({ page }) => {
   await login(page, adminEmail, '/chat');
   await expect(page.getByRole('heading', { name: 'Chat interno' })).toBeVisible();
-  await expect(page.getByPlaceholder('Buscar conversaciones o mensajes')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Buscar conversaciones o mensajes' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Nueva conversación' })).toBeVisible();
   await page.getByRole('button', { name: 'Política de retención' }).click();
   const retention = page.getByRole('dialog', { name: /Retención del chat institucional/ });
@@ -439,7 +439,9 @@ test('los perfiles reutilizables cumplen su ciclo de vida y Administrador perman
     expect(adminDeactivate.status()).toBe(409);
     const adminDelete = await page.request.delete('/api/access-profiles/admin');
     expect(adminDelete.status()).toBe(409);
-    const linkedProfileDelete = await page.request.delete('/api/access-profiles/inspector');
+    // La instalación inicial contiene la cuenta Lector Puerta. Inspectoría
+    // puede no tener cuentas asignadas en una copia recién creada.
+    const linkedProfileDelete = await page.request.delete('/api/access-profiles/lector');
     expect(linkedProfileDelete.status()).toBe(409);
   } finally {
     if (profileCode) await page.request.delete(`/api/access-profiles/${encodeURIComponent(profileCode)}`).catch(() => {});
@@ -523,7 +525,10 @@ test('la analítica institucional es explicable, exportable y adaptable', async 
     return url.pathname.endsWith('/api/analitica/institucional') && Boolean(url.searchParams.get('id_curso'));
   });
   await courseOption.click();
-  await filteredInstitutionalResponse;
+  const institutionalResponse = await filteredInstitutionalResponse;
+  expect(institutionalResponse.ok()).toBe(true);
+  const institutionalAnalytics = await institutionalResponse.json();
+  const visibleScopeUrl = new URL(institutionalResponse.url());
   await expect(page.locator('[data-tour="analytics-institutional"] .analytics-scope-notice')).toContainText(selectedCourse);
 
   const lineButton = page.getByRole('button', { name: 'Línea', exact: true });
@@ -554,9 +559,13 @@ test('la analítica institucional es explicable, exportable y adaptable', async 
   await page.getByRole('button', { name: 'PDF' }).click();
   const exportRequest = await exportRequestPromise;
   const exportUrl = new URL(exportRequest.url());
-  expect(exportUrl.searchParams.get('id_curso')).toBeTruthy();
-  expect(exportUrl.searchParams.get('desde')).toBeTruthy();
-  expect(exportUrl.searchParams.get('hasta')).toBeTruthy();
+  // Download the exact period and filters that produced the visible figures,
+  // not merely a URL containing some non-empty date parameters.
+  expect(exportUrl.searchParams.get('desde')).toBe(institutionalAnalytics.periodo.from);
+  expect(exportUrl.searchParams.get('hasta')).toBe(institutionalAnalytics.periodo.to);
+  for (const filter of ['id_curso', 'justificado', 'severidad']) {
+    expect(exportUrl.searchParams.get(filter)).toBe(visibleScopeUrl.searchParams.get(filter));
+  }
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^analitica-institucional-.*\.pdf$/u);
   const pdfPath = testInfo.outputPath('analitica-filtrada.pdf');
@@ -574,6 +583,8 @@ test('la analítica institucional es explicable, exportable y adaptable', async 
   expect(excelUrl.searchParams.get('id_curso')).toBe(exportUrl.searchParams.get('id_curso'));
   expect(excelUrl.searchParams.get('desde')).toBe(exportUrl.searchParams.get('desde'));
   expect(excelUrl.searchParams.get('hasta')).toBe(exportUrl.searchParams.get('hasta'));
+  expect(excelUrl.searchParams.get('justificado')).toBe(exportUrl.searchParams.get('justificado'));
+  expect(excelUrl.searchParams.get('severidad')).toBe(exportUrl.searchParams.get('severidad'));
   const excelDownload = await excelDownloadPromise;
   expect(excelDownload.suggestedFilename()).toMatch(/^analitica-institucional-.*\.xlsx$/u);
   const excelPath = testInfo.outputPath('analitica-filtrada.xlsx');
