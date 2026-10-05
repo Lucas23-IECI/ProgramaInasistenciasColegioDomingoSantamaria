@@ -61,9 +61,11 @@ jobs:
         run: npm run lint
       - name: Ejecutar pruebas unitarias
         run: npm test
+      - name: Comprobar contrato de alta manual entre interfaz y servidor
+        run: node --test ../scripts/test/manual-student-contract.test.cjs
       - name: Compilar version de produccion
         run: npm run build
-      - name: Validar presupuesto de rendimiento
+      - name: Medir tamaño informativo y validar carga diferida
         run: npm run test:performance
       - name: Auditar dependencias
         run: npm run audit:security
@@ -80,7 +82,7 @@ jobs:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: questionnaires/package-lock.json
       - name: Instalar dependencias reproducibles

@@ -37,14 +37,9 @@ test('el alta conserva el curso real de origen y nunca usa las agrupaciones como
   assert.match(modal, /grade: student\?\.grade \|\| state\.initialCourse \|\| ''/u);
 });
 
-test('los seis motivos ofrecidos siguen siendo aceptados por servidor y esquema existentes', () => {
+test('el formulario ofrece exactamente los seis motivos institucionales vigentes', () => {
   const modal = readFileSync(new URL('../src/components/StudentManualModal.jsx', import.meta.url), 'utf8');
-  const route = readFileSync(new URL('../../backend/routes/students/management.js', import.meta.url), 'utf8');
-  const migration = readFileSync(new URL('../../backend/migrations/017_gobernanza_padron_estudiantil.sql', import.meta.url), 'utf8');
   const reasons = [...modal.matchAll(/value: '([A-Z_]+)', label:/gu)].map((match) => match[1]);
-  assert.equal(reasons.length, 6);
-  for (const reason of reasons) {
-    assert.ok(route.includes(`'${reason}'`), reason);
-    assert.ok(migration.includes(`'${reason}'`), reason);
-  }
+  assert.deepEqual(reasons, ['MATRICULA_RECIENTE', 'TRASLADO_ESTABLECIMIENTO', 'PENDIENTE_ERP',
+    'ERROR_TEMPORAL_ERP', 'REGULARIZACION_INSTITUCIONAL', 'OTRO']);
 });
