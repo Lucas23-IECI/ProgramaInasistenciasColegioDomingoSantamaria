@@ -1,6 +1,20 @@
-# Estado técnico local — 1 de octubre de 2026
+# Estado técnico local — 4 de octubre de 2026
 
 Este documento separa el estado local de planes y evidencias históricos. No es una autorización de publicación, ni describe un despliegue realizado en el colegio.
+
+## Nueva preparación autorizada para main
+
+El usuario autorizó pasar los cambios a main y corrigió la decisión de aplazar el control de peso. El tamaño se registra como aviso informativo: no se aumentaron umbrales para fabricar una aprobación ni se eliminaron controles de seguridad, lint o pruebas. Docker frontend completo aprueba auditoría, lint, 162 pruebas y build; backend aprueba 291 pruebas y cobertura también dentro de su imagen. Cuestionarios actualiza Wrangler a 4.147.0, con siete pruebas y auditoría en línea sin avisos conocidos. La comprobación de motivos de matrícula entre frontend, servidor y esquema sigue activa, pero se ejecuta con el checkout completo, fuera de la imagen frontend aislada.
+
+El actualizador conserva HTTP/HTTPS existentes y distingue la primera actualización del hook opcional de las siguientes. Pasaron las pruebas de fixtures en PS5.1 y la comprobación independiente de salud HTTP/API/PostgreSQL QA. La regresión general sobre la imagen final pasó 118/118 sin reintentos. No se ejecutan instalaciones ni cambios de configuración en el colegio. [Verificación y procedimiento de esta entrega](PUBLICACION_MAIN_2026-10-04.md). Los estados de ramas y bloqueos descritos a continuación son históricos; las referencias publicadas se comprueban con Git, no se infieren de una prueba local.
+
+## Cierre anterior — correcciones y regresión del 4 de octubre
+
+Corregidas localmente las dependencias vulnerables (auditoría en línea: cero conocidas en frontend/backend), el contraste del avatar oscuro y dos defectos del PDF —eje con números repetidos y resumen partido—. Alta manual repetida desde Primero Medio contra API/PostgreSQL reales: menús visibles, curso conservado, HTTP 201, recarga, motivo y auditoría persistentes. Se verificaron nueve combinaciones históricas y 18 archivos PDF/Excel, sin usar datos del colegio.
+
+Resultado: frontend 159/159, backend 291/291, regresión general 118/118, complementaria 59 aprobadas y tres omisiones previstas, chat UI 144/144 y chat HTTP/SQL 19/19. La tanda focalizada sobre los fallos anteriores pasa 10/10; no se suman sus repeticiones como casos distintos. Lint, build Vite e imagen backend nueva aprobados. [Evidencia, causas y límites](CIERRE_CORRECCIONES_2026-10-04.md).
+
+**Estado histórico de esa ronda, sustituido por la preparación de arriba:** entonces el peso seguía aplazado, la imagen Docker frontend completa no se declaraba aprobada y las correcciones no estaban publicadas. Main estaba en `af3a063` y testing remoto en `15d2dc2`. No se actualizó el colegio ni el servicio habitual de localhost. Los apartados siguientes conservan su fecha y estado históricos.
 
 ## Entrega autorizada: solo testing
 

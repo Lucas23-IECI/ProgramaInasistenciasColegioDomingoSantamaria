@@ -1,5 +1,9 @@
 # Entrega a testing — 1 de octubre de 2026
 
+> Nueva decisión del usuario: se autoriza promover a main después de corregir el control de tamaño y verificar la construcción real. Este documento conserva la entrega histórica del 1 de octubre; su restricción de mantener main sin cambios ha sido sustituida. [Estado de la nueva preparación](PUBLICACION_MAIN_2026-10-04.md).
+
+> Estado histórico intermedio, 4 de octubre: las dependencias se resolvieron localmente y las regresiones/exportaciones aprobaron; entonces el peso seguía aplazado y main permanecía sin cambios. Esa limitación fue sustituida por la nueva decisión de arriba. [Evidencia de la ronda intermedia](CIERRE_CORRECCIONES_2026-10-04.md). El resto describe la entrega del 1 de octubre, no el estado actual.
+
 ## Destino y decisión
 
 Repositorio: `Lucas23-IECI/ProgramaInasistenciasColegioDomingoSantamaria` (público).
