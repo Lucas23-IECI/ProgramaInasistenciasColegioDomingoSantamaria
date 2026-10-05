@@ -3,28 +3,54 @@
 Este procedimiento contiene únicamente las acciones que deben ejecutarse o
 confirmarse físicamente en el establecimiento. La aplicación, sus pruebas,
 la restauración temporal, el ERP oficial y la interfaz responsive se validan
-primero en `test`. Andrés actualiza el notebook solamente después de que esos
+primero en `testing`. Andrés actualiza el notebook solamente después de que esos
 cambios hayan sido aprobados y fusionados en `main`.
 
 ## 1. Actualizar el código después del merge a main
 
-**Aviso 24-09-2026:** las secciones históricas 3 y 4 que nombran `preparar-servidor-recomendado.ps1` han sido sustituidas por [HTTPS_COLEGIO.md](HTTPS_COLEGIO.md). Ese instalador anterior está retirado. No cambiar contraseñas ni `.env` para añadir HTTPS. La nueva preparación tampoco instala un hook Git ni despliega con un pull por sí solo.
+**Aviso:** `preparar-servidor-recomendado.ps1` y `preparar-https-red-interna.ps1` están retirados y se detienen sin cambios. HTTPS se prepara aparte, con [HTTPS_COLEGIO.md](HTTPS_COLEGIO.md), y no cambia contraseñas ni `.env` por sí solo. Tampoco instala el hook de actualización.
 
-Andrés no debe cambiar a `test`: esa rama es exclusivamente para desarrollo y
+Andrés no debe cambiar a `testing`: esa rama es exclusivamente para desarrollo y
 pruebas. Tampoco debe volver a ejecutar el instalador ni cargar nuevamente el
 Excel por una actualización normal.
 
-Cuando Lucas confirme que la versión ya está publicada en `main`, abrir
-PowerShell dentro de la carpeta del sistema. La instalación queda preparada en
-`main`, por lo que Andrés ejecuta solamente:
+En la primera actualización, Andrés debe traer primero los scripts nuevos. Con
+Docker ya abierto y fuera del horario de ingreso, ejecuta:
 
 ```powershell
 git pull --ff-only origin main
 ```
 
-La instalación recomendada tiene un mecanismo local que, después del pull,
-ejecuta automáticamente respaldo, build, migraciones, inicio HTTPS y controles
-de salud. Esperar el mensaje `Actualización HTTPS completada y saludable`.
+Ese primer pull solo actualiza los archivos; todavía no reconstruye los
+contenedores porque el hook aún no existe. Luego, en la misma carpeta, ejecuta
+una sola vez:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\instalar-actualizacion-por-pull.ps1
+```
+
+Si el script informa que ya existe un hook ajeno, detenerse: no se sobrescribe
+ni se elimina. Para aplicar inmediatamente el código recién descargado, ejecuta
+una vez el actualizador:
+
+```powershell
+.\scripts\actualizar-servidor.ps1
+```
+
+En las actualizaciones siguientes, Andrés solo ejecuta:
+
+```powershell
+git pull --ff-only origin main
+```
+
+El hook local ejecuta respaldo, build, migraciones y controles de salud después
+de un pull que trae cambios. El mensaje esperado es
+`Actualización completada y saludable (...)`.
+En una instalación HTTP interna se mostrará además un aviso explícito de que
+no se declaró endurecimiento HTTPS; esto no fuerza una migración ni cambia la
+dirección utilizada. En una instalación HTTPS gestionada o heredada se valida
+su configuración vigente.
 Andrés no debe editar `.env`, regenerar certificados ni ejecutar variantes de
 Docker Compose. Si el pull no muestra la comprobación automática, detenerse y
 enviar la salida a Lucas.
@@ -50,58 +76,23 @@ un clon válido del repositorio.
 Registrar como evidencia la IP reservada, el nombre interno, la red desde la
 que se probó y el responsable técnico que hizo el cambio.
 
-## 3. Endurecer la configuración del colegio — preparación de soporte
+## 3. Configuración de seguridad — preparación separada
 
-Esta sección la ejecuta Lucas o soporte una sola vez mediante:
+No ejecutar instaladores retirados ni cambiar `.env`, `DB_PASSWORD`, secretos o
+certificados como parte de una actualización normal. Una instalación existente
+puede seguir funcionando por HTTP interno; el actualizador la conserva y
+comprueba la salud de Docker, pero no la declara endurecida por HTTPS. Si el
+colegio decide migrar a HTTPS, Lucas o soporte debe seguir exclusivamente
+[HTTPS_COLEGIO.md](HTTPS_COLEGIO.md), con respaldo y ventana de mantenimiento.
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\preparar-servidor-recomendado.ps1
-```
+## 4. HTTPS confiable — solo cuando se autorice
 
-El script actualiza el `.env` sin publicar sus valores y configura:
-
-- `NODE_ENV=production`.
-- `STRICT_ENV_VALIDATION=true`.
-- `COOKIE_SECURE=true`.
-- Contraseña de PostgreSQL de al menos 16 caracteres aleatorios.
-- Secreto de sesión de al menos 32 caracteres aleatorios.
-- `CORS_ORIGIN` limitado a los nombres e IP HTTPS realmente utilizados.
-
-Comprobar el resultado con:
-
-```powershell
-.\scripts\verificar-produccion.ps1
-```
-
-No declarar la instalación lista mientras el diagnóstico muestre controles
-pendientes.
-
-En una instalación nueva, `instalar-windows.ps1` genera los secretos robustos.
-En una instalación que ya conserva datos, no cambiar únicamente `DB_PASSWORD`
-en `.env`: PostgreSQL mantiene la contraseña anterior dentro de su volumen y el
-backend dejaría de conectar. Esa rotación debe hacerse en una ventana de
-mantenimiento, después de un respaldo, actualizando de forma coordinada la
-clave del rol `ldsm_app` y el `.env`, y comprobando la restauración antes de
-cerrar el cambio.
-
-## 4. Instalar HTTPS confiable — preparación de soporte
-
-El script recomendado genera una autoridad y un certificado propios de esta
-instalación. No reutiliza ni copia la clave privada de otro computador.
-
-```powershell
-.\scripts\preparar-servidor-recomendado.ps1
-```
-
-El acceso directo por la IP detectada no requiere editar `hosts`. El nombre
-`asistencia.ldsm.test` queda como alternativa cuando el colegio disponga de DNS
-interno.
-
-Distribuir únicamente `certs\rootCA.pem`. Lucas o soporte lo importa una sola
-vez en las autoridades raíz de confianza de cada PC y teléfono autorizado. La
-clave `rootCA-key.pem` y la clave del certificado permanecen exclusivamente en
-el servidor. Git no puede realizar esta confianza en equipos remotos.
+La preparación vigente genera una autoridad y un certificado propios de la
+instalación sin comprar un dominio. Ejecutarla únicamente con la guía
+[HTTPS_COLEGIO.md](HTTPS_COLEGIO.md). No copiar `.https-lan`, claves privadas ni
+certificados desde otro PC; los equipos autorizados reciben solo el paquete
+`Conectar-equipo.zip` que genera el instalador y verifican su huella por otro
+canal.
 
 ## 5. Probar dispositivos físicos
 

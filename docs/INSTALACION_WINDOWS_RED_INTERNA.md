@@ -104,14 +104,43 @@ Los contenedores tienen política `unless-stopped`, por lo que vuelven a iniciar
 
 ## Actualización controlada
 
-Después de la preparación inicial, Andrés actualiza desde `main` con:
+En la primera actualización, Andrés trae primero los scripts nuevos; el pull
+todavía no reconstruye porque el hook aún no existe:
 
 ```powershell
 git pull --ff-only origin main
 ```
 
-El `post-merge` ejecuta automáticamente el respaldo antes de modificar los
-servicios, construye las imágenes, aplica migraciones y comprueba salud y
-producción. Debe aparecer `Actualización HTTPS completada y saludable`.
+Después, en la copia del servidor (no en cada PC cliente), instala una sola vez
+el actualizador local:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\instalar-actualizacion-por-pull.ps1
+```
+
+Si informa que existe un hook `post-merge` ajeno, no se sobrescribe; detenerse
+y solicitar revisión. Aplica esa primera versión ejecutando una vez:
+
+```powershell
+.\scripts\actualizar-servidor.ps1
+```
+
+Luego, fuera del horario de ingreso, Andrés actualiza desde `main` con:
+
+```powershell
+git pull --ff-only origin main
+```
+
+En las actualizaciones siguientes, el `post-merge` ejecuta automáticamente el
+respaldo antes de modificar los servicios, construye las imágenes, aplica
+migraciones y comprueba salud. Debe
+aparecer `Actualización completada y saludable (...)`. Si la instalación sigue
+en HTTP interno se mostrará un aviso de que no se declaró endurecimiento HTTPS;
+la actualización no cambia la dirección ni los registros. HTTPS gestionado o
+heredado se valida con su configuración vigente.
+
+Si el hook aún no está instalado, Andrés no debe improvisar comandos Docker:
+detenerse y enviar la salida a Lucas para preparar el actualizador con respaldo.
 
 Nunca actualizar durante el horario de entrada de estudiantes. Conservar una copia de la versión anterior o una rama de respaldo hasta completar la comprobación.
