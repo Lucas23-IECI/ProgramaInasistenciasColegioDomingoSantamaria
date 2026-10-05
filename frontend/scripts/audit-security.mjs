@@ -1,15 +1,18 @@
 import { spawnSync } from 'node:child_process';
+import { parseSecurityAuditReport } from './security-audit-report.mjs';
 
 const auditCommand = process.platform === 'win32'
-  ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm audit --json --audit-level=high']]
-  : ['npm', ['audit', '--json', '--audit-level=high']];
+  ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'npm audit --offline=false --json --audit-level=high']]
+  : ['npm', ['audit', '--offline=false', '--json', '--audit-level=high']];
 const audit = spawnSync(auditCommand[0], auditCommand[1], {
   cwd: new URL('..', import.meta.url),
   encoding: 'utf8'
 });
-const report = JSON.parse(audit.stdout || '{}');
-if (report.auditReportVersion !== 2 || !report.vulnerabilities) {
-  console.error(audit.stderr || audit.error?.message || 'npm audit no entregó un informe válido.');
+let report;
+try {
+  report = parseSecurityAuditReport(audit);
+} catch (error) {
+  console.error(audit.stderr || audit.error?.message || error.message);
   process.exit(1);
 }
 const vulnerabilities = report.vulnerabilities || {};
