@@ -52,8 +52,36 @@ no se declaró endurecimiento HTTPS; esto no fuerza una migración ni cambia la
 dirección utilizada. En una instalación HTTPS gestionada o heredada se valida
 su configuración vigente.
 Andrés no debe editar `.env`, regenerar certificados ni ejecutar variantes de
-Docker Compose. Si el pull no muestra la comprobación automática, detenerse y
-enviar la salida a Lucas.
+Docker Compose.
+
+### Reintentar una actualización que falló durante la construcción
+
+Un fallo de construcción puede dejar el código Git actualizado y los contenedores
+anteriores todavía activos. Otro `git pull` puede responder `Already up to date`
+sin ejecutar el hook: ese mensaje no confirma que la aplicación esté actualizada.
+
+Con Docker Desktop abierto, fuera del horario de ingreso y desde la carpeta del
+sistema, ejecutar:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+git pull --ff-only origin main
+```
+
+Si termina con `Actualización completada y saludable (...)`, el proceso ya
+finalizó. Si responde `Already up to date` o `Ya está actualizado` y no ejecuta
+el actualizador, reintentar directamente:
+
+```powershell
+.\scripts\actualizar-servidor.ps1
+```
+
+El actualizador vuelve a verificar la rama, los archivos locales, el respaldo
+reciente y la configuración HTTP/HTTPS antes de construir e iniciar la versión.
+Si el pull falla por cambios locales o divergencia, detenerse y enviar la salida
+a Lucas. Si la construcción vuelve a fallar, enviar también las líneas anteriores
+a `Dockerfile:...`, donde aparece el motivo concreto; no omitir auditorías ni
+ejecutar `npm audit fix` en el computador del colegio.
 
 La actualización reconstruye la aplicación, pero conserva PostgreSQL, los
 documentos y los respaldos en sus volúmenes. No usar `docker compose down -v`.
